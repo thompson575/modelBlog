@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="generator" content="Hugo 0.82.0" />
+  
+  <meta name="description" content="Summary:Background: In episode 2 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on wildlife strikes with aircraft. The aim was to predict whether or not the aircraft was damaged in the collision.
+My approach: The original database was created by the FAA from reports filed by pilots and reporting is clearly incomplete. I spent the vast majority of my time cleaning the data and afterwards used a logistic regression model.">
+  <link rel="stylesheet" href="https://example.com/css/normalize.css">
+  <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
+  
+  
+  
+  <link rel="stylesheet" href="https://example.com/css/cayman.ea0e967413f3851071cc8ace3621bc4205fe8fa79b2abe3d7bf94ff2841f0d47.css">
+  
+  
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.css" integrity="sha384-yFRtMMDnQtDRO8rLpMIKrtPCD5jdktao2TV19YiZYWMDkUR5GQZR/NOVTdquEx1j" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.js" integrity="sha384-9Nhn55MVVN0/4OFx7EE5kpFBPsEMZxKTCnA+4fqDmg12eCTqGi6+BB2LjY8brQxJ" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/contrib/auto-render.min.js" integrity="sha384-kWPLUVMOks5AQFrykwIup5lo0m3iMkkHrD0uJ4H5cjeGihAutqP0yW0J6dpFiVkI" crossorigin="anonymous" onload="renderMathInElement(document.body);"></script>
+
+  <title>Sliced Episode 2: Wildlife Strikes | Modelling with R</title>
+</head>
+
+<body>
+  <section class="page-header">
+  <h1 class="project-name">
+    Modelling with R
+  </h1>
+  <h2 class="project-tagline">
+    contrasting statistical and machine learning approaches
+  </h2>
+  <nav>
+    
+    
+      
+      
+      
+      
+      <a href="/" class="btn">Blog</a>
+    
+      
+      
+      
+      
+      <a href="/tags/" class="btn">Tags</a>
+    
+      
+      
+      
+      
+      <a href="/about/" class="btn">About</a>
+    
+  </nav>
+</section>
+
+  <section class="main-content">
+    
+  <h1>Sliced Episode 2: Wildlife Strikes</h1>
+  <div>
+    
+    <strong>Publish date: </strong>2021-09-05
+  </div>
+  
+  
+    <div>
+      <strong>Tags: </strong>
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+      <a href="https://example.com/tags/sliced/">Sliced</a>, <a href="https://example.com/tags/features-from-text/">features from text</a>, <a href="https://example.com/tags/data-cleaning/">data cleaning</a>, <a href="https://example.com/tags/missing-data/">missing data</a>, <a href="https://example.com/tags/logistic-regression/">logistic regression</a>
+    </div>
+  
+  
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+
+
+<div id="summary" class="section level1">
+<h1>Summary:</h1>
+<p><strong>Background:</strong> In episode 2 of the 2021 series of <em>Sliced</em>, the competitors were given two hours in which to analyse a set of data on wildlife strikes with aircraft. The aim was to predict whether or not the aircraft was damaged in the collision.<br />
+<strong>My approach:</strong> The original database was created by the FAA from reports filed by pilots and reporting is clearly incomplete. I spent the vast majority of my time cleaning the data and afterwards used a logistic regression model.<br />
+<strong>Result:</strong> Despite the simplicity of the model, it came within 10% of the logloss of the leading model.<br />
+<strong>Conclusion:</strong> These data are very realistic, in the sense that data analysts do spend a lot of time on the unglamorous job of cleaning data. Data cleaning in R is a neglected topic, so in this post we have to fall back on a lot of user written code.</p>
+</div>
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>The data for this analysis can be downloaded from <a href="https://www.kaggle.com/c/Sliced-s01e02-xunyc52" class="uri">https://www.kaggle.com/c/Sliced-s01e02-xunyc52</a>. They were collected by the United States FAA (Federal Aviation Authority) who keep a database of wildlife strikes. There is a questionnaire that should be filled in when an aircraft collides with a bird or animal; it can be found on the FAA website (<a href="https://www.faa.gov/documentLibrary/media/form/faa5200-7.pdf" class="uri">https://www.faa.gov/documentLibrary/media/form/faa5200-7.pdf</a>). Not all of the fields from the questionnaire are available for this competition. The aim of this analysis is to predict whether the aircraft was damaged in the strike and evaluation is by mean logloss.</p>
+<p>As one might expect, the dataset contains a lot of missing data and more than anything else, <strong>this task is an exercise in data cleaning</strong>.</p>
+</div>
+<div id="reading-the-data" class="section level1">
+<h1>Reading the data</h1>
+<p>It is my practice to read the data asis and to immediately save it in rds format within a directory called data/rData. For details of the way that I organise my analyses you should read my post called <em>Sliced Methods Overview</em>.</p>
+<p>The raw data contain a handful of non-numeric engine models, such as “N9”, that I edit before they are saved in rds format.</p>
+<pre class="r"><code>#======================================================================
+# --- READ DATA FROM KAGGLE -------------------------------------------
+#
+library(tidyverse)
+
+theme_set( theme_light())
+
+home  &lt;- &quot;C:/Projects/kaggle/Sliced/s01-e02&quot;
+
+# --- read the cvs file of training data ------------------------------
+read_csv( file.path(home, &quot;data/rawData/train.csv&quot;) ) %&gt;%
+  print() %&gt;%
+  mutate( row = row_number(),
+          engine_model = ifelse( row == 11111, 9, engine_model),
+          engine_model = ifelse( row == 14757, 3, engine_model),
+          engine_model = ifelse( row == 16548, 5, engine_model) ) %&gt;%
+  select( -row) %&gt;%
+  saveRDS( file.path(home, &quot;data/rData/train.rds&quot;) )</code></pre>
+<pre><code>## # A tibble: 21,000 x 34
+##       id incident_year incident_month incident_day operator_id operator aircraft
+##    &lt;dbl&gt;         &lt;dbl&gt;          &lt;dbl&gt;        &lt;dbl&gt; &lt;chr&gt;       &lt;chr&gt;    &lt;chr&gt;   
+##  1 23637          1996             11            7 MIL         MILITARY T-1A    
+##  2  8075          1999              6           26 UAL         UNITED ~ B-757-2~
+##  3  5623          2011             12            1 SWA         SOUTHWE~ B-737-3~
+##  4 19605          2007              9           13 SWA         SOUTHWE~ B-737-7~
+##  5 15142          2007              9           13 MIL         MILITARY KC-135R 
+##  6 27235          2013              5           28 UNK         UNKNOWN  UNKNOWN 
+##  7 12726          2002              5            4 UAL         UNITED ~ B-767-3~
+##  8 20781          2013              5           19 BUS         BUSINESS C-172   
+##  9 12153          2015              7           22 UNK         UNKNOWN  UNKNOWN 
+## 10  3933          2007              8           22 BUS         BUSINESS DIAMOND~
+## # ... with 20,990 more rows, and 27 more variables: aircraft_type &lt;chr&gt;,
+## #   aircraft_make &lt;chr&gt;, aircraft_model &lt;dbl&gt;, aircraft_mass &lt;dbl&gt;,
+## #   engine_make &lt;dbl&gt;, engine_model &lt;dbl&gt;, engines &lt;dbl&gt;, engine_type &lt;chr&gt;,
+## #   engine1_position &lt;dbl&gt;, engine2_position &lt;dbl&gt;, engine3_position &lt;dbl&gt;,
+## #   engine4_position &lt;dbl&gt;, airport_id &lt;chr&gt;, airport &lt;chr&gt;, state &lt;chr&gt;,
+## #   faa_region &lt;chr&gt;, flight_phase &lt;chr&gt;, visibility &lt;chr&gt;,
+## #   precipitation &lt;chr&gt;, height &lt;dbl&gt;, speed &lt;dbl&gt;, distance &lt;dbl&gt;,
+## #   species_id &lt;chr&gt;, species_name &lt;chr&gt;, species_quantity &lt;chr&gt;,
+## #   flight_impact &lt;chr&gt;, damaged &lt;dbl&gt;</code></pre>
+<pre class="r"><code># --- read the csv file of test data ----------------------------------
+read_csv( file.path(home, &quot;data/rawData/test.csv&quot;) ) %&gt;%
+  print() %&gt;%
+  saveRDS( file.path(home, &quot;data/rData/test.rds&quot;) )</code></pre>
+<pre><code>## # A tibble: 9,000 x 33
+##       id incident_year incident_month incident_day operator_id operator aircraft
+##    &lt;dbl&gt;         &lt;dbl&gt;          &lt;dbl&gt;        &lt;dbl&gt; &lt;chr&gt;       &lt;chr&gt;    &lt;chr&gt;   
+##  1 11254          2015              9           10 AAL         AMERICA~ B-737-8~
+##  2 27716          1999              6           21 AAL         AMERICA~ MD-80   
+##  3 29066          2004             10           31 UNK         UNKNOWN  UNKNOWN 
+##  4  3373          2000              8           24 BUS         BUSINESS DA-2000 
+##  5  1996          2015              9           19 DAL         DELTA A~ A-320   
+##  6 18061          2003              7           29 UNK         UNKNOWN  UNKNOWN 
+##  7 22237          2013              8           13 SWA         SOUTHWE~ B-737-3~
+##  8 25346          2002              8           18 BUS         BUSINESS PA-28   
+##  9 21554          2004              8           14 BUS         BUSINESS PA-28   
+## 10  4273          2015              7           14 UNK         UNKNOWN  UNKNOWN 
+## # ... with 8,990 more rows, and 26 more variables: aircraft_type &lt;chr&gt;,
+## #   aircraft_make &lt;chr&gt;, aircraft_model &lt;dbl&gt;, aircraft_mass &lt;dbl&gt;,
+## #   engine_make &lt;dbl&gt;, engine_model &lt;dbl&gt;, engines &lt;dbl&gt;, engine_type &lt;chr&gt;,
+## #   engine1_position &lt;dbl&gt;, engine2_position &lt;dbl&gt;, engine3_position &lt;dbl&gt;,
+## #   engine4_position &lt;dbl&gt;, airport_id &lt;chr&gt;, airport &lt;chr&gt;, state &lt;chr&gt;,
+## #   faa_region &lt;chr&gt;, flight_phase &lt;chr&gt;, visibility &lt;chr&gt;,
+## #   precipitation &lt;chr&gt;, height &lt;dbl&gt;, speed &lt;dbl&gt;, distance &lt;dbl&gt;,
+## #   species_id &lt;chr&gt;, species_name &lt;chr&gt;, species_quantity &lt;chr&gt;,
+## #   flight_impact &lt;chr&gt;</code></pre>
+<p>Now we can read the rds files</p>
+<pre class="r"><code># --- read raw test and training data ---------------------------------
+trainRawDF &lt;- readRDS( file.path(home, &quot;data/rData/train.rds&quot;) )
+testRawDF    &lt;- readRDS( file.path(home, &quot;data/rData/test.rds&quot;) )</code></pre>
+</div>
+<div id="data-exploration" class="section level1">
+<h1>Data Exploration</h1>
+<p>I always start by inspecting the data with <code>skimr::skim()</code>.</p>
+<pre class="r"><code>skimr::skim(trainRawDF)</code></pre>
+<p>I have not included the output because it is so long. However, the message that it conveys is important and simple.</p>
+<p>The training data consists of 21,000 wildlife strikes and there are 17 text fields many corresponding to coded items in the questionnaire that will eventually become factors and 17 numeric fields, some of which code the text data. Most of the fields contain missing values at rates between 10% and 50%.</p>
+<div id="the-response" class="section level2">
+<h2>The response</h2>
+<p>The output of <code>skim()</code> for the response, <code>damaged</code>, shows that 8.57% of reported incidents involved damage to the aircraft. I guess a far higher percentage of incidents involved damage to the animals.</p>
+</div>
+<div id="the-predictors" class="section level2">
+<h2>The predictors</h2>
+<p>For exploration and data cleaning, I will divide the variables into four groups.</p>
+<ol style="list-style-type: decimal">
+<li><strong>The aircraft</strong>: its make, engines, the operator etc<br />
+</li>
+<li><strong>The time and place</strong>: date, visibility (time of day) and place of the incident<br />
+</li>
+<li><strong>The animal</strong>: the species, number of animals<br />
+</li>
+<li><strong>The conditions</strong>: height, speed, precipitation, impact on the flight</li>
+</ol>
+<p>I’ll first clean the data, create factors etc. and only when that is complete, will I consider what to do with the missing data.</p>
+</div>
+<div id="the-aircraft" class="section level2">
+<h2>The aircraft</h2>
+<p>The data contain numeric variables <code>aircraft_model</code>, <code>aircraft_mass</code>, <code>engines</code>, <code>engine_make</code>, <code>engine_model</code> and <code>engine position</code>. There are also character variables, <code>operator</code>, <code>operator_id</code>, <code>aircraft</code>, <code>aircraft_type</code>, <code>aircraft_make</code> and <code>engine_type</code>.</p>
+<p>I want a visualisation that shows both the frequency of different codes and the relationship with damage, so I wrote a function called <code>damage_plot()</code> that I can call for each factor.</p>
+<p>My function uses nonstandard evaluation (NSE) in the style of most of the tidyverse; as a consequence, it is easy to combine it with other tidyverse functions in a pipe. The argument <code>col</code> refers to the column within the main tibble and it is accessed within the function using curly-curly {{ }}.</p>
+<pre class="r"><code># ============================================================
+# --- damage_plot() ------------------------------------------
+# function to plot a factor and show the percent damaged
+#   thisDF ... data frame containing the data
+#   col    ... column within thisDF
+#
+damage_plot &lt;- function(thisDF, col) {
+  thisDF %&gt;%
+    # --- make a missing category ----------------
+    mutate( across({{col}}, fct_explicit_na)) %&gt;%
+    mutate( undamaged = factor(1-damaged)) %&gt;%
+    # --- calculate the percent damaged ----------
+    group_by({{col}}, undamaged) %&gt;%
+    summarise( n = n(), .groups=&quot;drop&quot; ) %&gt;%
+    group_by( {{col}} ) %&gt;%
+    mutate( total = sum(n),
+            pct   = ifelse( total == 0, 0, 100*n/total ),
+            lab   = ifelse( undamaged == 0, paste(round(pct,1),&quot;%&quot;,sep=&quot;&quot;), NA)) -&gt; tDF
+  offset = max(tDF$n)/20
+  # --- make bar chart ------------------------
+  tDF %&gt;%
+    ggplot( aes( x=n, y={{col}}, fill=undamaged)) +
+    geom_bar( stat=&quot;identity&quot;) +
+    labs( x = &quot;Frequency&quot;, 
+          y = NULL,
+          title=paste(&quot;Percent damaged by&quot;, deparse(substitute(col))) ) +
+    # --- show percentages ----------------------
+    geom_text( aes(y={{col}}, x=total, label=lab), nudge_x=offset, na.rm=TRUE) +
+    theme( legend.position=&quot;none&quot;)
+}</code></pre>
+<p>The plotting function is first applied to the flight operator. The bars show the number of collisions with the collisions in which the aircraft was damaged shown in the pinky-peach colour. The annotation of each bar shows the percentage of aircraft that were damaged.</p>
+<p>There are so many operators that I have used <code>fct_lump()</code> from the <code>forcats</code> package to group those with less than 1% frequency into an “other” category.</p>
+<pre class="r"><code># --- Operator identifier -----------------------------------
+trainRawDF %&gt;%
+  mutate( operator_id = fct_lump(operator_id, prop=0.01) ) %&gt;%
+  damage_plot(operator_id) </code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-5-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Business flights report more damage (26%) than average. The most common category is unknown (UNK), but when the operator is unknown, damage is rare.</p>
+<p><code>aircraft_type</code> distinguishes planes from helicopters.</p>
+<pre class="r"><code># --- aircraft_type -----------------------------------------
+trainRawDF %&gt;%
+  mutate( aircraft_type = factor(aircraft_type, levels=c(&quot;A&quot;, &quot;B&quot;),
+                                 labels=c(&quot;Plane&quot;, &quot;Helicopter&quot;))) %&gt;%
+  damage_plot(aircraft_type) </code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-6-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Most incidents are reported by planes but helicopters report damage on a higher percentage of flights. Missing data are common, but are rarely associated with damage. Presumably, pilots report more fully when the aircraft is damaged.</p>
+<p><code>aircraft_mass</code> describes the size of the aircraft, which ranges from single-seater planes up to jumbo jets. The labels are my own attempt to be more descriptive and are not in the database.</p>
+<pre class="r"><code># --- aircraft_mass -----------------------------------------
+trainRawDF %&gt;%
+  mutate( aircraft_mass = factor(aircraft_mass, 
+                                 levels=1:5,
+                                 labels=c(&quot;single&quot;, &quot;small&quot;, &quot;medium&quot;,
+                                 &quot;large&quot;, &quot;jumbo&quot;) )) %&gt;%
+  damage_plot(aircraft_mass) </code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-7-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The high damage rate in the jumbos is surprising to me, though I would have anticipated the increased damage to small aircraft. Perhaps pilots of jumbos only notice wildlife strikes when they cause damage.</p>
+<p>The number of engines is a value between 1 and 4.</p>
+<pre class="r"><code># --- engines -----------------------------------------
+trainRawDF %&gt;%
+  mutate( engines = factor(engines)) %&gt;%  
+  damage_plot(engines) </code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-8-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Probably the same story as we had for size of the aircraft, since large planes have more engines.</p>
+<p>Engine type is just a letter code A to F. The letter distinguishes propellers from jet engines, but there are also turboprop and turbojets. Since I do not really understand these distinctions, I leave the codes as letters. A very few planes have more than one type of engine, for example “A/C”. When this happens I, rather arbitrarily, take the first letter. Just once in the whole dataset, the code is in lower case, so I correct that.</p>
+<pre class="r"><code># --- engine_type -----------------------------------------
+trainRawDF %&gt;%
+  mutate( engine_type = toupper(engine_type) ) %&gt;%
+  mutate( engine_type = substr(engine_type, 1, 1)) %&gt;%
+  mutate( engine_type = factor(engine_type)) %&gt;%
+  damage_plot(engine_type) </code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-9-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Obviously, jet engines are associated with larger planes so we may well be seeing the same pattern as with <code>aircraft_mass</code></p>
+<p>There are 4 codes showing the position of the engines. Presumably, the thought was that birds are more likely to fly into an engine suspended below the wing than they are to fly into an engine attached to the body of the plane. Engine position is a bit of a mess. Up to 4 engines are classified and by comparing numbers with aircraft types it looks to me as though the locations are 7=nose, 1,3,4=wing, 5=body, 6=tail and 2 is an unusual configuration in which the engine is more or less over the pilot’s head. The different wing codes probably distinguish positions within the wing, but it hard to be sure.</p>
+<pre class="r"><code># --- position_code -----------------------------------------
+trainRawDF %&gt;%
+  mutate( engine1_position = factor(engine1_position)) %&gt;%
+  damage_plot(engine1_position) </code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-10-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>I will use operator_id, aircraft_type, aircraft_mass, engines, engine_type and a recoded version of position. The remainder will be dropped.</p>
+<p>When coding indicator variables for the wing, nose, body and tail position of the engines there is problem with the missing values. If <code>wing</code> is missing then so will be <code>nose</code>, <code>body</code> and <code>tail</code>, it just reflects the fact that the engine positions are not available. When modelling, the missing values will be aliased with one another and the model would be over-parameterised. Good modelling software should cope with this, but I will remove the problem by only having a missing category for the <code>wing</code> variable.</p>
+<p>The aircraft variables are cleaned with the following code and saved in a data frame called <code>prep1DF</code>, meaning the first preprocessed dataset.</p>
+<pre class="r"><code># ==================================================================
+# --- CLEAN THE AIRCRAFT VARIABLES ---------------------------------
+#
+# --- function for identifying for position codes ------------------
+position_code &lt;- function(thisDF, codes) {
+  sum = 0
+  for( c in codes) {
+     sum = sum + (thisDF[, &quot;engine1_position&quot;] == c) + 
+                 (thisDF[, &quot;engine2_position&quot;] == c) +
+                 (thisDF[, &quot;engine3_position&quot;] == c) + 
+                 (thisDF[, &quot;engine4_position&quot;] == c)
+  }
+  return( factor( as.numeric(sum &gt; 0)) )
+}
+
+# --- cleaning code ------------------------------------------------
+trainRawDF %&gt;%
+  # --- drop the variables that we don&#39;t want ----------------------
+  select( -operator, -aircraft, -aircraft_make, -aircraft_model,
+          -engine_make, -engine_model ) %&gt;%
+          # -------------- aircraft_mass ---------------------------
+  mutate( aircraft_mass = factor(aircraft_mass, levels=1:5,
+                                 labels=c(&quot;single&quot;, &quot;small&quot;, &quot;medium&quot;,
+                                 &quot;large&quot;, &quot;jumbo&quot;) ),
+          # -------------- aircraft_type ---------------------------
+          aircraft_type = factor(aircraft_type, levels=c(&quot;A&quot;, &quot;B&quot;),
+                                 labels=c(&quot;Plane&quot;, &quot;Helicopter&quot;)),
+          # -------------- engine_type -----------------------------
+          engine_type = toupper(engine_type),
+          engine_type = substr(engine_type, 1, 1),
+          engine_type = factor( engine_type, 
+                                levels=c(&quot;A&quot;, &quot;B&quot;, &quot;C&quot;, &quot;D&quot;, &quot;F&quot;)),
+          # --------------- engines ---------------------------------
+          engines = factor(engines, levels=1:4),
+          # -------------- operator_id ------------------------------
+          operator_id = factor( operator_id),
+          operator_id = fct_lump(operator_id, prop=0.01) ) %&gt;%
+  # --- code engine positions --------------------------------------
+  replace_na( list(engine2_position=0, engine3_position=0,
+                   engine4_position=0) ) %&gt;%
+  mutate( wing = position_code(., c(1, 3, 4))) %&gt;%
+  replace_na( list(engine1_position=0) ) %&gt;%
+  mutate( nose = position_code(., c(2, 7)), 
+          body = position_code(., 5),
+          tail = position_code(., 6) ) %&gt;%
+  select( -contains(&quot;position&quot;) )  -&gt; prep1DF</code></pre>
+</div>
+<div id="time-and-place" class="section level2">
+<h2>Time and Place</h2>
+<p>There are several variables that describe the location in time and space. We have the date as <code>year</code>, <code>month</code> and <code>day</code>, the <code>visibility</code> (day or night) the <code>airport</code>, the <code>airport_id</code>, the <code>state</code> and the <code>faa_region</code>.</p>
+<p>To visualise the pattern over time, I’ve grouped the years into sets of three, otherwise the plot is rather crowded.</p>
+<pre class="r"><code># --- years grouped into sets of three -------------------------
+trainRawDF %&gt;%
+  mutate( year = 3*floor(incident_year/3) ) %&gt;%
+  mutate( year = factor(year)) %&gt;%
+  damage_plot(year) </code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-12-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>There is a clear pattern of increasing reports over time, but decreasing proportions of damage. This is typical of a reporting system that gradually becomes more complete. In the early years, reporting is less complete and the incident is much more likely to be reported when it is serious.</p>
+<p>Here is the monthly pattern</p>
+<pre class="r"><code># --- month ----------------------------------------------------
+trainRawDF %&gt;%
+  mutate( month = factor(incident_month, labels=month.abb)) %&gt;%
+  damage_plot(month) </code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-13-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Fewer incidents in the winter but more damage when an incident occurs. Quite possibly, there are fewer flights in the winter.</p>
+<p>Visibility, is the database’s slightly odd name for time of day.</p>
+<pre class="r"><code># --- visibility (time of day) --------------------------------
+trainRawDF %&gt;%
+  mutate( visibility = ifelse( visibility == &quot;UNKNOWN&quot;, NA, visibility)) %&gt;%
+  mutate( visibility = factor(visibility)) %&gt;%
+  damage_plot(visibility) </code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-14-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>As we have seen with other variables, missingness is associated with less serious incidents. Otherwise, the percentage damaged is fairly steady.</p>
+<p>A code of <code>ZZZZ</code> is used when the airport is not recorded. There are hundreds of airports, so I only plot the 10 most frequent.</p>
+<pre class="r"><code># --- airport -----------------------------------------
+trainRawDF %&gt;%
+  mutate( airport_id = ifelse( airport_id == &quot;ZZZZ&quot;, NA, airport_id),
+          airport_id = fct_lump_n(airport_id, n=10) ) %&gt;%
+  damage_plot(airport_id) </code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-15-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>There are so many airports that the other category is huge. The percentage damaged seems fairly constant, although it is noticeably higher when the airport is missing. It seems unlikely that the airport is truly unknown, so it is quite likely that the missing airports are those outside the USA or they are incidents that did not take place close to an airport.</p>
+<p>The FAA divides the USA into regions such as <code>ANM = Northwest Mountain</code> and <code>ACE = Central</code>. My guess is the other codes are made up for the database, for example, I assume that <code>FGN = foreign</code>.</p>
+<pre class="r"><code># --- FAA region --------------------------------------
+trainRawDF %&gt;%
+  mutate( faa_region = factor(faa_region) ) %&gt;%
+  damage_plot(faa_region) </code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-16-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Damage seems to be more common in the smaller regions and when the region is missing.</p>
+<p>In coding the locations, I ignore the airport and only use the FAA_regions. The results are saved in <code>prep2DF</code></p>
+<pre class="r"><code># ==================================================================
+# --- CLEAN THE TIME &amp; PLACE VARIABLES -----------------------------
+#
+prep1DF %&gt;%
+  # --- create a date variable -------------------------------------
+  mutate( date = as.Date(paste(incident_year,
+                               incident_month,
+                               incident_day, sep=&quot;-&quot;))) %&gt;%
+  select( -starts_with(&quot;inc&quot;)) %&gt;%
+  # --- recode visibility ------------------------------------------
+  mutate( visibility = ifelse( visibility == &quot;UNKNOWN&quot;, NA, visibility),
+          visibility = factor( visibility, levels=c(&quot;DAWN&quot;,
+                            &quot;DAY&quot;, &quot;DUSK&quot;, &quot;NIGHT&quot;))) %&gt;%
+  # --- recode faa_region ------------------------------------------
+  mutate( faa_region = factor(faa_region),
+          faa_region = fct_recode( faa_region, 
+                               FGN = &quot;ONT&quot;, FGN = &quot;P&amp;N&quot;, 
+                               FGN = &quot;PAC&quot;, FGN = &quot;QUE&quot;) ) %&gt;%
+  # --- drop unwanted variables ------------------------------------
+  select( - airport, -airport_id, -state) -&gt; prep2DF</code></pre>
+</div>
+<div id="the-wildlife" class="section level2">
+<h2>The wildlife</h2>
+<p>The size of the animal that the plane hits seems to me to be a key variable; hitting an moose is different from hitting a sparrow. Recoding the wildlife by size is time-consuming, but there is no real alternative.</p>
+<p>I distinguish between small, medium and large animals and small, medium and large birds. The most common category is small birds, so I leave that as the default and list members of the other groups. My categorisation was obtained by looking through the entries and using my rather sketchy knowledge of American wildlife. The categorisation will not be perfect, but my hope is that it will be good enough.</p>
+<p>This time I’ll clean the data first and then plot the resulting variables.</p>
+<pre class="r"><code># ==================================================================
+# --- CLEAN THE wildlife VARIABLES --------------------------------
+#
+# --- My categorisation of size ------------------------------------
+# --- Small Animals ------------------------------------------------
+smallAnimals &lt;- c(&quot;BAT&quot;, &quot;TERRAPIN&quot;, &quot;TORTOISE&quot;)
+# --- Medium Animals -----------------------------------------------
+mediumAnimals &lt;- c(&quot;OPOSSUM&quot;, &quot;CAT&quot;, &quot;DOG&quot;, &quot;RABBIT&quot;, &quot;MAMMAL&quot;, &quot;TURTLE&quot;,
+                   &quot;COYOTE&quot;, &quot;ARMADILLO&quot;, &quot;BADGER&quot;, &quot;SKUNK&quot;, &quot;IGUANA&quot;,
+                   &quot;FOX&quot;, &quot;MUSKRAT&quot;, &quot;PORCUPINE&quot;, &quot;RACCOON&quot;, &quot;COTTONTAIL&quot;,
+                   &quot;OTTER&quot;, &quot;WOODCHUCK&quot;, &quot;MARMOT&quot;)
+# --- Large Animals ------------------------------------------------
+largeAnimals &lt;- c(&quot;DEER&quot;, &quot;ALLIGATOR&quot;, &quot;ELK&quot;, &quot;MOOSE&quot;)
+# --- Medium Birds -------------------------------------------------
+mediumBirds &lt;- c(&quot;MEDIUM&quot;, &quot;GULL&quot;, &quot;OWL&quot;, &quot;CROW&quot;, &quot;KESTREL&quot;, 
+                 &quot;HAWK&quot;, &quot;FALCON&quot;, &quot;DUCK&quot;, &quot;UNKNOWN BIRD&quot;, 
+                 &quot;RAVEN&quot;, &quot;PIGEON&quot;, &quot;MALLARD&quot;, &quot;EIDER&quot;,
+                 &quot;TEAL&quot;, &quot;GREBE&quot;, &quot;MERLIN&quot;, &quot;HARRIER&quot;, &quot;GROUSE&quot;,
+                 &quot;CUCKOO&quot;, &quot;CORMORANT&quot;, &quot;PTARMIGAN&quot;, &quot;PHEASANT&quot;,
+                 &quot;PINTAIL&quot;, &quot;LOON&quot;, &quot;GADWALL&quot;, 
+                 &quot;ANHINGA&quot;, &quot;BITTERN&quot;, &quot;WIGEON&quot;,
+                 &quot;FULMAR&quot;, &quot;MAGPIE&quot;, &quot;SNIPE&quot;, &quot;TERN&quot;, &quot;WOODCOCK&quot;,
+                 &quot;SHOREBIRD&quot;, &quot;SHEARWATER&quot;, &quot;LAPWING&quot;, &quot;RAIL&quot;)
+# --- Large Birds -------------------------------------------------
+largeBirds &lt;- c(&quot;LARGE&quot;, &quot;VULTURE&quot;, &quot;GOOSE&quot;, &quot;GEESE&quot;, &quot;SWAN&quot;, &quot;OSPREY&quot;,
+                &quot;TURKEY&quot;, &quot;KITE&quot;, &quot;STORK&quot;, &quot;EAGLE&quot;, &quot;PELICAN&quot;, &quot;CRANE&quot;,
+                &quot;HERON&quot;, &quot;EGRET&quot;, &quot;FRIGATEBIRD&quot;, &quot;IBIS&quot;)
+# -----------------------------------------------------------------
+# --- function to look for keywords -------------------------------
+grade_size &lt;- function(name, size, patternList, code) {
+  for( x in patternList) {
+    size &lt;- ifelse( str_detect(name, x), code, size)
+  }
+  return(size)
+}
+
+# --- Grade size based on species_name ----------------------------
+size &lt;- rep(&quot;smallBird&quot;, nrow(trainRawDF))
+name &lt;- trainRawDF$species_name
+size &lt;- grade_size(name, size, largeAnimals,  &quot;largeAnimal&quot; )
+size &lt;- grade_size(name, size, mediumAnimals, &quot;mediumAnimal&quot; )
+size &lt;- grade_size(name, size, smallAnimals,  &quot;smallAnimal&quot; )
+size &lt;- grade_size(name, size, largeBirds,    &quot;largeBird&quot; )
+size &lt;- grade_size(name, size, mediumBirds,   &quot;mediumBird&quot; )
+
+# --- Clean the tibble --------------------------------------------
+prep2DF %&gt;%
+  mutate( size = factor(size) ) %&gt;%
+  select( -species_name, -species_id) %&gt;%
+  mutate( species_quantity = factor(species_quantity,
+              levels=c(&quot;1&quot;, &quot;2-10&quot;, &quot;11-100&quot;, &quot;Over 100&quot;))) -&gt; prep3DF</code></pre>
+<p>Now we can look at the effect of size of the wildlife.</p>
+<pre class="r"><code># --- size of the wildlife ---------------------------------------
+prep3DF %&gt;%
+  damage_plot(size) </code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-19-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The number of animals is also critical, with a missing quantity being very similar to a strike by a single animal.</p>
+<pre class="r"><code># --- number of birds/animals -------------------------------------
+prep3DF %&gt;%
+  damage_plot(species_quantity) </code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-20-1.png" width="528" style="display: block; margin: auto;" /></p>
+</div>
+<div id="conditions" class="section level2">
+<h2>Conditions</h2>
+<p>The variables that describe the conditions at the time of impact are precipitation, height, speed, distance, flight_phase and flight_impact.</p>
+<p>The height, speed and distance are poorly recorded and would require an elaborate imputation routine before they could be used. As we have seen with other variables, these measures are unlikely to be missing at random. I decided not to use them.</p>
+<p>Precipitation classifies fog, rain and snow or a mix such as FOG/SNOW. I decided to create 3 indicator variables in place of precipitation in a similar way to engine position. We then have the same problem of over-parameterisation; the three are derived for the same source, so when fog is missing, rain and snow will also be missing. I put the missing category into fog.</p>
+<p>The labels for impact on the flight are simplified and “SHUTDOWN” and “SHUT DOWN” with a space are combined into a single category. As with wildlife, I’ll clean first and plot second.</p>
+<pre class="r"><code># ==================================================================
+# --- CLEAN THE CONDITION VARIABLES --------------------------------
+#
+prep3DF %&gt;%
+  mutate( fog = as.numeric(str_detect(precipitation, &quot;FOG&quot;)),
+          fog = ifelse( is.na(precipitation), NA, fog),
+          precipitation = ifelse( is.na(precipitation), &quot;&quot;, precipitation),
+          rain = as.numeric(str_detect(precipitation, &quot;RAIN&quot;)),
+          snow = as.numeric(str_detect(precipitation, &quot;SNOW&quot;)),
+          fog  = factor(fog),
+          rain = factor(rain),
+          snow = factor(snow)) %&gt;%
+  select( -precipitation) %&gt;%
+  mutate( flight_phase = ifelse( str_detect(flight_phase, &quot;LAND&quot;),
+                                 &quot;LANDING&quot;, flight_phase),
+          flight_phase = ifelse( str_detect(flight_phase, &quot;TAKEOFF&quot;),
+                                 &quot;TAKEOFF&quot;, flight_phase),
+          flight_phase = ifelse( str_detect(flight_phase, &quot;LOCAL&quot;),
+                                 &quot;PARKED&quot;, flight_phase),
+          flight_phase = factor(flight_phase,
+              levels=c(&quot;PARKED&quot;, &quot;TAXI&quot;, &quot;TAKEOFF&quot;,
+                       &quot;CLIMB&quot;, &quot;EN ROUTE&quot;, &quot;DESCENT&quot;,
+                       &quot;APPROACH&quot;, &quot;LANDING&quot;)),
+          flight_impact = ifelse( str_detect(flight_impact, &quot;SHUT&quot;),
+                                 &quot;SHUTDOWN&quot;, flight_impact),
+          flight_impact = ifelse( str_detect(flight_impact, &quot;ABORT&quot;),
+                                 &quot;ABORT&quot;, flight_impact),
+          flight_impact = ifelse( str_detect(flight_impact, &quot;LAND&quot;),
+                                 &quot;LANDING&quot;, flight_impact),
+          flight_impact = factor(flight_impact)) %&gt;%
+  select( -height, - speed, -distance) -&gt; prep4DF</code></pre>
+<p>Flight phase seems to suggest that the higher the altitude of the impact the more likely it is to cause damage.</p>
+<pre class="r"><code># --- phase of the flight ---------------------------------
+prep4DF %&gt;%
+  damage_plot(flight_phase)</code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-22-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The impact on the flight is a good indicator of damage. In the rare cases where the pilot shuts down an engine, there is a very good chance that some damage has been caused.</p>
+<pre class="r"><code># --- impact on the flight --------------------------------
+prep4DF %&gt;%
+  damage_plot(flight_impact)</code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-23-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>I am relatively happy with this data cleaning so the preprocessed data are saved for use in the modelling</p>
+<pre class="r"><code># --- save the clean data ---------------------------------
+prep4DF %&gt;%
+    saveRDS( file.path(home, &quot;data/rData/clean_train.rds&quot;))</code></pre>
+</div>
+<div id="skim-new-dataset" class="section level2">
+<h2>Skim new dataset</h2>
+<p>The clean data are now ready for analysis, but as the changes are so extensive I summarise them</p>
+<pre class="r"><code># --- skim the clean data ---------------------------------
+skimr::skim(prep4DF)</code></pre>
+<p>As usual I have omitted the output from <code>skim()</code>. It is important to check it, but it is long and not very interesting.</p>
+</div>
+</div>
+<div id="what-to-do-about-missing-data" class="section level1">
+<h1>What to do about missing data</h1>
+<p>Throughout the exploratory analysis we have seen that missingness is very informative. So imputation methods that ignore the response variable, <code>damage</code> are likely to perform very poorly. Yet, in the test data we do not have <code>damage</code> so we would be unable to impute properly in that dataset. Imputation would be a waste of effort. Instead, I will introduce a “missing” category to all of the factors and use “missing” as a potential predictor.</p>
+</div>
+<div id="logistic-regression" class="section level1">
+<h1>Logistic Regression</h1>
+<p>I’ll try a simple logistic model for the cleaned training data.</p>
+<pre class="r"><code># ==================================================================
+# --- Model the clean training data --------------------------------
+#
+library(broom)
+library(lubridate)
+
+# --- read clean data ----------------------------------------------
+trainDF &lt;-   readRDS( file.path(home, &quot;data/rData/clean_train.rds&quot;))
+
+# --- fit logistic regression ---------------------------------------
+trainDF %&gt;%
+  # --- extract year and month --------------------------------------
+  mutate( yr = factor( year(date)),
+          mth = factor( month(date))) %&gt;%
+  # --- introduce explicit missing categories -----------------------
+  mutate( across(.cols=where(is.factor), .fns=fct_explicit_na) ) %&gt;%
+  # --- fit a logistic regression -----------------------------------
+  glm( damaged ~ yr + mth + operator_id + aircraft_type + 
+         aircraft_mass + engines + engine_type + faa_region + 
+         flight_phase + visibility + species_quantity + 
+         flight_impact + nose + wing + body + tail + size + 
+         fog + rain + snow, data=., family=&quot;binomial&quot;) -&gt; mod</code></pre>
+<p>Let’s look at the terms with a p-value below 0.01.</p>
+<pre class="r"><code># --- model coefficients --------------------------------------------
+tidy(mod) %&gt;%
+  filter( p.value &lt; 0.01) %&gt;%
+  select( term, estimate, p.value) %&gt;%
+  print( n=80)</code></pre>
+<pre><code>## # A tibble: 44 x 3
+##    term                   estimate  p.value
+##    &lt;chr&gt;                     &lt;dbl&gt;    &lt;dbl&gt;
+##  1 yr1999                   -0.672 6.03e- 3
+##  2 yr2001                   -0.801 1.04e- 3
+##  3 yr2002                   -0.938 1.35e- 4
+##  4 yr2003                   -0.870 4.37e- 4
+##  5 yr2004                   -0.842 7.14e- 4
+##  6 yr2005                   -1.11  1.16e- 5
+##  7 yr2007                   -0.728 2.90e- 3
+##  8 yr2008                   -1.15  1.57e- 5
+##  9 yr2009                   -1.12  1.26e- 5
+## 10 yr2010                   -0.834 7.90e- 4
+## 11 yr2011                   -1.09  1.53e- 5
+## 12 yr2012                   -1.05  2.45e- 5
+## 13 yr2013                   -0.740 2.60e- 3
+## 14 yr2014                   -1.49  3.21e- 9
+## 15 yr2015                   -1.09  3.31e- 5
+## 16 mth5                     -0.563 6.57e- 4
+## 17 mth6                     -0.507 4.08e- 3
+## 18 mth7                     -0.638 1.26e- 4
+## 19 mth8                     -0.611 1.48e- 4
+## 20 mth9                     -0.693 1.10e- 5
+## 21 mth10                    -0.606 1.24e- 4
+## 22 operator_idBUS            0.785 3.13e- 5
+## 23 operator_idDAL            0.668 3.44e- 4
+## 24 operator_idPVT            0.975 1.35e- 4
+## 25 operator_idUNK           -1.86  3.14e- 5
+## 26 operator_idUSA            0.808 7.68e- 5
+## 27 aircraft_massmedium      -0.994 1.89e- 6
+## 28 aircraft_masslarge       -1.50  1.83e-10
+## 29 aircraft_mass(Missing)   -2.35  4.66e- 4
+## 30 engine_typeB              1.67  4.16e- 5
+## 31 engine_typeD              0.828 1.97e- 4
+## 32 faa_region(Missing)       1.94  8.55e- 6
+## 33 flight_phaseDESCENT       2.40  4.34e- 3
+## 34 species_quantity2-10      0.502 4.94e-10
+## 35 species_quantity11-100    1.31  5.81e- 7
+## 36 flight_impactLANDING      0.686 4.73e- 4
+## 37 flight_impactNONE        -1.02  1.80e- 8
+## 38 flight_impactOTHER        0.842 2.16e- 4
+## 39 flight_impactSHUTDOWN     3.09  2.38e-10
+## 40 flight_impact(Missing)   -0.876 5.80e- 6
+## 41 sizemediumAnimal         -1.31  2.14e- 5
+## 42 sizemediumBird           -1.18  4.38e-15
+## 43 sizesmallAnimal          -1.78  2.57e- 4
+## 44 sizesmallBird            -2.65  5.81e-59</code></pre>
+<p>The factor, <code>year</code>, shows a large and consistent drop from 2002 onwards. A coefficient of -1 corresponds to a fall of over 60% in the proportion of damaged aircraft. This may be due to an increase in the number of minor incidents that are reported, rather than any true improvement.</p>
+<p>The factor, <code>month</code>, shows a marked fall in the percentage of damaged aircraft during the summer months. Business (BUS) and Private (PVT) flights report more damage as do Delta and US airlines. When the operator is unknown (UNK) there are far fewer reports of damage.</p>
+<p>Medium, large and missing aircraft sizes are associated with less damage.
+A missing FAA region is associated with more damage, perhaps because missing implies that the incident occurred outside the US borders. Quantity of animals is important in the way that might be expected. An engine shutdown has the strongest predictive effect of any feature. Small and medium size birds and animals do less damage than large ones.</p>
+<p>We should also note the features that are not used by the model. Number of engines, aircraft_type (helicopter or plane), visibility (time of day), position of the engine, weather conditions.</p>
+<p>Another way to look at the factors is through an analysis of deviance. In which we ask, does a factor such as operator_id show a relationship with damage? rather than ask about individual operators compared to some arbitrary base category.</p>
+<p>In the analysis of deviance table, I’ve added a p-value and edited the layout slightly.</p>
+<pre class="r"><code># --- analysis of deviance --------------------------------------
+anova(mod) %&gt;%
+  { data.frame(term=rownames(.), .) } %&gt;%
+  as_tibble() %&gt;%
+  filter( term != &quot;NULL&quot; ) %&gt;%
+  mutate( p_value = pchisq(Deviance, df=Df, lower=FALSE)) %&gt;%
+  select( term, Df, Deviance, p_value) %&gt;%
+  print(n=20)</code></pre>
+<pre><code>## # A tibble: 20 x 4
+##    term                Df  Deviance   p_value
+##    &lt;chr&gt;            &lt;int&gt;     &lt;dbl&gt;     &lt;dbl&gt;
+##  1 yr                  25  408.     7.27e- 71
+##  2 mth                 11  207.     2.17e- 38
+##  3 operator_id         16 1355.     6.83e-279
+##  4 aircraft_type        2   16.0    3.42e-  4
+##  5 aircraft_mass        5  102.     2.36e- 20
+##  6 engines              4   10.9    2.81e-  2
+##  7 engine_type          5   18.9    1.99e-  3
+##  8 faa_region          10   95.9    3.58e- 16
+##  9 flight_phase         8  210.     5.82e- 41
+## 10 visibility           4   18.5    9.84e-  4
+## 11 species_quantity     4   56.6    1.53e- 11
+## 12 flight_impact        5  730.     1.47e-155
+## 13 nose                 1    2.83   9.27e-  2
+## 14 wing                 2   14.0    8.92e-  4
+## 15 body                 1    2.26   1.33e-  1
+## 16 tail                 1    0.327  5.68e-  1
+## 17 size                 6  817.     2.93e-173
+## 18 fog                  2    3.01   2.22e-  1
+## 19 rain                 1    0.0617 8.04e-  1
+## 20 snow                 1    1.56   2.11e-  1</code></pre>
+<p>The analysis of deviance confirms that weather conditions are not important and that only wing is significant amongst the engine positions. Wing is the feature that incorporates missing engine position.</p>
+<p>To see how well the model predicts, we could start with the in-sample logloss, which is 0.195. Since the database is large and we have not done a lot of tuning this figure ought not be too misleading. I have deliberately not bothered to split the training data into an estimation and a validation set.</p>
+<pre class="r"><code># --- insample logloss -----------------------------------------
+trainDF %&gt;%
+  mutate( p = predict(mod, type=&quot;response&quot;) ) %&gt;%
+  summarise( logloss = -mean(damaged*log(p)+(1-damaged)*log(1-p)) ) </code></pre>
+<pre><code>## # A tibble: 1 x 1
+##   logloss
+##     &lt;dbl&gt;
+## 1   0.195</code></pre>
+<p>A useful way to assess goodness of fit of a logistic regression model is to make a plot based on the Hosmer-Leweshow statistic. The 21,000 incidents are divided into, say 20, bands based on their predicted probability of experiencing damage. Within these bands the observed and expected numbers of damaged aircraft are compared.</p>
+<pre class="r"><code># --- 20 bands based on increasing risk ----------------------
+broom::augment(mod, type.predict=&quot;response&quot;) %&gt;%
+  mutate( band = ntile(.fitted, 20)) %&gt;%
+    group_by( band) %&gt;%
+    summarise( n = n(),
+               Observed = sum(damaged),
+               Predicted = sum(.fitted),
+               .groups=&quot;drop&quot;) %&gt;%
+    pivot_longer(Observed:Predicted, 
+                 names_to=&quot;class&quot;, values_to=&quot;value&quot;) %&gt;%
+    mutate( prob = value/n ) %&gt;%
+    ggplot( aes(x=band, y=prob, fill=class)) +
+      geom_bar( stat=&quot;identity&quot;, position=&quot;dodge2&quot;) +
+      scale_y_continuous( labels=scales::percent_format() ) +
+      labs( y = &quot;percent damaged&quot;, fill=&quot;&quot;) +
+      scale_x_continuous( breaks=1:20 ) +
+      labs(x=&quot;Risk bin&quot;, title=&quot;Hosmer-Lemeshow Plot&quot;) +
+      theme( legend.position = c(0.1, 0.85))</code></pre>
+<p><img src="/post/wildlife-strikes/wildlife_strikes_files/figure-html/unnamed-chunk-30-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The model predicts very well and in the band with the highest 5% of predictions, we expect over 60% to report damage and almost exactly that percentage do.</p>
+<p>We can compare observed and expected numbers using a chi-squared test</p>
+<pre class="r"><code># --- Hosmer-Lemeshow statistic ---------------------------------
+broom::augment(mod, type.predict=&quot;response&quot;) %&gt;%
+  mutate( band = ntile(.fitted, 20)) %&gt;%
+  # --- observed and expected numbers ---------------------------
+  group_by( band ) %&gt;%
+  summarise( ExpDied = sum(.fitted),
+             ObsDied = sum(damaged),
+             ExpAlive = sum(1-.fitted),
+             ObsAlive = sum(1-damaged)) %&gt;%
+  print() %&gt;%
+  # --- chi-squared test ----------------------------------------
+  summarise( statistic =  sum( (ObsDied - ExpDied)^2/ExpDied ) +
+               sum( (ObsAlive-ExpAlive)^2/ExpAlive ) ) %&gt;%
+  mutate( pvalue = pchisq(statistic, df=19, lower=FALSE))</code></pre>
+<pre><code>## # A tibble: 20 x 5
+##     band ExpDied ObsDied ExpAlive ObsAlive
+##    &lt;int&gt;   &lt;dbl&gt;   &lt;dbl&gt;    &lt;dbl&gt;    &lt;dbl&gt;
+##  1     1   0.302       0    1050.     1050
+##  2     2   0.545       0    1049.     1050
+##  3     3   1.27        0    1049.     1050
+##  4     4   2.32        1    1048.     1049
+##  5     5   5.16        6    1045.     1044
+##  6     6   8.93       14    1041.     1036
+##  7     7  12.3        16    1038.     1034
+##  8     8  16.0        11    1034.     1039
+##  9     9  21.0        29    1029.     1021
+## 10    10  27.7        25    1022.     1025
+## 11    11  35.8        34    1014.     1016
+## 12    12  45.6        46    1004.     1004
+## 13    13  56.7        52     993.      998
+## 14    14  69.8        62     980.      988
+## 15    15  85.4        92     965.      958
+## 16    16 106.         96     944.      954
+## 17    17 137.        142     913.      908
+## 18    18 193.        185     857.      865
+## 19    19 308.        320     742.      730
+## 20    20 666.        668     384.      382</code></pre>
+<pre><code>## # A tibble: 1 x 2
+##   statistic pvalue
+##       &lt;dbl&gt;  &lt;dbl&gt;
+## 1      16.3  0.635</code></pre>
+<p>As expected from the plot, the difference between observed and expected is not significant.</p>
+<p>We could fit a slightly simpler model without the weather and most of the engine positions and we would expect performance to be similar.</p>
+<pre class="r"><code># --- simplified logistic regression ---------------------------
+trainDF %&gt;%
+  mutate( yr = factor( year(date)),
+          mth = factor( month(date))) %&gt;%
+  mutate( across(.cols=where(is.factor), .fns=fct_explicit_na) ) %&gt;%
+  glm( damaged ~ yr + mth +
+        operator_id + aircraft_type + aircraft_mass + 
+        engines + engine_type + faa_region + flight_phase +
+        visibility + species_quantity + flight_impact +
+        wing + size,
+     data=.,
+     family=&quot;binomial&quot;) -&gt; mod
+
+# --- in-sample logloss -----------------------------------------
+trainDF %&gt;%
+  mutate( p = predict(mod, type=&quot;response&quot;) ) %&gt;%
+  summarise( logloss = -mean(damaged*log(p) + (1-damaged)*log(1-p)) ) </code></pre>
+<pre><code>## # A tibble: 1 x 1
+##   logloss
+##     &lt;dbl&gt;
+## 1   0.196</code></pre>
+<p>The in-sample logloss is very slightly worse at 0.196. Most statisticians would choose the simpler model, while I suspect that most people brought up in the Machine Learning tradition would prefer the full model.</p>
+<p>I’m a statistician so I am drawn towards the simpler model, indeed I would be tempted to drop engines and visibility as well. On the other hand, I am also tempted to experiment with more operators.</p>
+<p>To get a quick out-of-sample estimate of performance, I will fit the model to 80% of the data and measure performance on the other 20%. I’ll do this 5 times and average.</p>
+<pre class="r"><code># --- prepare the data -----------------------------------------
+trainDF %&gt;%
+  mutate( yr  = factor( year(date)),
+          mth = factor( month(date))) %&gt;%
+  mutate( across(.cols=where(is.factor), .fns=fct_explicit_na) ) -&gt; thisDF
+
+# --- repeat five times ----------------------------------------
+set.seed(8172)
+logLoss &lt;- rep(0, 5)
+for( iter in 1:5 ) {
+   # --- split the data ----------------------------------------
+   split &lt;- sample(1:21000, size=4200, replace=FALSE)
+
+   validateDF &lt;- thisDF[ split, ]
+   estimateDF &lt;- thisDF[-split, ]
+
+   # --- fit to the training data ------------------------------
+   estimateDF %&gt;%
+     glm( damaged ~ yr + mth +
+            operator_id + aircraft_type + aircraft_mass + 
+            engines + engine_type + faa_region + flight_phase +
+            visibility + species_quantity + flight_impact +
+            wing + size,
+     data=.,
+     family=&quot;binomial&quot;) -&gt; mod
+   # --- logloss in validation set ----------------------------
+   validateDF %&gt;%
+      mutate( p = predict(mod, type=&quot;response&quot;, newdata=. ) ) %&gt;%
+      summarise( logloss = -mean(damaged*log(p)+(1-damaged)*log(1-p)) ) %&gt;%
+      pull(logloss) -&gt; logLoss[iter]
+  
+}
+summary(logLoss)</code></pre>
+<pre><code>##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+##  0.1837  0.1856  0.1928  0.1966  0.1968  0.2242</code></pre>
+<p>An we expected the mean cross-validated performance is very similar to the in-sample performance. If the logloss in the test data were to be 0.197, then the model would finish second on the leaderboard.</p>
+</div>
+<div id="submission" class="section level1">
+<h1>Submission</h1>
+<p>The last task is to clean the test set. In particular we must be careful to ensure that the factor operator_id has the same levels in the test data as it had when the training data were lumped, there is no guarantee that the most frequent operators in the test data will be the same as those in the training data.</p>
+<p>There is a further problem in that the test data contain an FAA region, ATL, that does not appear in the training data. The frequency ATL is only 2, so I recode it as FGN.</p>
+<pre class="r"><code># ======= CLEAN THE TEST SET ====================================
+
+# --- categorise animal size ------------------------------------
+size &lt;- rep(&quot;smallBird&quot;, nrow(testRawDF))
+name &lt;- testRawDF$species_name
+size &lt;- grade_size(name, size, largeAnimals, &quot;largeAnimal&quot; )
+size &lt;- grade_size(name, size, mediumAnimals, &quot;mediumAnimal&quot; )
+size &lt;- grade_size(name, size, smallAnimals, &quot;smallAnimal&quot; )
+size &lt;- grade_size(name, size, largeBirds, &quot;largeBird&quot; )
+size &lt;- grade_size(name, size, mediumBirds, &quot;mediumBird&quot; )
+
+# --- operator levels -------------------------------------------
+op_levels &lt;- levels(trainDF$operator_id)
+
+# ==================================================================
+# --- Clean the aircraft related variables -------------------------
+#
+testRawDF %&gt;%
+  # --- drop the variables that we don&#39;t want ----------------------
+  select( -operator, -aircraft, -aircraft_make, -aircraft_model,
+          -engine_make, -engine_model ) %&gt;%
+          # -------------- aircraft_mass ---------------------------
+  mutate( aircraft_mass = factor(aircraft_mass, levels=1:5,
+                                 labels=c(&quot;single&quot;, &quot;small&quot;, &quot;medium&quot;,
+                                 &quot;large&quot;, &quot;jumbo&quot;) ),
+          # -------------- aircraft_type ---------------------------
+          aircraft_type = factor(aircraft_type, levels=c(&quot;A&quot;, &quot;B&quot;),
+                                 labels=c(&quot;Plane&quot;, &quot;Helicopter&quot;)),
+          # -------------- engine_type -----------------------------
+          engine_type = toupper(engine_type),
+          engine_type = substr(engine_type, 1, 1),
+          engine_type = factor( engine_type, 
+                                levels=c(&quot;A&quot;, &quot;B&quot;, &quot;C&quot;, &quot;D&quot;, &quot;F&quot;)),
+         # --------------- engines ---------------------------------
+         engines = factor(engines, levels=1:4),
+         # -------------- operator_id ------------------------------
+         operator_id = factor( operator_id, levels=op_levels),
+         operator_id = fct_explicit_na(operator_id, na_level=&quot;Other&quot;) ) %&gt;%
+  # --- code engine positions --------------------------------------
+  replace_na( list(engine2_position=0, engine3_position=0,
+                   engine4_position=0) ) %&gt;%
+  mutate( wing = position_code(., c(1, 3, 4))) %&gt;%
+  replace_na( list(engine1_position=0) ) %&gt;%
+  mutate( nose = position_code(., c(2, 7)), 
+          body = position_code(., 5),
+          tail = position_code(., 6) ) %&gt;%
+  select( -contains(&quot;position&quot;) ) %&gt;%
+# ==================================================================
+# --- time and place ---------------------------------------------
+# --- create a date variable -----------------------------------
+  mutate( date = as.Date(paste(incident_year,
+                               incident_month,
+                               incident_day, sep=&quot;-&quot;))) %&gt;%
+  select( -starts_with(&quot;inc&quot;)) %&gt;%
+  # --- recode visibility ------------------------------------------
+  mutate( visibility = ifelse( visibility == &quot;UNKNOWN&quot;, NA, visibility),
+          visibility = factor( visibility, levels=c(&quot;DAWN&quot;,
+                            &quot;DAY&quot;, &quot;DUSK&quot;, &quot;NIGHT&quot;))) %&gt;%
+  # --- recode faa_region ------------------------------------------
+  mutate( faa_region = factor(faa_region),
+          faa_region = fct_recode( faa_region, FGN = &quot;ATL&quot;,
+                               FGN = &quot;ONT&quot;, FGN = &quot;P&amp;N&quot;, 
+                               FGN = &quot;PAC&quot;, FGN = &quot;QUE&quot;) ) %&gt;%
+  select( - airport, -airport_id, -state) %&gt;%
+# ==================================================================
+# --- animal features ----------------------------------------------
+#
+  mutate( size = factor(size) ) %&gt;%
+  select( -species_name, -species_id) %&gt;%
+  mutate( species_quantity = factor(species_quantity,
+              levels=c(&quot;1&quot;, &quot;2-10&quot;, &quot;11-100&quot;, &quot;Over 100&quot;))) %&gt;%
+# ==================================================================
+# --- environmental variables --------------------------------------
+#
+  mutate( fog = as.numeric(str_detect(precipitation, &quot;FOG&quot;)),
+          fog = ifelse( is.na(precipitation), NA, fog),
+          precipitation = ifelse( is.na(precipitation), &quot;&quot;, precipitation),
+          rain = as.numeric(str_detect(precipitation, &quot;RAIN&quot;)),
+          snow = as.numeric(str_detect(precipitation, &quot;SNOW&quot;)),
+          fog  = factor(fog),
+          rain = factor(rain),
+          snow = factor(snow)) %&gt;%
+  select( -precipitation) %&gt;%
+  mutate( flight_phase = ifelse( str_detect(flight_phase, &quot;LAND&quot;),
+                                 &quot;LANDING&quot;, flight_phase),
+          flight_phase = ifelse( str_detect(flight_phase, &quot;TAKEOFF&quot;),
+                                 &quot;TAKEOFF&quot;, flight_phase),
+          flight_phase = ifelse( str_detect(flight_phase, &quot;LOCAL&quot;),
+                                 &quot;PARKED&quot;, flight_phase),
+          flight_phase = factor(flight_phase,
+              levels=c(&quot;PARKED&quot;, &quot;TAXI&quot;, &quot;TAKEOFF&quot;,
+                       &quot;CLIMB&quot;, &quot;EN ROUTE&quot;, &quot;DESCENT&quot;,
+                       &quot;APPROACH&quot;, &quot;LANDING&quot;)),
+          flight_impact = ifelse( str_detect(flight_impact, &quot;SHUT&quot;),
+                                 &quot;SHUTDOWN&quot;, flight_impact),
+          flight_impact = ifelse( str_detect(flight_impact, &quot;ABORT&quot;),
+                                 &quot;ABORT&quot;, flight_impact),
+          flight_impact = ifelse( str_detect(flight_impact, &quot;LAND&quot;),
+                                 &quot;LANDING&quot;, flight_impact),
+          flight_impact = factor(flight_impact)) %&gt;%
+  select( -height, - speed, -distance)  %&gt;%
+  saveRDS( file.path(home, &quot;data/rData/clean_test.rds&quot;))</code></pre>
+<p>Now we can make predictions using the reduced model fitted to the 21,000 training incidents. I need to refit the model to the training data then predict in the test set.</p>
+<pre class="r"><code># --- Refit the reduced model ------------------------------------------
+trainDF %&gt;%
+  mutate( yr = factor( year(date)),
+          mth = factor( month(date))) %&gt;%
+  mutate( across(.cols=where(is.factor), .fns=fct_explicit_na) ) %&gt;%
+  glm( damaged ~ yr + mth +
+          operator_id + aircraft_type + aircraft_mass + 
+          engines + engine_type + faa_region + flight_phase +
+          visibility + species_quantity + flight_impact +
+          wing + size,
+     data=.,
+     family=&quot;binomial&quot;) -&gt; mod
+
+# --- Read the cleaned test data --------------------------------------
+readRDS( file.path(home, &quot;data/rData/clean_test.rds&quot;)) %&gt;%
+  # --- create predictions --------------------------------------------
+  mutate( yr = factor( year(date)),
+          mth = factor( month(date)),
+          across(.cols=where(is.factor), .fns=fct_explicit_na) ) %&gt;%
+  mutate( damaged= predict(mod, type=&quot;response&quot;, newdata=. ) ) %&gt;%
+  select( id, damaged) %&gt;%
+# --- write predictions to a csv file --------------------------------
+  write.csv( file.path(home, &quot;temp/submission1.csv&quot;),
+          row.names = FALSE)</code></pre>
+<p>When this file was submitted as a late submission on the kaggle website, the score was a logloss of 0.21067 on the private leaderboard (99% of the test data), very much in line with what we were expecting. This would have put us in sixth place on the leaderboard, where the best submission scored 0.19359.</p>
+<p>I had a quick and not very systematic look at adding interactions and reducing the number of levels of some of the factors. It is easy to reduce the logloss to around 0.20, but some of the cells become very sparse, e.g. there are no privately run jumbo jets and the major carriers do not run single seater aircraft. Getting the logloss below 0.2 is much more of a challenge.</p>
+<p>A tree-based model might improve on this level of performance because it could create interactions, say between the size of a bird and privately operated flights. This might work well for these data and for random splits of these data, but the results might not be very robust or be meaningful beyond this current dataset.</p>
+<p>Given the amount of time spent on data cleaning, I will stop here.</p>
+</div>
+<div id="what-this-example-shows" class="section level1">
+<h1>What this example shows</h1>
+<p>I thought that this was a particularly tough example to use in a machine learning competition. The competitors would have been eager to get to the prediction models so as to ensure that they made some sort of submission, but really they needed to spend most of their time on unglamorous data cleaning.</p>
+<p>The logistic regression model that I used in my analysis is very basic, but I had spent so much time on data cleaning that a adding complex model would have made this post indigestible. I am sure that <em>Sliced</em> will provide other problems that will be better vehicles for discussing classification models.</p>
+<p>When you are presented with a messy set of data, you have two jobs to complete before you start modelling; you need to clean the data and you need to tidy the data. Cleaning is all about identifying and addressing inaccuracies in the data, while tidying involves organising the data in a structure suitable for analysis. Tidy data are organised in data frames, similar to the table of a relational database.</p>
+<p>I think that the definition given by Wikipedia captures the essence of data cleaning,</p>
+<p>“data cleaning is the process of detecting and correcting (or removing) corrupt or inaccurate records from a record set, table, or database and refers to identifying incomplete, incorrect, inaccurate or irrelevant parts of the data and then replacing, modifying, or deleting the dirty or coarse data”.</p>
+<p>Perhaps the most interesting question that comes out of the analysis is, whether or not data cleaning is so problem specific that it is no scope for writing an R package that would help. <code>dplyr</code>, <code>tidyr</code> and <code>forcats</code> are very helpful and perhaps I should spend more time becoming familiar with their less well known functions, but I am left with the feeling that there is a gap in the tidyverse market.</p>
+</div>
+
+  
+
+  
+    <div id="disqus_thread"></div>
+<script type="application/javascript">
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "John" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+  
+
+
+
+    <footer class="site-footer">
+  <span class="site-footer-credits">
+    Made with <a href="https://gohugo.io/">Hugo</a>. Themed by <a href="https://github.com/zwbetz-gh/cayman-hugo-theme">Cayman</a>. Deployed to <a href="https://www.netlify.com/">Netlify</a>.
+  </span>
+</footer>
+
+  </section>
+  
+  
+  <script>
+  window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+  ga('create', 'UA-123456789-1', 'auto');
+  ga('send', 'pageview');
+  </script>
+  <script async src='https://www.google-analytics.com/analytics.js'></script>
+  
+
+</body>
+</html>

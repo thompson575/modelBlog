@@ -1,0 +1,518 @@
+---
+title: "Sliced Episode 3: Superstore profits"
+author: "John Thompson"
+date: "`r Sys.time()`"
+layout: post
+tags:
+- Sliced
+- external knowledge
+- offset 
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE, fig.align='center', fig.height=4, fig.width=5.5)
+```
+# Summary:
+
+**Background:** In episode 3 of the 2021 series of *Sliced*, the competitors were given two hours in which to analyse a set of data on superstore sales. The aim was to predict the profit on a sale.    
+**My approach:** This is a good example of a problem for which we have knowledge about the structure of the data. In particular, we know the relation between sales, cost, discount and profit. Using this knowledge, I converted all sales and profits to what they would have been without a discount and I modelled the simplified data. Undiscounted profit is best described as a percentage of the undiscounted sales price, so the problem reduces to estimating that percentage. On log scales the model reduces to a series of lines with a known slope of 1 and intercepts related to the percent profit.     
+**Result:** A simple linear model of logged data with known slope in which the intercept depends on the type of item produces a RMSE that is much better than the top submission on the leaderboard.   
+**Conclusion:** When we have knowledge about the data structure, this must be incorporated into the model. A standard machine learning algorithm that ignores known structure is almost guaranteed to perform badly.   
+
+# Introduction
+
+The third of the *Sliced* tasks is to predict the profits on items sold by a unnamed superstore (think Amazon or a similar company) and as usual the evaluation metric is RMSE. The data can be downloaded from https://www.kaggle.com/c/sliced-s01e03-DcSXes. 
+
+At first sight, this looks like a rather boring example. There is nothing unusual about the data and the response is a straightforward continuous measure; it looks like a bog-standard regression problem, and yet!
+
+There is a class of problems that standard machine machine learning algorithms find difficult to handle; I'm thinking of those problems where we have external knowledge about the structure of the data. The classic example is a physics dataset where we know that the measurements must obey the natural laws of physics, so models need to incorporate those laws. In a much simpler way, we know the relationship between product cost, sales price, discount and profit and we need to use that information.
+
+# What we know
+
+When there is a known structure, it is vital that the analyst finds out exactly what each variable means so that structure is described accurately. For instance, we are told the sales price, but when multiple items are sold together, is this the total sales price, or the sales price per item? When we talk of profit, does this allow for shipping costs? 
+
+Since we cannot go to the management of the store and ask them, we will have to make best guesses, and later, check the data to see if those guesses look reasonable.
+
+Let's set up some notation so that we can express what we know about the cost and profit on a single item.
+
+C = cost of the item (what the store pays for it)   
+S~0~ = sales price when there is no discount  
+P~0~ = profit when there is no discount  
+d = discount on the item (a proportion)  
+S~d~ = sales price when the discount is d  
+P~d~ = profit when the discount is d  
+
+The first thing that we know is that profit is the difference between sales price and cost  
+
+P~d~ = S~d~ - C
+
+and in particular
+
+P~0~ = S~0~ - C  
+
+so
+
+C = S~0~ - P~0~
+
+and 
+
+P~d~ = S~d~ - (S~0~ - P~0~)
+
+Next we can relate the discounted price to the full (undiscounted) price
+
+S~d~ = (1-d) * S~0~  
+
+So we have our first key equation for calculating the undiscounted sales price., 
+
+Equation A: ... S~0~ = S~d~ / (1 - d)
+
+and we can deduce that
+
+P~d~ = S~d~ - ( S~d~ / (1 - d) - P~0~ )
+
+or
+
+P~d~ = - S~d~ * d / (1 - d) + P~0~     
+
+This give the second key equation for the undiscounted profit,
+
+Equation B: ... P~0~ = P~d~ + S~d~ * d / (1 - d)
+
+In the training data, we are given d, S~d~ and P~d~, so we can use (A) and (B) to deduce S~0~ and P~0~, i.e. we can remove the impact of the discount and calculate the profit that would have been made had there been no discount. 
+
+In this way, we can build a model to predict profit without discount. Then in the test data we can predict the profit without a discount and back-calculate the actual profit. Hopefully, this will remove a large component of the variability in the data.
+
+# Reading the data
+
+It is my practice to read the data asis and to immediately save it in rds format within a directory called `data/rData`. For details of the way that I organise my analyses you should read by post called `Sliced Methods Overview`.
+
+This code reads the rds files
+```{r}
+# --- setup: libraries & options ------------------------
+library(tidyverse)
+library(broom)
+
+theme_set( theme_light())
+
+# --- set home directory -------------------------------
+home <- "C:/Projects/kaggle/sliced/s01-e03"
+
+# --- read downloaded data -----------------------------
+trainRawDF <- readRDS( file.path(home, "data/rData/train.rds") )
+
+testRawDF  <- readRDS( file.path(home, "data/rData/test.rds") )
+```
+
+# Data Exploration
+
+Let's calculate the undiscounted sales price and profit, I'll call them `baseSales` and `baseProfit` and then summarise everything with `skimr`.
+
+```{r eval=FALSE}
+# --- summarise data with skim ---------------------------
+trainRawDF %>%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) %>%
+  skimr::skim()
+```
+
+As usual for these posts, I have hidden the output for skim(); it is important, but long and interferes with the flow. It shows that there is no problem of missing data and, as we would expect, baseProfit is always positive (within rounding error).
+
+### The Response
+
+The response used in judging the models is profit after discounting, which I have truncated at -$250 and +$250 for the following histogram.
+```{r}
+# --- histogram of the profit after discounting -----------
+trainRawDF %>%
+  filter( profit >= -250 & profit <= 250 ) %>%
+  ggplot( aes(x=profit) ) +
+    geom_histogram( bins=100, fill="steelblue") +
+    labs( title="Histogram of profit after discounting",
+          subtitle="truncated at -$250 and +$250",
+          x="Profit")
+```
+
+However we will work with the profit before discount, which I call baseProfit.
+
+```{r}
+# --- Histogram of baseProfit = profit before discount ----
+trainRawDF %>%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) %>%
+  filter( baseProfit <= 250 ) %>%
+  ggplot( aes(x=baseProfit) ) +
+    geom_histogram( bins=100, fill="steelblue") +
+    labs( title="Histogram of profit before discounting",
+          subtitle="truncated at +$250",
+          x="Profit")
+```
+
+This confirms that there are no negative profits before discounting.
+
+Profit is usually a percentage of the sales price but the discount makes this picture confusing
+```{r}
+# --- profit and sales price ------------------------------
+trainRawDF %>%
+  mutate( discount = factor(discount)) %>%
+  ggplot( aes(x=sales, y=profit, colour=discount)) +
+  geom_point() +
+  labs( title="Discounted profit and sales price")
+```
+
+Some items are sold at a loss because of the discount. The undiscounted items all lie on the steepest positive line and most of the 80% discounted items lie on the line with the steepest negative slope.
+
+When we remove the effect of discount the relationship becomes clearer.
+
+```{r}
+# --- baseSales and baseProfit ----------------------------
+trainRawDF %>%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) %>%
+  mutate( discount = factor(discount)) %>%
+  ggplot( aes(x=baseSales, y=baseProfit, colour=discount)) +
+  geom_point() +
+  labs( title="Undiscounted profit and  sales price")
+```
+
+We have removed the effect of the discount and we can see the that items are no longer being priced at less than they cost and that the best base profits are associated with a mix of items, some of which were undiscounted and some of which were actually discounted.  
+
+The structure of the plot of undiscounted profit and sales is of a set of straight lines that pass through the origin. This suggests that it might be better to think in terms of the percentage profit per item.
+
+P~0~   =  k  S~0~ 
+
+where k is the proportion of the price that does to profit, which we would usually think of as a percentage. So, for example, the store might make 30% profit from selling computers, but only 10% profit from selling tables.  
+
+In this case
+
+log10( P~0~ ) = log10(k) + log10( S~0~)
+
+and if we plot log10( P~0~ ) against log10( S~0~) we should see sets of lines at 45^o^ with intercepts equal to log10(k).
+
+One problem with a log scale will be items sold at or very close to cost price; the rounded profit will be 0 and we will not be able to log it. We could either add 50c to those profits or drop them from the logged plot. There will not be many such items, so I have decided to drop them.
+```{r}
+# --- baseSales and baseProfit -------------------------------------
+trainRawDF %>%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) %>%
+  # --- drop items with under 50c base profit -------------------
+  filter( baseProfit > 0.5 ) %>%
+  ggplot( aes(x=log10(baseSales), y=log10(baseProfit)) ) +
+  geom_point() +
+  geom_abline( slope=1, intercept=0) +
+  labs( title="Undiscounted profit and  sales price on a log scale")
+```
+
+Just the banded appearance that we were expecting. A intercept of -0.5 corresponds to 100*10^-0.5^=32% profit, an intercept of -1 corresponds to 10% profit and -2 corresponds to 1% profit. So if items were sold at full price the store would usually make between 20% and 30% profit on each item.
+
+# Predicting percent profit
+
+The next questions is what influences whether you make 30% profit on the full price or 10% profit on the full price?
+
+One of the variables in the dataset is `ship_mode` which can be 'First Class', 'Same Day', 'Second Class', 'Standard Class'. So we know that the superstore is selling over the internet. This suggests that there must be one dollar price for the whole of the USA and (unless shipping costs are included in the profit calculations) regions/States/Cities should not effect the percentage profit.  
+
+What should matter is the nature of the item as described in `sub_category`
+
+```{r}
+# --- bar plot of the sub-categories ------------------------
+trainRawDF %>%
+  group_by( sub_category) %>%
+  count() %>%
+  ggplot( aes(y=sub_category, x=n)) + 
+  geom_bar( stat="identity", fill="steelblue") +
+  labs(title="Categories of items sold by the store",
+       x = "number of sales", y=NULL)
+```
+
+It looks like the store only sells office supplies but even so, these categories are quite broad; there must be several different types of table and many brands of phones. Let's look at the profit/sales plot for particular subcategories.
+
+Rather arbitrarily, I've chosen tables, phones and binders
+```{r}
+# --- profit and sales for 3 categories of item -------------
+trainRawDF %>%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) %>%
+  mutate( discount = factor(discount)) %>%
+  filter( baseProfit > 0.5 ) %>%
+  filter( sub_category %in% c("Tables", "Phones", "Binders") ) %>%
+  ggplot( aes(x=log10(baseSales), y=log10(baseProfit),
+              colour=discount) ) +
+  geom_point() +
+  geom_abline( slope=1, intercept=0) +
+  facet_wrap( ~ sub_category) +
+  labs( title="Undiscounted profit and  sales price on a log scale")
+```
+
+Clearly, there will be no problem predicting the profit on binders, though I find it hard to believe that $1000 was spent on a binder. It makes me suspect that the figures relate to the total amount spent over some fixed period in a given location, rather than individual transactions as I first thought. Phones too are fairly predictable but tables are more variable.
+
+Here are some other products
+```{r}
+# --- profit and sales for 3 other categories of item --------
+trainRawDF %>%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) %>%
+  mutate( discount = factor(discount)) %>%
+  filter( baseProfit > 0.5 ) %>%
+  filter( sub_category %in% c("Copiers", "Paper", "Accessories") ) %>%
+  ggplot( aes(x=log10(baseSales), y=log10(baseProfit),
+              colour=discount) ) +
+  geom_point() +
+  geom_abline( slope=1, intercept=0) +
+  facet_wrap( ~ sub_category) +
+  labs( title="Undiscounted profit and  sales price on a log scale")
+```
+
+Paper is encouraging in that there is a single line regardless of discount, which suggests that our discount adjustment works well. We would expect accessories to be a variable category so the spread of the intercepts is not surprising.
+
+The next question is, given that accessories is a wide category and we have no way of knowing what accessory was bought, is there anything in the data that will help predict the percentage profit. It could be that some people only buy items from this store if they are competitively priced. It seems far fetched but perhaps when the basic price is good value, people are more likely to opt for first class delivery, or maybe high profit items are more popular in some states than others. Even if there are such effects, my guess is that they will be very small. In practice, at this point I would contact the store and ask for a more detailed breakdown of the products.  
+
+Let's look at accessories against some of the other potential predictors.
+
+```{r}
+# --- accessories coloured by shipping mode -------------------
+trainRawDF %>%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) %>%
+  mutate(ship_mode = factor(ship_mode)) %>%
+  filter( baseProfit > 0.5 ) %>%
+  filter( sub_category == "Accessories")  %>%
+  ggplot( aes(x=log10(baseSales), y=log10(baseProfit),
+              colour=ship_mode) ) +
+  geom_point() +
+  geom_abline( slope=1, intercept=0) +
+  labs( title="Undiscounted profit and  sales price for Accessories",
+        subtitle="by mode of shipping")
+```
+
+```{r}
+# --- accessories coloured by region --------------------------
+trainRawDF %>%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) %>%
+  mutate( region = factor(region)) %>%
+  filter( baseProfit > 0.5 ) %>%
+  filter( sub_category == "Accessories")  %>%
+  ggplot( aes(x=log10(baseSales), y=log10(baseProfit),
+              colour=region) ) +
+  geom_point() +
+  geom_abline( slope=1, intercept=0) +
+  labs( title="Undiscounted profit and  sales price for Accessories",
+        subtitle="by region")
+```
+
+```{r}
+# --- accessories coloured by segment of the market -----------
+trainRawDF %>%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) %>%
+  mutate( segment = factor(segment)) %>%
+  filter( baseProfit > 0.5 ) %>%
+  filter( sub_category == "Accessories")  %>%
+  ggplot( aes(x=log10(baseSales), y=log10(baseProfit),
+              colour=segment) ) +
+  geom_point() +
+  geom_abline( slope=1, intercept=0) +
+  labs( title="Undiscounted profit and sales price for Accessories",
+        subtitle="by segment of market")
+```
+
+```{r}
+# --- accessories coloured by quantity -------------------
+trainRawDF %>%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) %>%
+  mutate(quantity = factor(quantity)) %>%
+  filter( baseProfit > 0.5 ) %>%
+  filter( sub_category == "Accessories")  %>%
+  ggplot( aes(x=log10(baseSales), y=log10(baseProfit),
+              colour=quantity) ) +
+  geom_point() +
+  geom_abline( slope=1, intercept=0) +
+  labs( title="Undiscounted profit and sales price for Accessories",
+        subtitle="by quantity")
+```
+
+As expected, there is nothing clear cut. In the case of quantity, we appear to have the total sales price and total profit, so although quantity moves the sales price to the right, it is not obviously related to the percentage profit.
+
+# Data Cleaning
+
+There are no missing values or unlikely looking values, so all we need to do is to add baseSales and baseProfit to the data frame.
+
+```{r}
+# --- simple data cleaning ------------------------------------
+trainRawDF %>%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) -> trainDF
+```
+
+# Some models
+
+First, we will create a model for predicting base profit from base sales and subcategory. We will work on a log10 scale and insist that the relationship with sales takes the form of a 45^o^ line. We can do this by using an offset. An offset describes a term in a model for which the regression coefficient is known and does not need to be estimated; in this case we know that log10(baseSales) will have a coefficient of 1.
+
+```{r}
+# --- base model: coefficients -----------------------------
+trainDF %>%
+  filter( baseProfit > 0.5 ) %>%
+  { lm( log10(baseProfit) ~  sub_category, 
+              offset=log10(baseSales), 
+              data=.) } %>%
+  tidy() %>%
+  select( -statistic)
+```
+
+So `Accessories`, which is alphabetically first, is the baseline product with an intercept of -0.59, so an average profit of 26%. The margin is better on Binders at (-0.590+0.257=-0.333) or 46% and so on.
+
+We ought to treat the standard errors and p-values with caution because we know the variance is much greater for Accessories than it is for Binders; this violates one of the assumptions of the model. The effect of the violation will invalidate the standard errors but should not have much effect on the estimates or predictions.
+
+The next question is whether any of the other factors add to the predictions. Because the variance differs by product, I'll look at Accessories in the first instance.
+
+```{r}
+# --- effect of other predictors on accessories -------------
+trainDF %>%
+  filter( baseProfit > 0.5 ) %>%
+  filter( sub_category == "Accessories") %>%
+  { lm( log10(baseProfit) ~  ship_mode + region + segment + quantity, 
+              offset=log10(baseSales), 
+              data=.) } %>%
+  tidy() %>%
+  select( -statistic)
+```
+
+None of the p-values is even close to significance.
+
+We could tentatively check over all categories
+
+```{r}
+# --- effect of other predictors on all categories ---------
+trainDF %>%
+  filter( baseProfit > 0.5 ) %>%
+  { lm( log10(baseProfit) ~  sub_category + ship_mode + region + segment
+        + quantity, 
+              offset=log10(baseSales), 
+              data=.) } %>%
+  tidy() %>%
+  select( -statistic) %>%
+  print(n=26)
+```
+
+Nothing. Perhaps we ought to bootstrap the standard errors and maybe look at states or cities, but what is the point? There is such good a priori knowledge that it would be a waste of time.
+
+# Accuracy of predictions
+
+Let's start with the in-sample accuracy. First we will save the model fit 
+
+```{r}
+# --- base model -------------------------------
+trainDF %>%
+  filter( baseProfit > 0.5 ) %>%
+  { lm( log10(baseProfit) ~  sub_category, 
+              offset=log10(baseSales), 
+              data=.) } -> mod
+```
+
+Here is a residual plot for this model.
+```{r}
+# --- residual plot of base model --------------
+augment(mod) %>%
+  mutate( .resid = `log10(baseProfit)` - .fitted ) %>%
+  ggplot( aes(x=.fitted, y=.resid, colour=sub_category)) + 
+  geom_point() +
+  geom_hline(yintercept=0)
+```
+
+The horizontal bands reflect the different items within each subcategory.
+
+Let's back-calculate to find the in-sample rmse on the discounted scale.
+
+```{r}
+# --- rmse of discounted data ------------------------------------
+trainDF %>%
+  # --- .fitted = predicted base profit --------------------------
+  mutate( .fitted = 10 ^ predict(mod, newdata=.) ) %>%
+  # --- yhat = predicted discounted profit -----------------------
+  mutate( yhat = .fitted  - sales * discount / (1 - discount) ) %>%
+  summarise( rmse = sqrt( mean( (profit - yhat)^2 ) ) )
+```
+
+53.6 is a good score given that the leaderboard rmses range from 116.9 (1st) to 263 (prediction with the average value for all items).
+
+Here is the residual plot on the original (discounted) scale. I have added lines at plus/minus 500 to emphasise the largest prediction errors
+```{r}
+# --- residual plot on the discounted scale ---------------------
+trainDF %>%
+  mutate( .fitted = 10 ^ predict(mod, newdata=.) ) %>%
+  mutate( yhat = .fitted  - sales * discount / (1 - discount) ) %>%
+  mutate( .resid = profit - yhat) %>%
+  ggplot( aes(x=yhat, y=.resid)) +
+  geom_point( alpha=0.5) +
+  geom_hline(yintercept=0) +
+  geom_hline(yintercept=c(500, -500), lty=2) 
+```
+
+Here are the items with large prediction errors
+```{r}
+# --- items poorly predicted ------------------------------------
+trainDF %>%
+  mutate( baseProfit = pmin(0.5, baseProfit)) %>%
+  mutate( .fitted = 10 ^ predict(mod, newdata=.) ) %>%
+  mutate( yhat = .fitted  - sales * discount / (1 - discount) ) %>%
+  mutate( .resid = profit - yhat) %>%
+  filter( abs(.resid) > 500 ) %>%
+  select( id, sub_category, sales, profit, yhat, .resid)
+```
+
+Machines, Copiers and Supplies seem to cause the biggest problems. Machines and Copiers are expensive items so perhaps it should not surprise us that they can create large residuals, but why Supplies? Let's look at the data plots for those items
+```{r}
+# --- profit and sales for poorly predicted categories ----------
+trainDF %>%
+  filter( baseProfit > 0.5 ) %>%
+  filter( sub_category %in% c("Machines", "Supplies", "Copiers") ) %>%
+  mutate( discount = factor(discount)) %>%
+  ggplot( aes(x=log10(baseSales), y=log10(baseProfit),
+              colour=discount) ) +
+  geom_point() +
+  geom_abline( slope=1, intercept=0) +
+    facet_wrap( ~ sub_category)  +
+  labs( title="Undiscounted profit and  sales price on a log scale")
+```
+
+The problem with `Supplies` is that the majority of items in this category are cheap but have a high percentage profit, while a handful of sales are more expensive but less profitable. The model predicts a better return on the high sales and hence those items have large negative residuals. For machines (and copiers) the problem is that a few of items/sales were very expensive (over $10,000), so that an error in the predicted percentage profit has large consequences.
+
+Not much we can do about it without more detailed information on the items.
+
+# Submission
+
+The test data can be processed in exactly the same way.
+```{r}
+# --- prepare submission -------------------------------------
+testRawDF %>%
+  mutate( baseSales  = sales / (1-discount) ) %>%
+  mutate( .fitted = 10 ^ predict(mod, newdata=.) ) %>%
+  mutate( yhat = .fitted  - sales * discount / (1 - discount) ) %>%
+  rename( profit = yhat) %>%
+  select( id, profit) %>%
+  print() %>%
+  write.csv( file.path( home, "temp/submission1.csv"),row.names=FALSE )
+```
+
+When I submitted these predictions as a late submission the RMSE was
+97.48, far better than the other competition entries, which range from 116.9 (1st) to 263 (prediction with the average).
+
+# What this example shows:
+
+It is a common fault that people see everything as evidence that they were right all along, but this example certainly plays into my prejudices about machine learning. In particular, the tendency of data scientists to be over-reliant on automatic algorithms. 
+
+When I taught statistical modelling, I tried to emphasise the importance of thinking about the problem; of course, data scientists will say that they think about the problem too, but I don't see the evidence for that. Too often, machine learning involves data visualisation followed by XGBoost, and rarely do the plots have any impact on the models. It is as if they were two separate processes.
+
+There is a movement within data science called probabilistic programming that is trying to correct these failings, but this is just a rediscovery of statistical modelling under a new name. 
+
+Perhaps, my rant is a little harsh, machine learning is a new discipline and so we must give it time to mature. As a statistician, I would not like to see my subject judged by statistical practice as it was 75 years ago.
+
+When you employ a statistician, you get the understanding of the statistician together with the performance of the statistical model. Machine learning uses very similar models, but tries to use them automatically, that is to say, without human understanding. Take as an example a neural network that is designed to recognise images of cats and dogs. We all know that neural networks can be trained to perform incredibly well at this task, but we also know that by tweaking a few pixels, we can fool the network into deciding that a car is a dog. A human would not be confused by these changes, because they have a deeper understanding of what they are doing. Without human understanding, errors are bound to occur and performance levels will suffer. 
+
+No doubt, machine learning algorithms will eventually develop to the point where they imitate human understanding; not only will they fit a logistic regression, but they will understand when the model is appropriate and they will understand what the results mean and so they will spot errors. We are not yet at that stage and so human understanding is still needed in the modelling process. At present, it is still true that an analysis is only as good as the analyst that produced it.
+
+ 

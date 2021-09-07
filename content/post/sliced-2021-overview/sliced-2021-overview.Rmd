@@ -1,0 +1,159 @@
+---
+title: "Sliced 2021 Episode Overview"
+author: "John Thompson"
+date: "`r Sys.time()`"
+layout: post
+tags:
+- Sliced
+- Episode overview
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Sliced is a data science competition hosted by Nick Wan and Meg Risdal on twitch. The competition is over, but you can still watch the episodes at https://www.twitch.tv/nickwan_datasci. In each episode, 4 data scientists with very different backgrounds were given the same dataset and in 2 hours they had to explore the data and build a predictive model. As well as the training data, they are given a test set that lacked the response. The model that best predicted in the test data according to a specified metric, won the prediction element of the competition, but other points were available for data visualisation, golden features and popularity as voted for by chat.
+
+The datasets were all placed on kaggle and while the competition was live on twitch, members of the audience could run their own analyses and submit them so that they were assessed alongside the models of the competitors. Now that the competition is over, anyone can download the data and submit a late entry, but it will not be added to the leaderboard.
+
+I have taken each of the datasets used by *Sliced* and run my own analyses, which I present in a series of blog posts. I think that the main interest in my analyses lies in the fact that I was trained as a statistician and not as a data scientist, so my analyses highlight some interesting differences of approach between the two traditions.  
+
+I must stress that I did not analyse these data under competition conditions. In most cases, I spend less than 2 hours on the analysis, but much more time writing the blog posts that explain what I did.
+
+In this post, I give an overview of each episode and summarise the methods that I used (I'll update this post each time I release a new analysis). If you are looking for examples of a particular form of analysis, this post will show you which posts to read.
+
+# My approach
+
+I analyse all of the datasets in R, but prefer not to use `tidymodels`. The `tidymodels` package forces you into a machine learning mindset and it is my belief that this approach has several important weaknesses that lead to inferior models. Exposing those weaknesses is one of my main reasons for writing this blog. 
+
+I do make heavy use of the `tidyverse` because it produces quick and readable code. I supplement this with my own functions and a smattering of base R. For a couple of the later episodes I used `mlr3` a machine learning competitor of `tidymodels` that I had been interested in for some time, but had not used before. 
+
+In my opinion statistics and machine learning are closely related and the key differences are not in the models that they use, but in the ways in which they use them. So, I am quite happy to use tree-based model including xgboost. What I find unsatisfactory is when models are buried in an automated pipeline. At the end of each post I have a `What have we learned` section in which I discuss my prejudices in greater length.
+
+Here are some differences of approach between my analyses and the machine learning analyses favoured by most of the competitors
+
+* an emphasis on understanding what the data mean and how they were collected  
+* data cleaning as a separate step carried out prior to modelling  
+* a liking for moving from the simple to the complex  
+* a preference for simple models  
+* a preference for models that can be interpreted  
+* a preference for models that generalise  
+* a hatred of black box methods  
+* a hatred of long pipelines in which the analyst does not look at the intermediate results  
+* emphasis on model checking and model interpretation    
+* scepticism about obsessional hyperparameter tuning  
+* scepticism about meaningless improvement is prediction accuracy (not a good attitude to have in a data science competition)  
+
+For each episode, I have tried to find a different approach so that the posts are not repetitive. Occasionally, the search for variety is at the expense of predictive performance, but on the whole my models are competitive with the submission made live during the competition and some of them would even have won. Given that I was not under time pressure this is perhaps not surprising.  
+
+# The episodes
+
+## Episode 1: Boardgames
+
+### Keywords
+
+boardgame rating; transformed response; text features; user written functions; replacing impossible values; generalized additive models; splines; interactions;
+
+### Packages
+
+tidyverse; broom; mgcv
+
+### The data
+
+The data can be download from https://www.kaggle.com/c/sliced-s01e01.  
+
+### The problem
+
+The data were taken from the website https://boardgamegeek.com/. The training set has full details on 3499 boardgames. The object is to predict the geek rating for each game. Some predictors are numeric, such as number of players, time to play the game and the year that the game was released but others are textual, such as a description of the mechanics of the game. 
+
+The test data has the same predictor variables on 1500 games, but has the ratings for those games removed. Predictive models are assessed using the root mean square error (RMSE).
+
+### My Analysis
+
+My exploratory analysis led me to work with a transformed response, log10(geek_rating-5.5). The models predicted this transformed response and then I back-transformed to get the predicted geek rating.  
+
+Data cleaning was minimal because the data are complete, with just a few missing values and a handful of extreme or unlikely looking values.
+
+My analysis of the textual data was fairly basic. I extracted 10 features relating to the game mechanics and 10 features related to the category of the game. To do this I wrote simple functions that are included as a appendix to the post.
+
+There is quite a degree of non-linearity in the relationships between geek rating and the predictors, so I opted for splines in a GAM (generalized additive model). I chose to fit the GAMs with the package `mgcv`, because it incorporates methods for estimating the degree of smoothness. It also allows 2-dimensional splines that can be used to represent interactions.
+
+My final model did well and would have come close to the top of the leaderboard.  
+
+In the post, I try to show that predictions from linear models can be competitive (you do not always need to used XGBoost) and at the same time, the GAMs are interpretable. I try to explain that it is not necessary, or even advisable, to make all of your modelling decisions based on minimising a loss function.
+
+## Episode 2: Wildlife strikes
+
+### Keywords
+
+wildlife strikes; data cleaning; missing data; imputation; categorising text features; user-written ggplot function; curly-curly {{}}; nonstandard evaluation; logistic regression; analysis of deviance; Hosmer-Leweshow plot;
+
+### Packages
+
+tidyverse; broom; forcats; lubridate;
+
+### The data
+
+The data can be download from https://www.kaggle.com/c/sliced-s01e02-xunyc5.
+
+### The problem
+
+These data were collect by the Federal Aviation Authority (FAA) in the USA and contain details of wildlife strikes with aircraft. Everything from a commercial jet running into a flock of sparrows to a private plane hitting an elk. The objective is to predict whether or not the aircraft was damaged in the collision. The metric used for evaluation was the mean logloss.
+
+As you might expect, these data are far from perfect; lots of missing information and factors with hundreds of levels.
+
+### My Analysis
+
+This is primarily an exercise in data cleaning. I have a great deal of sympathy with the competitors who would have been under real pressure to cut short the cleaning and jump to the model fitting. It was a tough dataset to use in this type of competition.
+
+Most of my code performs data cleaning and data exploration, which left little time for modelling. Once the data were in a good state for analysis, I used a simple logistic regression with surprisingly good results.
+
+For the data exploration, I wrote a function that creates a stacked bar chart with added annotation to give the percent of aircraft damaged. The code used curly-curly {{}} to provide nonstandard evaluation (NSE), which allowed the function to be incorporated into a pipe.  
+
+I decided against imputation of the missing data, because the exploration made it clear that the data were not missing at random. Instead, I added a missing category to each of the categorical variables and used missingness as a predictive feature.
+
+I used an analysis of deviance table to look at contributions to the logistic regression model and plots based on the Hosmer-Leweshow statistic to assess the fit. I calculated a cross-validation estimate of model performance, but noted that, in this type of example, the in-sample estimate is perfectly adequate.  
+
+
+## Episode 3: Superstore profits
+
+### Keywords
+
+superstore profits; knowledge external to the data; linear models; offsets; weaknesses of machine learning;
+
+### Packages
+
+tidyverse; broom;
+
+### The data
+
+The data for this episode are available from https://www.kaggle.com/c/sliced-s01e03-DcSXes.
+
+### The problem
+
+The dataset contains information on products sold by an on-line store in the USA and the objective is to predict the profit made on each item. Evaluation is by RMSE.  
+
+Compared with the previous episode, these data were a pleasure to analyse. There was very little preprocessing required before modelling and the structure was simple. 
+
+The most important aspect of this problem is that we are given data on profits made on individual items but the items are only categorised into very broad groups, such as tables or copiers. Obviously, some tables cost more than others and more importantly, some are sold at a discount. We are told the price of the individual items and the size of any discount that was applied.  
+
+### My Analysis
+
+There is a class of modelling problems were we know something about the relationship between the variables. The classic example is a physics experiment, where we know that all of the variables must obey the natural laws of physics. In such cases, it is vital that the model takes these known laws into account, otherwise it is unlikely to perform well. Analysts who jump in with their favourite algorithm are likely to do poorly on this type of problem.
+
+In the case of the superstore, we know the relationship between sales price, discount and profit. If you use this known relationship then 
+
+* it tells you what structure the model should have  
+* it makes it obvious that most of the predictors can be ignored  
+* it produces extremely good results  
+
+My model beats the submissions on the leaderboard by a wide margin, so I can only assume that those competitors ignored the specific structure of the problem.  
+
+The code used for this problem is very basic. All that you needed to win the competition were a few scatter plots and some simple linear regressions.

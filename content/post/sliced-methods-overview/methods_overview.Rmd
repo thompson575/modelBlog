@@ -1,0 +1,77 @@
+---
+title: "Sliced Methods Overview"
+author: "John Thompson"
+date: "`r Sys.time()`"
+layout: post
+tags:
+- Sliced
+- Methods
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+When analysing the *Sliced* datasets I have tried to use a consistent approach in order that my code is easier to follow. In this post I will give an overview of my approach.
+
+# Naming of parts
+
+The first thing that you will notice about my code is that all tibbles and data frames are given names that end in `DF`. Sorry if you don't like it, but I find it helpful to distinguish the data frame names for the names of variables that sit within the data frame. You will see names like trainDF and testDF.
+
+Variables including columns within a data frame and independent objects are given names in lowerCaseCamel format, such as dateOfBirth, ageAtDiagnosis.
+
+Functions and files are given names in lower_case_snake format. I try to make function names verb-like so that they describe the task performed by the function, file names are more likely to be noun-like. Examples are, plot_damage(), calculate_summary(), processed_data.csv.
+
+In each episode of `Sliced` we are given three files  
+
+* `train.csv` the data to be used to create the model   
+* `test.csv` the data used to evaluate performance  
+* `submission.csv` an example of the format of a submission  
+
+When I read and process these files I try to use consistent names for my data frames data across all episodes.
+
+It is my practice to read the *Sliced* data files and immediately save them as `train.rds`, `test.rds` and `submission.rds`. Even though I have never found need to use `submission.rds`
+
+Then I create the following data frames
+
+`trainRawDF` ... the training data as read from `train.rds`    
+`testRawDF`  ... the test data as read from `test.rds`  
+
+`trainRawDF` usually goes through cleaning to produce a dataset that is used for training the model, I call the result of preprocessing, `trainDF`.
+
+Sometimes the `trainDF` is randomly split into a set for model fitting and a validation set. I refer to these as the estimation dataset, `estimateDF`, and the validation dataset, `validateDF`.   
+
+If the pre-processing involves several stages, the intermediate datasets between `trainRawDF` and `trainDF`, I like to collect the stages together in a function such as `preprocess()` so that I can apply exactly the same process to the training and test data.
+
+
+# File structure
+
+The data from each *Sliced* episode is analysed in a different folder named after the episode, s01-e01, s01-e02 etc. So in the setup section of my code you will see that I define the home directory, say,
+
+home <- "C:/Projects/sliced/s01-e02"
+
+Within the home folder, I create subfolders called
+
+`data`    ... to hold data  
+`docs`    ... to hold any documents related to the analysis  
+`R`       ... R scripts  
+`rmd`     ... rmarkdown files  
+`temp`    ... any temporary files  
+
+within data I have three folders
+
+`dataStore` ... files of results  
+`rawData`   ... the original csv files  
+`rData`     ... R formatted files .rda or .rds  
+
+I also have a standard subfolder structure within docs and archive subfolders within R and rmd, but for *Sliced* I have not needed to use them. 
+
+Although many of the subfolders do not get used for *Sliced*, this is the structure that I use for every data analysis and so I have kept it. I have a function that creates these folders and I run it at the start of every project, *Sliced* or otherwise.
+

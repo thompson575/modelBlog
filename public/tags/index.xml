@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Tags on Modelling with R</title>
+    <link>https://example.com/tags/</link>
+    <description>Recent content in Tags on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Sun, 05 Sep 2021 12:07:34 +0000</lastBuildDate><atom:link href="https://example.com/tags/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>data cleaning</title>
+      <link>https://example.com/tags/data-cleaning/</link>
+      <pubDate>Sun, 05 Sep 2021 12:07:34 +0000</pubDate>
+      
+      <guid>https://example.com/tags/data-cleaning/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>features from text</title>
+      <link>https://example.com/tags/features-from-text/</link>
+      <pubDate>Sun, 05 Sep 2021 12:07:34 +0000</pubDate>
+      
+      <guid>https://example.com/tags/features-from-text/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>logistic regression</title>
+      <link>https://example.com/tags/logistic-regression/</link>
+      <pubDate>Sun, 05 Sep 2021 12:07:34 +0000</pubDate>
+      
+      <guid>https://example.com/tags/logistic-regression/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>missing data</title>
+      <link>https://example.com/tags/missing-data/</link>
+      <pubDate>Sun, 05 Sep 2021 12:07:34 +0000</pubDate>
+      
+      <guid>https://example.com/tags/missing-data/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Sliced</title>
+      <link>https://example.com/tags/sliced/</link>
+      <pubDate>Sun, 05 Sep 2021 12:07:34 +0000</pubDate>
+      
+      <guid>https://example.com/tags/sliced/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>generalised additive models</title>
+      <link>https://example.com/tags/generalised-additive-models/</link>
+      <pubDate>Sun, 05 Sep 2021 11:36:30 +0000</pubDate>
+      
+      <guid>https://example.com/tags/generalised-additive-models/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>splines</title>
+      <link>https://example.com/tags/splines/</link>
+      <pubDate>Sun, 05 Sep 2021 11:36:30 +0000</pubDate>
+      
+      <guid>https://example.com/tags/splines/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>writing functions</title>
+      <link>https://example.com/tags/writing-functions/</link>
+      <pubDate>Sun, 05 Sep 2021 11:36:30 +0000</pubDate>
+      
+      <guid>https://example.com/tags/writing-functions/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>external knowledge</title>
+      <link>https://example.com/tags/external-knowledge/</link>
+      <pubDate>Thu, 29 Jul 2021 11:15:04 +0000</pubDate>
+      
+      <guid>https://example.com/tags/external-knowledge/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>offset</title>
+      <link>https://example.com/tags/offset/</link>
+      <pubDate>Thu, 29 Jul 2021 11:15:04 +0000</pubDate>
+      
+      <guid>https://example.com/tags/offset/</guid>
+      <description></description>
+    </item>
+    
+  </channel>
+</rss>

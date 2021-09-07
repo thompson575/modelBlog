@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Sliced overview on Modelling with R</title>
+    <link>https://example.com/tags/sliced-overview/</link>
+    <description>Recent content in Sliced overview on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Thu, 29 Jul 2021 11:20:51 +0000</lastBuildDate><atom:link href="https://example.com/tags/sliced-overview/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Sliced 2021 Episode Overview</title>
+      <link>https://example.com/sliced-2021-overview/</link>
+      <pubDate>Thu, 29 Jul 2021 11:20:51 +0000</pubDate>
+      
+      <guid>https://example.com/sliced-2021-overview/</guid>
+      <description>IntroductionSliced is a data science competition hosted by Nick Wan on twitch ( https://www.twitch.tv/nickwan_datasci ). In each episode, 4 data scientists with very different backgrounds are given the same dataset and in 2 hours they must visualize the data and build a predictive model. As well as the training data, they are given a test set that lacks the variable that is to be predicted. The model that best predicts in the test data according to a specified metric, wins the prediction element of the competition, but other points are available for data visualization, golden features and popularity as voted for by chat.</description>
+    </item>
+    
+    <item>
+      <title>Sliced Methods Overview</title>
+      <link>https://example.com/methods_overview/</link>
+      <pubDate>Wed, 28 Jul 2021 16:15:17 +0000</pubDate>
+      
+      <guid>https://example.com/methods_overview/</guid>
+      <description>IntroductionWhen analysing the sliced dataset I have tried to use a consistent approach in order that my code is easier to follow. In this post I will give an overview of this approach.
+Naming of partsThe first thing that you will notice about my code is that all tibbles and data frames are given names that end in DF. Sorry if you don’t like it, but I find it helpful to distinguish the data frame names for the names of variables that sit within the data frame.</description>
+    </item>
+    
+  </channel>
+</rss>
