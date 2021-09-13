@@ -6,11 +6,11 @@
     <description>Recent content in Methods on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Tue, 07 Sep 2021 12:35:28 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/methods/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Mon, 13 Sep 2021 12:47:07 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/methods/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>Sliced Methods Overview</title>
       <link>https://modelling-with-r.netlify.app/methods_overview/</link>
-      <pubDate>Tue, 07 Sep 2021 12:35:28 +0000</pubDate>
+      <pubDate>Mon, 13 Sep 2021 12:47:07 +0000</pubDate>
       
       <guid>https://modelling-with-r.netlify.app/methods_overview/</guid>
       <description>IntroductionWhen analysing the Sliced datasets I have tried to use a consistent approach in order that my code is easier to follow. In this post I will give an overview of my approach.

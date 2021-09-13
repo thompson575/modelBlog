@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>purrr on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/purrr/</link>
+    <description>Recent content in purrr on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Mon, 13 Sep 2021 12:46:40 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/purrr/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Sliced Episode 4: Rain Tomorrow</title>
+      <link>https://modelling-with-r.netlify.app/rain_tomorrow/</link>
+      <pubDate>Mon, 13 Sep 2021 12:46:40 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/rain_tomorrow/</guid>
+      <description>Summary:Background: In episode 4 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on daily weather patterns in different parts of Australia. The aim was to predict whether or not it will rain the next day.
+My approach: I started with the idea that location would be key to a good model and I tried two approaches, one based on average rainfall patterns for the time of year and the other based on a day’s weather predicting the weather on the following day.</description>
+    </item>
+    
+  </channel>
+</rss>

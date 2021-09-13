@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="generator" content="Hugo 0.82.0" />
+  
+  <meta name="description" content="IntroductionSliced is a data science competition hosted by Nick Wan and Meg Risdal on twitch ( https://www.twitch.tv/nickwan_datasci ). In each episode, 4 data scientists with very different backgrounds are given the same dataset and in 2 hours they must explore the data and build a predictive model. As well as the training data, they are given a test set that lacks the variable to be predicted. The model that best predicts in the test data according to a specified metric, wins the prediction element of the competition, but other points are available for data visualization, golden features and popularity as voted for by chat.">
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/normalize.css">
+  <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
+  
+  
+  
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/cayman.ea0e967413f3851071cc8ace3621bc4205fe8fa79b2abe3d7bf94ff2841f0d47.css">
+  
+  
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.css" integrity="sha384-yFRtMMDnQtDRO8rLpMIKrtPCD5jdktao2TV19YiZYWMDkUR5GQZR/NOVTdquEx1j" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.js" integrity="sha384-9Nhn55MVVN0/4OFx7EE5kpFBPsEMZxKTCnA+4fqDmg12eCTqGi6+BB2LjY8brQxJ" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/contrib/auto-render.min.js" integrity="sha384-kWPLUVMOks5AQFrykwIup5lo0m3iMkkHrD0uJ4H5cjeGihAutqP0yW0J6dpFiVkI" crossorigin="anonymous" onload="renderMathInElement(document.body);"></script>
+
+  <title>Sliced 2021 Overview | Modelling with R</title>
+</head>
+
+<body>
+  <section class="page-header">
+  <h1 class="project-name">
+    Modelling with R
+  </h1>
+  <h2 class="project-tagline">
+    contrasting statistical and machine learning approaches
+  </h2>
+  <nav>
+    
+    
+      
+      
+      
+      
+      <a href="/post/" class="btn">Blog</a>
+    
+      
+      
+      
+      
+      <a href="/tags/" class="btn">Tags</a>
+    
+      
+      
+      
+      
+      <a href="/about/" class="btn">About</a>
+    
+  </nav>
+</section>
+
+  <section class="main-content">
+    
+  <h1>Sliced 2021 Overview</h1>
+  <div>
+    
+    <strong>Publish date: </strong>2021-09-13
+  </div>
+  
+  
+    <div>
+      <strong>Tags: </strong>
+      
+        
+        
+        
+      
+        
+        
+        
+      
+      <a href="https://modelling-with-r.netlify.app/tags/sliced/">Sliced</a>, <a href="https://modelling-with-r.netlify.app/tags/sliced-episode-overview/">Sliced episode overview</a>
+    </div>
+  
+  
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>Sliced is a data science competition hosted by Nick Wan and Meg Risdal on twitch ( <a href="https://www.twitch.tv/nickwan_datasci" class="uri">https://www.twitch.tv/nickwan_datasci</a> ). In each episode, 4 data scientists with very different backgrounds are given the same dataset and in 2 hours they must explore the data and build a predictive model. As well as the training data, they are given a test set that lacks the variable to be predicted. The model that best predicts in the test data according to a specified metric, wins the prediction element of the competition, but other points are available for data visualization, golden features and popularity as voted for by chat.</p>
+<p>The datasets are all available on kaggle and while the competition is live on twitch, members of the audience can run their own analyses and submit them so that they are assessed alongside the models of the competitors. Afterwards, anyone can download the data and submit a late entry, but it will not be added to the leaderboard.</p>
+<p>I have taken each of the datasets used by sliced and run my own analyses, which I present in a series of blog posts. I think that the main interest in my analyses lies in the fact that I was trained as a statistician and not as a data scientist, so my analyses highlight some interesting differences of approach between the two traditions.</p>
+<p>I must stress that I did not analyse these data under competition conditions. In most cases, I spend less than 2 hours on the analysis, but much more time writing the blog posts that explain what I did.</p>
+<p>In this post, I give an overview of each episode and summarise the methods that I used. If you are looking for examples of a particular form of analysis, this will show you which posts to go to.</p>
+</div>
+<div id="my-approach" class="section level1">
+<h1>My approach</h1>
+<p>I analyse all of the datasets in R, but prefer not to use <code>tidymodels</code>. The tidymodels package forces you into a machine learning mindset and it is my belief that this approach has several important weaknesses that lead to inferior results. Exposing those weaknesses is one of my main reasons for writing this blog.</p>
+<p>I do make heavy use of the <code>tidyverse</code> because it produces quick and readable code. I supplement this with my own functions and a smattering of base R. For a couple of the later episodes I have used <code>mlr3</code> a machine learning competitor of <code>tidymodels</code> that I have been interested in for some time, but not used before.</p>
+<p>In my opinion statistics and machine learning are closely related and the key differences are not in the models that they use, but in the ways in which they use them. So, I am quite happy to use tree-based model including xgboost. What I find unsatisfactory is when tree-based model are used in an automated pipeline. I’ll discuss points such as these at the end of each post.</p>
+<p>Here are some differences of approach between my analyses and the machine learning analyses favoured by most of the competitors</p>
+<ul>
+<li>an emphasis on understanding what the data mean and how they were collected<br />
+</li>
+<li>data cleaning as a separate step carried out prior to modelling<br />
+</li>
+<li>a liking for moving from the simple to the complex<br />
+</li>
+<li>a preference for simple models<br />
+</li>
+<li>a preference for models that can be interpreted<br />
+</li>
+<li>a preference for models that would generalise<br />
+</li>
+<li>a hatred of black box methods<br />
+</li>
+<li>a hatred of long pipelines in which the analyst does not look at the intermediate results<br />
+</li>
+<li>emphasis on model checking and model interpretation<br />
+</li>
+<li>scepticism about obsessional hyperparameter tuning<br />
+</li>
+<li>scepticism about meaningless improvement is prediction accuracy (not a good attitude to have in a data science competition)</li>
+</ul>
+<p>For each episode, I have tried to find a different approach so that the posts are not repetitive. Occasionally, the search for variety is at the expense of predictive performance, but on the whole my models are competitive with the submission made live during the competition and some of them would have won. Given that I was not under time pressure this is perhaps not surprising.</p>
+</div>
+<div id="the-episodes" class="section level1">
+<h1>The episodes</h1>
+<div id="episode-1-boardgames" class="section level2">
+<h2>Episode 1: Boardgames</h2>
+<div id="keywords" class="section level3">
+<h3>Keywords</h3>
+<p>boardgame rating; transformed response; text features; user written functions; replacing impossible values; generalized additive models; splines; interactions;</p>
+</div>
+<div id="packages" class="section level3">
+<h3>Packages</h3>
+<p>tidyverse; broom; mgcv</p>
+</div>
+<div id="the-data" class="section level3">
+<h3>The data</h3>
+<p>The data can be download from <a href="https://www.kaggle.com/c/sliced-s01e01" class="uri">https://www.kaggle.com/c/sliced-s01e01</a>.</p>
+</div>
+<div id="the-problem" class="section level3">
+<h3>The problem</h3>
+<p>The data were taken from the website <a href="https://boardgamegeek.com/" class="uri">https://boardgamegeek.com/</a>. The training set has full details on 3499 boardgames. The object is to predict the geek rating for each game. Some predictors are numeric, such as number of players, time to play the game and the year that the game was released but others are textual, such as a description of the mechanics of the game.</p>
+<p>The test data has the same predictor variables on 1500 games, but has the ratings for those games removed. Predictive models are assessed using the root mean square error (RMSE).</p>
+</div>
+<div id="my-analysis" class="section level3">
+<h3>My Analysis</h3>
+<p>My exploratory analysis led me to work with a transformed response, log10(geek_rating-5.5). The models predicted this transformed response and then I back-transformed to get the predicted geek rating.</p>
+<p>Data cleaning was minimal because the data are reasonably complete, with just a few missing values and a handful of extreme or unlikely looking values.</p>
+<p>My analysis of the textual data is fairly basic. I extract 10 features relating to the game mechanics and 10 features related to the category of the game. To do this I wrote simple functions that are included as a appendix to the post.</p>
+<p>There is quite a degree of non-linearity in the relationships between geek rating and the predictors, so I opted for splines in a GAM (generalized additive model). In R, GAMs can be fitted with the <code>gam</code> package, but I prefer a package called <code>mgcv</code> because it incorporates methods for estimating the degree of smoothness that is required. It also allows 2-dimensional splines that represent interactions.</p>
+<p>My final model did well and have come close to the top of the leaderboard.</p>
+<p>In the post, I try to show that predictions from linear models can be competitive (you do not always need to used XGBoost) and at the same time, the models are interpretable. I also emphasise that it is not necessary, or even advisable, to make all of your modelling decisions based on minimising the loss function.</p>
+</div>
+</div>
+<div id="episode-2-wildlife-strikes" class="section level2">
+<h2>Episode 2: Wildlife strikes</h2>
+<div id="keywords-1" class="section level3">
+<h3>Keywords</h3>
+<p>wildlife strikes; data cleaning; missing data; imputation; categorising text features; user-written ggplot function; curly-curly {{}}; nonstandard evaluation; logistic regression; analysis of deviance; Hosmer-Leweshow plot;</p>
+</div>
+<div id="packages-1" class="section level3">
+<h3>Packages</h3>
+<p>tidyverse; broom; forcats; lubridate;</p>
+</div>
+<div id="the-data-1" class="section level3">
+<h3>The data</h3>
+<p>The data can be download from <a href="https://www.kaggle.com/c/sliced-s01e02-xunyc5" class="uri">https://www.kaggle.com/c/sliced-s01e02-xunyc5</a>.</p>
+</div>
+<div id="the-problem-1" class="section level3">
+<h3>The problem</h3>
+<p>These data were collect by the Federal Aviation Authority (FAA) in the USA and contain details of wildlife strikes with aircraft. Everything from a commercial jet running into a flock of sparrows to a private plane hitting an elk. The objective is to predict whether or not the aircraft was damaged in the collision. The metric used for evaluation was the mean logloss.</p>
+<p>As you might expect, these data are far from perfect; lots of missing information and factors with hundreds of levels.</p>
+</div>
+<div id="my-analysis-1" class="section level3">
+<h3>My Analysis</h3>
+<p>This is primarily an exercise in data cleaning. I have a great deal of sympathy with the competitors who would have been under real pressure to cut short the cleaning and jump to the model fitting. It was a tough dataset to use in this type of competition.</p>
+<p>Most of my code performs data cleaning and data exploration. Once the data were in a good form for analysis, I used a simple logistic regression and got perfectly good results.</p>
+<p>For the data exploration, I wrote a function that creates a stacked bar chart with added annotation to give the percent of aircraft damaged. The code uses curly-curly {{}} to provide nonstandard evaluation (NSE), which allows the function to be incorporated into a pipe.</p>
+<p>I decided against imputation of the missing data, because the exploration made it clear that the data were not missing at random. Instead, I added a missing category to each of the categorical variables and used missingness as a predictive feature.</p>
+<p>I used an analysis of deviance table to look at contributions to the logistic regression model and plots based on the Hosmer-Leweshow statistic to assess the fit. I calculated a cross-validation estimate of model performance, but noted that, in this type of example, the in-sample estimate is perfectly adequate.</p>
+</div>
+</div>
+<div id="episode-3-superstore-profits" class="section level2">
+<h2>Episode 3: Superstore profits</h2>
+<div id="keywords-2" class="section level3">
+<h3>Keywords</h3>
+<p>superstore profits; knowledge external to the data; linear models; offsets; weaknesses of machine learning;</p>
+</div>
+<div id="packages-2" class="section level3">
+<h3>Packages</h3>
+<p>tidyverse; broom;</p>
+</div>
+<div id="the-data-2" class="section level3">
+<h3>The data</h3>
+<p>The data for this episode are available from <a href="https://www.kaggle.com/c/sliced-s01e03-DcSXes" class="uri">https://www.kaggle.com/c/sliced-s01e03-DcSXes</a>.</p>
+</div>
+<div id="the-problem-2" class="section level3">
+<h3>The problem</h3>
+<p>The dataset contains information on products sold by an on-line store in the USA and the objective is to predict the profit made on each item. Evaluation is by RMSE.</p>
+<p>Compared with the previous episode, these data are a pleasure to analyse. There is very little processing required before we start modelling and the structure is simple.</p>
+<p>The most important aspect of this problem is that we have data on profits made on individual items but the items are only categorised into very broad groups, such as tables or copiers. Obviously, some tables cost more than others and more importantly, some are sold at a discount. We are told the price of the individual items and the size of any discount that was applied.</p>
+</div>
+<div id="my-analysis-2" class="section level3">
+<h3>My Analysis</h3>
+<p>There is a class of modelling problems were we know something about the relationship between the variables. The classic example is a physics experiment, where we know that all of the variables must obey the natural laws of physics. In such cases, it is vital that the model takes these known laws into account, otherwise it is unlikely to perform well. Analysts who jump in with their favourite algorithm are likely to do poorly on this type of problem.</p>
+<p>In the case of the superstore, we know the relationship between sales price, discount and profit. If you use this known relationship then</p>
+<ul>
+<li>it tells us what structure the model should have<br />
+</li>
+<li>it makes it obvious that most of the predictors can be ignored<br />
+</li>
+<li>it produces extremely good results</li>
+</ul>
+<p>My model beats the submissions on the leaderboard by a wide margin, so I can only assume that those competitors ignored the specific structure of the problem.</p>
+<p>The code used for this problem is very basic. All that you needed to win the competition were a few scatter plots and some simple linear models.</p>
+</div>
+</div>
+<div id="episode-4-rain-tomorrow" class="section level2">
+<h2>Episode 4: Rain tomorrow</h2>
+<div id="keywords-3" class="section level3">
+<h3>Keywords</h3>
+<p>weather prediction; Bayesian estimates of a proportion; multiple imputation by chained equations (mice); logistic regression; combining many models; list columns; map() functions; user-written functions;</p>
+</div>
+<div id="packages-3" class="section level3">
+<h3>Packages</h3>
+<p>tidyverse; broom; mice; purrr;</p>
+</div>
+<div id="the-data-3" class="section level3">
+<h3>The data</h3>
+<p>The data for this episode can be downloaded from <a href="https://www.kaggle.com/c/sliced-s01e04-knyna9" class="uri">https://www.kaggle.com/c/sliced-s01e04-knyna9</a>.</p>
+</div>
+<div id="the-problem-3" class="section level3">
+<h3>The problem</h3>
+<p>The data consist of daily weather records from 49 different locations in Australia. The objective is to predict whether or not it rained on the following day and the metric was logloss.</p>
+<p>Like episode 2 this is a large complex dataset that would be quite challenging under competition conditions. Australia is huge and the weather patterns vary enormously by location.</p>
+<p>When the organisers set up this episode they must have taken weather records going back many years and randomly picked the days for each location so that a random sample went into the training set and another random sample went into the test set. However, they seem to have drawn the two sample independently because sometimes it happens that the day after for a test day is one of the days given in the training data. This means that for about a quarter of the test data be are actually told the thing that we are meant to predict.</p>
+<p>One of the rules of the competition is ‘no exploits’. So I have dutifully ignored the known answer when making my predictions, but it was tempting.</p>
+<p>Not only is this dataset large and location-specific but it contains a fair amount of missing data. Weather variables, such as humidity, pressure, wind speed, temperature and rainfall are all closely interrelated so it is important to allow for this when imputing the missing data. Like episode 2 the problem is really too difficult for a 2 hour competition.</p>
+</div>
+<div id="my-analysis-3" class="section level3">
+<h3>My Analysis</h3>
+<p>I considered two ways of predicting the probability of rain</p>
+<ul>
+<li>take long-term averages for that time of year<br />
+</li>
+<li>use today’s conditions to predict rain tomorrow</li>
+</ul>
+<p>I started with the approach of long-term averages and used a Bayesian estimate of the proportion of rainy days in a given location during a given month that avoids the problem of a zero probability prediction.</p>
+<p>Data exploration shows that there is considerable extra information in the daily weather pattern. Because of the amount of missing data, today’s conditions cannot be used without imputation.</p>
+<p>I used multiple imputation based on chained equations as implemented by the <code>mice</code> package.</p>
+<p>The data exploration shows that the impact of today’s conditions varies depending on location. This suggests that we will need a model with interactions between location and the other predictors. As an alternative to using interactions, I decided to fit separate models to each location. This is implemented in a tibble with list columns using the map functions from <code>purrr</code>.</p>
+<p>Predictions are made separately for each imputed dataset and then averaged. To save time, I omitted some of the potentially predictive variables and this adversely affected performance. The model is competitive but definitely could be improved.</p>
+</div>
+</div>
+</div>
+
+  
+
+  
+    <div id="disqus_thread"></div>
+<script type="application/javascript">
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "John" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+  
+
+
+
+    <footer class="site-footer">
+  <span class="site-footer-credits">
+    Made with <a href="https://gohugo.io/">Hugo</a>. Themed by <a href="https://github.com/zwbetz-gh/cayman-hugo-theme">Cayman</a>. Deployed to <a href="https://www.netlify.com/">Netlify</a>.
+  </span>
+</footer>
+
+  </section>
+  
+  
+  <script>
+  window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+  ga('create', 'UA-123456789-1', 'auto');
+  ga('send', 'pageview');
+  </script>
+  <script async src='https://www.google-analytics.com/analytics.js'></script>
+  
+
+</body>
+</html>
