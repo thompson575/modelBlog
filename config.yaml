@@ -34,8 +34,8 @@ params:
   table_border_color: '#e9ebec'
 menu:
   nav:
-    - name: Blog
-      url: /
+    - name: Posts
+      url: /post/
       weight: 1
     - name: Tags
       url: /tags/
