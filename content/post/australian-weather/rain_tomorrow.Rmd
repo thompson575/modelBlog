@@ -25,15 +25,15 @@ knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE, fig.align='cent
 
 # Summary:
 
-**Background:** In episode 4 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on daily weather patterns in different parts of Australia. The aim was to predict whether or not it will rain the next day.  
+**Background:** In episode 4 of the 2021 series of *Sliced*, the competitors were given two hours in which to analyse a set of data on daily weather patterns in different parts of Australia. The aim was to predict whether or not it will rain the next day.  
 **My approach:** I started with the idea that location would be key to a good model and I tried two approaches, one based on average rainfall patterns for the time of year and the other based on a day's weather predicting the weather on the following day. I used a Bayesian method to estimate the probability of rain in each month in each location. Before using the daily weather records I imputed the missing data using the `mice` package. I analysed each location separately by setting up a tibble with one row per location and a list column for the model fits.  
 **Result:** My model has an interpretable structure and did reasonably well at prediction. The logloss was about 5% worse than the competition leader.   
-**Conclusion:** The model could be improved by including the explanatory information including the weather records for the morning, the total rainfall and the wind direction that I omitted to save time. However, these data are really best suited to a Bayesian hierarchical model.  
+**Conclusion:** The model could be improved by adding extra explanatory information including the weather records for the morning, the total rainfall and the wind direction. I omitted these as the post was already very long. However, this problem is best suited to a Bayesian hierarchical model.  
 
 
 # Introduction
 
-The fourth of the `sliced` datasets can be downloaded from https://www.kaggle.com/c/sliced-s01e04-knyna9. The data describe daily weather conditions in different parts of Australia. The contestants were asked to predict whether or not it would rain on the following day based on those records. Rain tomorrow is a binary response, so the evaluation is by mean logloss.
+The fourth of the *Sliced* datasets can be downloaded from https://www.kaggle.com/c/sliced-s01e04-knyna9. The data describe daily weather conditions in different parts of Australia. The contestants were asked to predict whether or not it would rain on the following day based on those records. Rain tomorrow is a binary response, so the evaluation is by mean logloss.
 
 My initial thoughts are that Australia is a big place and the factors that determine whether it will rain in Darwin might be very different the factors that are predictive in Hobart. Either the model should consider locations separately, or it will need a lot of interactions.
 

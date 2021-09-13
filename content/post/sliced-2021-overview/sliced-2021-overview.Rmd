@@ -5,7 +5,7 @@ date: "`r Sys.time()`"
 layout: post
 tags:
 - Sliced
-- Sliced overview
+- Sliced episode overview
 output:
     html_document:
     keep_md: true
