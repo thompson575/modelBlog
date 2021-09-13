@@ -6,7 +6,7 @@ layout: post
 tags:
 - Sliced
 - external knowledge
-- offset
+- offset 
 output:
     html_document:
     keep_md: true
@@ -43,7 +43,7 @@ Let's set up some notation so that we can express what we know about the cost an
 C = cost of the item (what the store pays for it)   
 S~0~ = sales price when there is no discount  
 P~0~ = profit when there is no discount  
-d = discount on the item (a proportion)
+d = discount on the item (a proportion)  
 S~d~ = sales price when the discount is d  
 P~d~ = profit when the discount is d  
 
@@ -69,7 +69,7 @@ S~d~ = (1-d) * S~0~
 
 So we have our first key equation for calculating the undiscounted sales price., 
 
-(A) ... S~0~ = S~d~ / (1 - d)
+Equation A: ... S~0~ = S~d~ / (1 - d)
 
 and we can deduce that
 
@@ -81,7 +81,7 @@ P~d~ = - S~d~ * d / (1 - d) + P~0~
 
 This give the second key equation for the undiscounted profit,
 
-(B) ... P~0~ = P~d~ + S~d~ * d / (1 - d)
+Equation B: ... P~0~ = P~d~ + S~d~ * d / (1 - d)
 
 In the training data, we are given d, S~d~ and P~d~, so we can use (A) and (B) to deduce S~0~ and P~0~, i.e. we can remove the impact of the discount and calculate the profit that would have been made had there been no discount. 
 
@@ -89,7 +89,7 @@ In this way, we can build a model to predict profit without discount. Then in th
 
 # Reading the data
 
-It is my practice to read the data asis and to immediately save it in rds format within a directory called `data/rData`. For details of the way that I organise my analyses you should read by post called `Sliced methods Overview`.
+It is my practice to read the data asis and to immediately save it in rds format within a directory called `data/rData`. For details of the way that I organise my analyses you should read by post called `Sliced Methods Overview`.
 
 This code reads the rds files
 ```{r}
@@ -124,7 +124,7 @@ As usual for these posts, I have hidden the output for skim(); it is important, 
 
 ### The Response
 
-The intended response is profit after discounting, which I have truncated at -$250 and +$250 for this histogram.
+The response used in judging the models is profit after discounting, which I have truncated at -$250 and +$250 for the following histogram.
 ```{r}
 # --- histogram of the profit after discounting -----------
 trainRawDF %>%
@@ -136,7 +136,7 @@ trainRawDF %>%
           x="Profit")
 ```
 
-However we can work with the profit before discount, which I call baseProfit.
+However we will work with the profit before discount, which I call baseProfit.
 
 ```{r}
 # --- Histogram of baseProfit = profit before discount ----
@@ -208,7 +208,7 @@ trainRawDF %>%
 
 Just the banded appearance that we were expecting. A intercept of -0.5 corresponds to 100*10^-0.5^=32% profit, an intercept of -1 corresponds to 10% profit and -2 corresponds to 1% profit. So if items were sold at full price the store would usually make between 20% and 30% profit on each item.
 
-# What predicts profit
+# Predicting percent profit
 
 The next questions is what influences whether you make 30% profit on the full price or 10% profit on the full price?
 
@@ -227,7 +227,7 @@ trainRawDF %>%
        x = "number of sales", y=NULL)
 ```
 
-It looks like the store only sells office supplies but even so, these categories are quite broad; there must be several different types of table and many brands of phones. Let's look at the profit/sales plot across subcategory and for particular subcategories.
+It looks like the store only sells office supplies but even so, these categories are quite broad; there must be several different types of table and many brands of phones. Let's look at the profit/sales plot for particular subcategories.
 
 Rather arbitrarily, I've chosen tables, phones and binders
 ```{r}
@@ -332,7 +332,7 @@ trainRawDF %>%
   geom_point() +
   geom_abline( slope=1, intercept=0) +
   labs( title="Undiscounted profit and sales price for Accessories",
-        subtitle="by qunatity")
+        subtitle="by quantity")
 ```
 
 As expected, there is nothing clear cut. In the case of quantity, we appear to have the total sales price and total profit, so although quantity moves the sales price to the right, it is not obviously related to the percentage profit.
@@ -365,7 +365,7 @@ trainDF %>%
 
 So `Accessories`, which is alphabetically first, is the baseline product with an intercept of -0.59, so an average profit of 26%. The margin is better on Binders at (-0.590+0.257=-0.333) or 46% and so on.
 
-We ought to treat the standard errors and p-values with caution because we know the variance is much greater for Accessories than it is for Binders; this violates one of the assumptions of the model. The effect of the violation will invalidate the standard errors but should not have much effect on the estimates.
+We ought to treat the standard errors and p-values with caution because we know the variance is much greater for Accessories than it is for Binders; this violates one of the assumptions of the model. The effect of the violation will invalidate the standard errors but should not have much effect on the estimates or predictions.
 
 The next question is whether any of the other factors add to the predictions. Because the variance differs by product, I'll look at Accessories in the first instance.
 
@@ -505,13 +505,14 @@ When I submitted these predictions as a late submission the RMSE was
 
 It is a common fault that people see everything as evidence that they were right all along, but this example certainly plays into my prejudices about machine learning. In particular, the tendency of data scientists to be over-reliant on automatic algorithms. 
 
-When I taught statistical modelling, I tried to emphasise the importance of thinking about the problem; of course, data scientists will say that they think about the problem too, but I don't see the evidence for that. Too often, machine learning involves data visualization followed by XGBoost, and rarely do the plots have any impact on the models. It is as if they were two separate processes.
+When I taught statistical modelling, I tried to emphasise the importance of thinking about the problem; of course, data scientists will say that they think about the problem too, but I don't see the evidence for that. Too often, machine learning involves data visualisation followed by XGBoost, and rarely do the plots have any impact on the models. It is as if they were two separate processes.
 
 There is a movement within data science called probabilistic programming that is trying to correct these failings, but this is just a rediscovery of statistical modelling under a new name. 
 
 Perhaps, my rant is a little harsh, machine learning is a new discipline and so we must give it time to mature. As a statistician, I would not like to see my subject judged by statistical practice as it was 75 years ago.
 
-When you employ a statistician, you get the understanding of the statistician together with the performance of the statistical model. Machine learning uses very similar models, but tries to use them automatically, that is to say, without human understanding. Take as an example a neural network that is designed to recognise images of cats and dogs. We all know that neural networks can be trained to perform incredibly well at this task, but we also know that by tweaking a few pixels, we can fool the network into deciding that a car is a dog. A human would not be confused by these changes, because they have a deeper understanding of what they are doing. Without this human understanding ridiculous errors will occur and performance levels will drop.  
+When you employ a statistician, you get the understanding of the statistician together with the performance of the statistical model. Machine learning uses very similar models, but tries to use them automatically, that is to say, without human understanding. Take as an example a neural network that is designed to recognise images of cats and dogs. We all know that neural networks can be trained to perform incredibly well at this task, but we also know that by tweaking a few pixels, we can fool the network into deciding that a car is a dog. A human would not be confused by these changes, because they have a deeper understanding of what they are doing. Without human understanding, errors are bound to occur and performance levels will suffer. 
+
 No doubt, machine learning algorithms will eventually develop to the point where they imitate human understanding; not only will they fit a logistic regression, but they will understand when the model is appropriate and they will understand what the results mean and so they will spot errors. We are not yet at that stage and so human understanding is still needed in the modelling process. At present, it is still true that an analysis is only as good as the analyst that produced it.
 
  

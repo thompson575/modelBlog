@@ -190,14 +190,14 @@ summary {
 
 <h1 class="title toc-ignore">Sliced 2021 Overview</h1>
 <h4 class="author">John Thompson</h4>
-<h4 class="date">2021-09-07 11:50:56</h4>
+<h4 class="date">2021-09-13 10:37:55</h4>
 
 </div>
 
 
 <div id="introduction" class="section level1">
 <h1>Introduction</h1>
-<p>Sliced is a data science competition hosted by Nick Wan on twitch ( <a href="https://www.twitch.tv/nickwan_datasci" class="uri">https://www.twitch.tv/nickwan_datasci</a> ). In each episode, 4 data scientists with very different backgrounds are given the same dataset and in 2 hours they must explore the data and build a predictive model. As well as the training data, they are given a test set that lacks the variable to be predicted. The model that best predicts in the test data according to a specified metric, wins the prediction element of the competition, but other points are available for data visualization, golden features and popularity as voted for by chat.</p>
+<p>Sliced is a data science competition hosted by Nick Wan and Meg Risdal on twitch ( <a href="https://www.twitch.tv/nickwan_datasci" class="uri">https://www.twitch.tv/nickwan_datasci</a> ). In each episode, 4 data scientists with very different backgrounds are given the same dataset and in 2 hours they must explore the data and build a predictive model. As well as the training data, they are given a test set that lacks the variable to be predicted. The model that best predicts in the test data according to a specified metric, wins the prediction element of the competition, but other points are available for data visualization, golden features and popularity as voted for by chat.</p>
 <p>The datasets are all available on kaggle and while the competition is live on twitch, members of the audience can run their own analyses and submit them so that they are assessed alongside the models of the competitors. Afterwards, anyone can download the data and submit a late entry, but it will not be added to the leaderboard.</p>
 <p>I have taken each of the datasets used by sliced and run my own analyses, which I present in a series of blog posts. I think that the main interest in my analyses lies in the fact that I was trained as a statistician and not as a data scientist, so my analyses highlight some interesting differences of approach between the two traditions.</p>
 <p>I must stress that I did not analyse these data under competition conditions. In most cases, I spend less than 2 hours on the analysis, but much more time writing the blog posts that explain what I did.</p>
@@ -326,6 +326,43 @@ summary {
 </ul>
 <p>My model beats the submissions on the leaderboard by a wide margin, so I can only assume that those competitors ignored the specific structure of the problem.</p>
 <p>The code used for this problem is very basic. All that you needed to win the competition were a few scatter plots and some simple linear models.</p>
+</div>
+</div>
+<div id="episode-4-rain-tomorrow" class="section level2">
+<h2>Episode 4: Rain tomorrow</h2>
+<div id="keywords-3" class="section level3">
+<h3>Keywords</h3>
+<p>weather prediction; Bayesian estimates of a proportion; multiple imputation by chained equations (mice); logistic regression; combining many models; list columns; map() functions; user-written functions;</p>
+</div>
+<div id="packages-3" class="section level3">
+<h3>Packages</h3>
+<p>tidyverse; broom; mice; purrr;</p>
+</div>
+<div id="the-data-3" class="section level3">
+<h3>The data</h3>
+<p>The data for this episode can be downloaded from <a href="https://www.kaggle.com/c/sliced-s01e04-knyna9" class="uri">https://www.kaggle.com/c/sliced-s01e04-knyna9</a>.</p>
+</div>
+<div id="the-problem-3" class="section level3">
+<h3>The problem</h3>
+<p>The data consist of daily weather records from 49 different locations in Australia. The objective is to predict whether or not it rained on the following day and the metric was logloss.</p>
+<p>Like episode 2 this is a large complex dataset that would be quite challenging under competition conditions. Australia is huge and the weather patterns vary enormously by location.</p>
+<p>When the organisers set up this episode they must have taken weather records going back many years and randomly picked the days for each location so that a random sample went into the training set and another random sample went into the test set. However, they seem to have drawn the two sample independently because sometimes it happens that the day after for a test day is one of the days given in the training data. This means that for about a quarter of the test data be are actually told the thing that we are meant to predict.</p>
+<p>One of the rules of the competition is ‘no exploits’. So I have dutifully ignored the known answer when making my predictions, but it was tempting.</p>
+<p>Not only is this dataset large and location-specific but it contains a fair amount of missing data. Weather variables, such as humidity, pressure, wind speed, temperature and rainfall are all closely interrelated so it is important to allow for this when imputing the missing data. Like episode 2 the problem is really too difficult for a 2 hour competition.</p>
+</div>
+<div id="my-analysis-3" class="section level3">
+<h3>My Analysis</h3>
+<p>I considered two ways of predicting the probability of rain</p>
+<ul>
+<li>take long-term averages for that time of year<br />
+</li>
+<li>use today’s conditions to predict rain tomorrow</li>
+</ul>
+<p>I started with the approach of long-term averages and used a Bayesian estimate of the proportion of rainy days in a given location during a given month that avoids the problem of a zero probability prediction.</p>
+<p>Data exploration shows that there is considerable extra information in the daily weather pattern. Because of the amount of missing data, today’s conditions cannot be used without imputation.</p>
+<p>I used multiple imputation based on chained equations as implemented by the <code>mice</code> package.</p>
+<p>The data exploration shows that the impact of today’s conditions varies depending on location. This suggests that we will need a model with interactions between location and the other predictors. As an alternative to using interactions, I decided to fit separate models to each location. This is implemented in a tibble with list columns using the map functions from <code>purrr</code>.</p>
+<p>Predictions are made separately for each imputed dataset and then averaged. To save time, I omitted some of the potentially predictive variables and this adversely affected performance. The model is competitive but definitely could be improved.</p>
 </div>
 </div>
 </div>

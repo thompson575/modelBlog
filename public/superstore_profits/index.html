@@ -6,14 +6,14 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="generator" content="Hugo 0.82.0" />
   
-  <meta name="description" content="Summary:Background: In episode 3 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on superstore sales. The aim was to predict the profit on each sale.
+  <meta name="description" content="Summary:Background: In episode 3 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on superstore sales. The aim was to predict the profit on a sale.
 My approach: This is a good example of a problem for which we have knowledge about the structure of the data. In particular, we know the relation between sales, cost, discount and profit.">
-  <link rel="stylesheet" href="https://example.com/css/normalize.css">
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/normalize.css">
   <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
   
   
   
-  <link rel="stylesheet" href="https://example.com/css/cayman.ea0e967413f3851071cc8ace3621bc4205fe8fa79b2abe3d7bf94ff2841f0d47.css">
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/cayman.ea0e967413f3851071cc8ace3621bc4205fe8fa79b2abe3d7bf94ff2841f0d47.css">
   
   
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
@@ -24,7 +24,7 @@ My approach: This is a good example of a problem for which we have knowledge abo
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.js" integrity="sha384-9Nhn55MVVN0/4OFx7EE5kpFBPsEMZxKTCnA+4fqDmg12eCTqGi6+BB2LjY8brQxJ" crossorigin="anonymous"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/contrib/auto-render.min.js" integrity="sha384-kWPLUVMOks5AQFrykwIup5lo0m3iMkkHrD0uJ4H5cjeGihAutqP0yW0J6dpFiVkI" crossorigin="anonymous" onload="renderMathInElement(document.body);"></script>
 
-  <title>Sliced 2021 Episode 3: Superstore profits | Modelling with R</title>
+  <title>Sliced Episode 3: Superstore profits | Modelling with R</title>
 </head>
 
 <body>
@@ -61,10 +61,10 @@ My approach: This is a good example of a problem for which we have knowledge abo
 
   <section class="main-content">
     
-  <h1>Sliced 2021 Episode 3: Superstore profits</h1>
+  <h1>Sliced Episode 3: Superstore profits</h1>
   <div>
     
-    <strong>Publish date: </strong>2021-07-29
+    <strong>Publish date: </strong>2021-09-07
   </div>
   
   
@@ -83,7 +83,7 @@ My approach: This is a good example of a problem for which we have knowledge abo
         
         
       
-      <a href="https://example.com/tags/sliced/">Sliced</a>, <a href="https://example.com/tags/external-knowledge/">external knowledge</a>, <a href="https://example.com/tags/offset/">offset</a>
+      <a href="https://modelling-with-r.netlify.app/tags/sliced/">Sliced</a>, <a href="https://modelling-with-r.netlify.app/tags/external-knowledge/">external knowledge</a>, <a href="https://modelling-with-r.netlify.app/tags/offset/">offset</a>
     </div>
   
   
@@ -92,26 +92,26 @@ My approach: This is a good example of a problem for which we have knowledge abo
 
 <div id="summary" class="section level1">
 <h1>Summary:</h1>
-<p><strong>Background:</strong> In episode 3 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on superstore sales. The aim was to predict the profit on each sale.<br />
-<strong>My approach:</strong> This is a good example of a problem for which we have knowledge about the structure of the data. In particular, we know the relation between sales, cost, discount and profit. Using this knowledge, I converted all sales and profits to what they would have been without a discount and I modelled the simplified data. Undiscounted profit is a percentage of the undiscounted sales price, so the problem reduces to estimating that percentage. On log scales the model reduces to a series of lines with a known slope of 1 and intercepts related to the percent profit.<br />
-<strong>Result:</strong> A simple linear model of logged data with known slope in which the intercept depends on the type of item produces a RMSE that is 75% better than the best submission on the leaderboard.<br />
-<strong>Conclusion:</strong> Datasets for which we have knowledge about the structure must be analysed by models that incorporate that knowledge. A standard machine learning algorithm is almost guaranteed to perform badly.</p>
+<p><strong>Background:</strong> In episode 3 of the 2021 series of <em>Sliced</em>, the competitors were given two hours in which to analyse a set of data on superstore sales. The aim was to predict the profit on a sale.<br />
+<strong>My approach:</strong> This is a good example of a problem for which we have knowledge about the structure of the data. In particular, we know the relation between sales, cost, discount and profit. Using this knowledge, I converted all sales and profits to what they would have been without a discount and I modelled the simplified data. Undiscounted profit is best described as a percentage of the undiscounted sales price, so the problem reduces to estimating that percentage. On log scales the model reduces to a series of lines with a known slope of 1 and intercepts related to the percent profit.<br />
+<strong>Result:</strong> A simple linear model of logged data with known slope in which the intercept depends on the type of item produces a RMSE that is much better than the top submission on the leaderboard.<br />
+<strong>Conclusion:</strong> When we have knowledge about the data structure, this must be incorporated into the model. A standard machine learning algorithm that ignores known structure is almost guaranteed to perform badly.</p>
 </div>
 <div id="introduction" class="section level1">
 <h1>Introduction</h1>
-<p>The third of the <code>sliced</code> datasets asks us to predict the profits on items sold by a unnamed superstore (think Amazon or a similar company) and as usual the evaluation metric is RMSE. The data can be downloaded from <a href="https://www.kaggle.com/c/sliced-s01e03-DcSXes" class="uri">https://www.kaggle.com/c/sliced-s01e03-DcSXes</a>.</p>
+<p>The third of the <em>Sliced</em> tasks is to predict the profits on items sold by a unnamed superstore (think Amazon or a similar company) and as usual the evaluation metric is RMSE. The data can be downloaded from <a href="https://www.kaggle.com/c/sliced-s01e03-DcSXes" class="uri">https://www.kaggle.com/c/sliced-s01e03-DcSXes</a>.</p>
 <p>At first sight, this looks like a rather boring example. There is nothing unusual about the data and the response is a straightforward continuous measure; it looks like a bog-standard regression problem, and yet!</p>
-<p>There is a class of problems that standard machine machine learning algorithms find difficult to handle; I’m thinking of those problems where we have external knowledge about the structure of the data. The classic example is a physics dataset where we know that the measurements must obey the natural laws of physics, so we need to adapt our models to incorporate those laws. In a much simpler way, in the superstore, we know about the relationship between product cost, sales price, discount and profit.</p>
+<p>There is a class of problems that standard machine machine learning algorithms find difficult to handle; I’m thinking of those problems where we have external knowledge about the structure of the data. The classic example is a physics dataset where we know that the measurements must obey the natural laws of physics, so models need to incorporate those laws. In a much simpler way, we know the relationship between product cost, sales price, discount and profit and we need to use that information.</p>
 </div>
 <div id="what-we-know" class="section level1">
 <h1>What we know</h1>
-<p>When there is a known structure, it is vital that the analyst finds out exactly what each variable means. For instance, we are told the sales price, but when multiple items are sold together, is this the total sales price or the sales price per item? When we talk of profit, does this allow for shipping costs?</p>
-<p>Since we cannot go to the management of the store and ask them, we will have to make best guesses, and later, check the data to see if those guesses look right.</p>
+<p>When there is a known structure, it is vital that the analyst finds out exactly what each variable means so that structure is described accurately. For instance, we are told the sales price, but when multiple items are sold together, is this the total sales price, or the sales price per item? When we talk of profit, does this allow for shipping costs?</p>
+<p>Since we cannot go to the management of the store and ask them, we will have to make best guesses, and later, check the data to see if those guesses look reasonable.</p>
 <p>Let’s set up some notation so that we can express what we know about the cost and profit on a single item.</p>
 <p>C = cost of the item (what the store pays for it)<br />
 S<sub>0</sub> = sales price when there is no discount<br />
 P<sub>0</sub> = profit when there is no discount<br />
-d = discount on the item (a proportion)
+d = discount on the item (a proportion)<br />
 S<sub>d</sub> = sales price when the discount is d<br />
 P<sub>d</sub> = profit when the discount is d</p>
 <p>The first thing that we know is that profit is the difference between sales price and cost</p>
@@ -124,25 +124,21 @@ P<sub>d</sub> = profit when the discount is d</p>
 <p>P<sub>d</sub> = S<sub>d</sub> - (S<sub>0</sub> - P<sub>0</sub>)</p>
 <p>Next we can relate the discounted price to the full (undiscounted) price</p>
 <p>S<sub>d</sub> = (1-d) * S<sub>0</sub></p>
-<p>So we have our first key equation,</p>
-<ol style="list-style-type: upper-alpha">
-<li>… S<sub>0</sub> = S<sub>d</sub> / (1 - d)</li>
-</ol>
+<p>So we have our first key equation for calculating the undiscounted sales price.,</p>
+<p>Equation A: … S<sub>0</sub> = S<sub>d</sub> / (1 - d)</p>
 <p>and we can deduce that</p>
 <p>P<sub>d</sub> = S<sub>d</sub> - ( S<sub>d</sub> / (1 - d) - P<sub>0</sub> )</p>
 <p>or</p>
 <p>P<sub>d</sub> = - S<sub>d</sub> * d / (1 - d) + P<sub>0</sub></p>
-<p>and the second key equation,</p>
-<ol start="2" style="list-style-type: upper-alpha">
-<li>… P<sub>0</sub> = P<sub>d</sub> + S<sub>d</sub> * d / (1 - d)</li>
-</ol>
+<p>This give the second key equation for the undiscounted profit,</p>
+<p>Equation B: … P<sub>0</sub> = P<sub>d</sub> + S<sub>d</sub> * d / (1 - d)</p>
 <p>In the training data, we are given d, S<sub>d</sub> and P<sub>d</sub>, so we can use (A) and (B) to deduce S<sub>0</sub> and P<sub>0</sub>, i.e. we can remove the impact of the discount and calculate the profit that would have been made had there been no discount.</p>
 <p>In this way, we can build a model to predict profit without discount. Then in the test data we can predict the profit without a discount and back-calculate the actual profit. Hopefully, this will remove a large component of the variability in the data.</p>
 </div>
 <div id="reading-the-data" class="section level1">
 <h1>Reading the data</h1>
-<p>It is my practice to read the data asis and to immediately save it in rds format within a directory called data/rData. For details of the way that I organise my analyses you should read by post in the methods section of the post called <code>Sliced methods Overview</code>.</p>
-<p>First I read the rds files.</p>
+<p>It is my practice to read the data asis and to immediately save it in rds format within a directory called <code>data/rData</code>. For details of the way that I organise my analyses you should read by post called <code>Sliced Methods Overview</code>.</p>
+<p>This code reads the rds files</p>
 <pre class="r"><code># --- setup: libraries &amp; options ------------------------
 library(tidyverse)
 library(broom)
@@ -153,24 +149,24 @@ theme_set( theme_light())
 home &lt;- &quot;C:/Projects/kaggle/sliced/s01-e03&quot;
 
 # --- read downloaded data -----------------------------
-rawTrainDF &lt;- readRDS( file.path(home, &quot;data/rData/train.rds&quot;) )
+trainRawDF &lt;- readRDS( file.path(home, &quot;data/rData/train.rds&quot;) )
 
-rawTestDF  &lt;- readRDS( file.path(home, &quot;data/rData/test.rds&quot;) )</code></pre>
+testRawDF  &lt;- readRDS( file.path(home, &quot;data/rData/test.rds&quot;) )</code></pre>
 </div>
 <div id="data-exploration" class="section level1">
 <h1>Data Exploration</h1>
-<p>Let’s calculate the undiscounted sales price and profit, I’ll call them <code>baseSales</code> and <code>baseProfit</code> and summarise everything with <code>skimr</code>.</p>
+<p>Let’s calculate the undiscounted sales price and profit, I’ll call them <code>baseSales</code> and <code>baseProfit</code> and then summarise everything with <code>skimr</code>.</p>
 <pre class="r"><code># --- summarise data with skim ---------------------------
-rawTrainDF %&gt;%
+trainRawDF %&gt;%
   mutate( baseSales  = sales / (1 - discount),
           baseProfit = profit + sales * discount / (1 - discount) ) %&gt;%
   skimr::skim()</code></pre>
 <p>As usual for these posts, I have hidden the output for skim(); it is important, but long and interferes with the flow. It shows that there is no problem of missing data and, as we would expect, baseProfit is always positive (within rounding error).</p>
 <div id="the-response" class="section level3">
 <h3>The Response</h3>
-<p>The intended response is profit after discounting, which I have truncated at -$250 and +$250 for this histogram.</p>
+<p>The response used in judging the models is profit after discounting, which I have truncated at -$250 and +$250 for the following histogram.</p>
 <pre class="r"><code># --- histogram of the profit after discounting -----------
-rawTrainDF %&gt;%
+trainRawDF %&gt;%
   filter( profit &gt;= -250 &amp; profit &lt;= 250 ) %&gt;%
   ggplot( aes(x=profit) ) +
     geom_histogram( bins=100, fill=&quot;steelblue&quot;) +
@@ -178,9 +174,9 @@ rawTrainDF %&gt;%
           subtitle=&quot;truncated at -$250 and +$250&quot;,
           x=&quot;Profit&quot;)</code></pre>
 <p><img src="/post/superstore-profits/superstore_profits_files/figure-html/unnamed-chunk-3-1.png" width="528" style="display: block; margin: auto;" /></p>
-<p>However we can work with the profit before discount, which I will call baseProfit.</p>
+<p>However we will work with the profit before discount, which I call baseProfit.</p>
 <pre class="r"><code># --- Histogram of baseProfit = profit before discount ----
-rawTrainDF %&gt;%
+trainRawDF %&gt;%
   mutate( baseSales  = sales / (1 - discount),
           baseProfit = profit + sales * discount / (1 - discount) ) %&gt;%
   filter( baseProfit &lt;= 250 ) %&gt;%
@@ -193,16 +189,16 @@ rawTrainDF %&gt;%
 <p>This confirms that there are no negative profits before discounting.</p>
 <p>Profit is usually a percentage of the sales price but the discount makes this picture confusing</p>
 <pre class="r"><code># --- profit and sales price ------------------------------
-rawTrainDF %&gt;%
+trainRawDF %&gt;%
   mutate( discount = factor(discount)) %&gt;%
   ggplot( aes(x=sales, y=profit, colour=discount)) +
   geom_point() +
   labs( title=&quot;Discounted profit and sales price&quot;)</code></pre>
 <p><img src="/post/superstore-profits/superstore_profits_files/figure-html/unnamed-chunk-5-1.png" width="528" style="display: block; margin: auto;" /></p>
 <p>Some items are sold at a loss because of the discount. The undiscounted items all lie on the steepest positive line and most of the 80% discounted items lie on the line with the steepest negative slope.</p>
-<p>When we remove the effect of discount the relationship becomes more straightforward.</p>
+<p>When we remove the effect of discount the relationship becomes clearer.</p>
 <pre class="r"><code># --- baseSales and baseProfit ----------------------------
-rawTrainDF %&gt;%
+trainRawDF %&gt;%
   mutate( baseSales  = sales / (1 - discount),
           baseProfit = profit + sales * discount / (1 - discount) ) %&gt;%
   mutate( discount = factor(discount)) %&gt;%
@@ -211,7 +207,7 @@ rawTrainDF %&gt;%
   labs( title=&quot;Undiscounted profit and  sales price&quot;)</code></pre>
 <p><img src="/post/superstore-profits/superstore_profits_files/figure-html/unnamed-chunk-6-1.png" width="528" style="display: block; margin: auto;" /></p>
 <p>We have removed the effect of the discount and we can see the that items are no longer being priced at less than they cost and that the best base profits are associated with a mix of items, some of which were undiscounted and some of which were actually discounted.</p>
-<p>When we look at the plot of undiscounted profit and sales, the structure is of a set of straight lines that pass through the origin. This suggests that it might be better to think in terms of the percentage profit per item.</p>
+<p>The structure of the plot of undiscounted profit and sales is of a set of straight lines that pass through the origin. This suggests that it might be better to think in terms of the percentage profit per item.</p>
 <p>P<sub>0</sub> = k S<sub>0</sub></p>
 <p>where k is the proportion of the price that does to profit, which we would usually think of as a percentage. So, for example, the store might make 30% profit from selling computers, but only 10% profit from selling tables.</p>
 <p>In this case</p>
@@ -219,7 +215,7 @@ rawTrainDF %&gt;%
 <p>and if we plot log10( P<sub>0</sub> ) against log10( S<sub>0</sub>) we should see sets of lines at 45<sup>o</sup> with intercepts equal to log10(k).</p>
 <p>One problem with a log scale will be items sold at or very close to cost price; the rounded profit will be 0 and we will not be able to log it. We could either add 50c to those profits or drop them from the logged plot. There will not be many such items, so I have decided to drop them.</p>
 <pre class="r"><code># --- baseSales and baseProfit -------------------------------------
-rawTrainDF %&gt;%
+trainRawDF %&gt;%
   mutate( baseSales  = sales / (1 - discount),
           baseProfit = profit + sales * discount / (1 - discount) ) %&gt;%
   # --- drop items with under 50c base profit -------------------
@@ -229,16 +225,16 @@ rawTrainDF %&gt;%
   geom_abline( slope=1, intercept=0) +
   labs( title=&quot;Undiscounted profit and  sales price on a log scale&quot;)</code></pre>
 <p><img src="/post/superstore-profits/superstore_profits_files/figure-html/unnamed-chunk-7-1.png" width="528" style="display: block; margin: auto;" /></p>
-<p>Just the banded appearance that we were expecting. A intercept of -0.5 corresponds to 100*10<sup>-0.5</sup>=32% profit, an intercept of -1 corresponds to 10% profit and -2 corresponds to 1% profit. So if items were sold at full price the store would usually make between 20% and 30% profit.</p>
+<p>Just the banded appearance that we were expecting. A intercept of -0.5 corresponds to 100*10<sup>-0.5</sup>=32% profit, an intercept of -1 corresponds to 10% profit and -2 corresponds to 1% profit. So if items were sold at full price the store would usually make between 20% and 30% profit on each item.</p>
 </div>
 </div>
-<div id="what-predicts-profit" class="section level1">
-<h1>What predicts profit</h1>
+<div id="predicting-percent-profit" class="section level1">
+<h1>Predicting percent profit</h1>
 <p>The next questions is what influences whether you make 30% profit on the full price or 10% profit on the full price?</p>
 <p>One of the variables in the dataset is <code>ship_mode</code> which can be ‘First Class’, ‘Same Day’, ‘Second Class’, ‘Standard Class’. So we know that the superstore is selling over the internet. This suggests that there must be one dollar price for the whole of the USA and (unless shipping costs are included in the profit calculations) regions/States/Cities should not effect the percentage profit.</p>
 <p>What should matter is the nature of the item as described in <code>sub_category</code></p>
 <pre class="r"><code># --- bar plot of the sub-categories ------------------------
-rawTrainDF %&gt;%
+trainRawDF %&gt;%
   group_by( sub_category) %&gt;%
   count() %&gt;%
   ggplot( aes(y=sub_category, x=n)) + 
@@ -246,10 +242,10 @@ rawTrainDF %&gt;%
   labs(title=&quot;Categories of items sold by the store&quot;,
        x = &quot;number of sales&quot;, y=NULL)</code></pre>
 <p><img src="/post/superstore-profits/superstore_profits_files/figure-html/unnamed-chunk-8-1.png" width="528" style="display: block; margin: auto;" /></p>
-<p>It looks like the store only sells office supplies but even so, these categories are quite broad; there must be several different types of table and many brands of phones. Let’s look at the profit/sales plot across subcategory and for particular subcategories.</p>
+<p>It looks like the store only sells office supplies but even so, these categories are quite broad; there must be several different types of table and many brands of phones. Let’s look at the profit/sales plot for particular subcategories.</p>
 <p>Rather arbitrarily, I’ve chosen tables, phones and binders</p>
 <pre class="r"><code># --- profit and sales for 3 categories of item -------------
-rawTrainDF %&gt;%
+trainRawDF %&gt;%
   mutate( baseSales  = sales / (1 - discount),
           baseProfit = profit + sales * discount / (1 - discount) ) %&gt;%
   mutate( discount = factor(discount)) %&gt;%
@@ -262,10 +258,10 @@ rawTrainDF %&gt;%
   facet_wrap( ~ sub_category) +
   labs( title=&quot;Undiscounted profit and  sales price on a log scale&quot;)</code></pre>
 <p><img src="/post/superstore-profits/superstore_profits_files/figure-html/unnamed-chunk-9-1.png" width="528" style="display: block; margin: auto;" /></p>
-<p>Clearly, there will be no problem predicting the profit on binders, though I find it hard to believe that $1000 was spent on binders. It makes me suspect that the figures relate to the total amount spent over some fixed period in a given location, rather than individual transactions as I first thought. Phones too are fairly predictable but tables are more variable.</p>
+<p>Clearly, there will be no problem predicting the profit on binders, though I find it hard to believe that $1000 was spent on a binder. It makes me suspect that the figures relate to the total amount spent over some fixed period in a given location, rather than individual transactions as I first thought. Phones too are fairly predictable but tables are more variable.</p>
 <p>Here are some other products</p>
 <pre class="r"><code># --- profit and sales for 3 other categories of item --------
-rawTrainDF %&gt;%
+trainRawDF %&gt;%
   mutate( baseSales  = sales / (1 - discount),
           baseProfit = profit + sales * discount / (1 - discount) ) %&gt;%
   mutate( discount = factor(discount)) %&gt;%
@@ -278,11 +274,11 @@ rawTrainDF %&gt;%
   facet_wrap( ~ sub_category) +
   labs( title=&quot;Undiscounted profit and  sales price on a log scale&quot;)</code></pre>
 <p><img src="/post/superstore-profits/superstore_profits_files/figure-html/unnamed-chunk-10-1.png" width="528" style="display: block; margin: auto;" /></p>
-<p>Paper is encouraging in that there is a single line regardless of discount, which suggests that our discount adjustment works reasonably well. We would expect accessories to be a variable category so the spread of the intercepts is not surprising.</p>
+<p>Paper is encouraging in that there is a single line regardless of discount, which suggests that our discount adjustment works well. We would expect accessories to be a variable category so the spread of the intercepts is not surprising.</p>
 <p>The next question is, given that accessories is a wide category and we have no way of knowing what accessory was bought, is there anything in the data that will help predict the percentage profit. It could be that some people only buy items from this store if they are competitively priced. It seems far fetched but perhaps when the basic price is good value, people are more likely to opt for first class delivery, or maybe high profit items are more popular in some states than others. Even if there are such effects, my guess is that they will be very small. In practice, at this point I would contact the store and ask for a more detailed breakdown of the products.</p>
 <p>Let’s look at accessories against some of the other potential predictors.</p>
 <pre class="r"><code># --- accessories coloured by shipping mode -------------------
-rawTrainDF %&gt;%
+trainRawDF %&gt;%
   mutate( baseSales  = sales / (1 - discount),
           baseProfit = profit + sales * discount / (1 - discount) ) %&gt;%
   mutate(ship_mode = factor(ship_mode)) %&gt;%
@@ -296,7 +292,7 @@ rawTrainDF %&gt;%
         subtitle=&quot;by mode of shipping&quot;)</code></pre>
 <p><img src="/post/superstore-profits/superstore_profits_files/figure-html/unnamed-chunk-11-1.png" width="528" style="display: block; margin: auto;" /></p>
 <pre class="r"><code># --- accessories coloured by region --------------------------
-rawTrainDF %&gt;%
+trainRawDF %&gt;%
   mutate( baseSales  = sales / (1 - discount),
           baseProfit = profit + sales * discount / (1 - discount) ) %&gt;%
   mutate( region = factor(region)) %&gt;%
@@ -310,7 +306,7 @@ rawTrainDF %&gt;%
         subtitle=&quot;by region&quot;)</code></pre>
 <p><img src="/post/superstore-profits/superstore_profits_files/figure-html/unnamed-chunk-12-1.png" width="528" style="display: block; margin: auto;" /></p>
 <pre class="r"><code># --- accessories coloured by segment of the market -----------
-rawTrainDF %&gt;%
+trainRawDF %&gt;%
   mutate( baseSales  = sales / (1 - discount),
           baseProfit = profit + sales * discount / (1 - discount) ) %&gt;%
   mutate( segment = factor(segment)) %&gt;%
@@ -324,7 +320,7 @@ rawTrainDF %&gt;%
         subtitle=&quot;by segment of market&quot;)</code></pre>
 <p><img src="/post/superstore-profits/superstore_profits_files/figure-html/unnamed-chunk-13-1.png" width="528" style="display: block; margin: auto;" /></p>
 <pre class="r"><code># --- accessories coloured by quantity -------------------
-rawTrainDF %&gt;%
+trainRawDF %&gt;%
   mutate( baseSales  = sales / (1 - discount),
           baseProfit = profit + sales * discount / (1 - discount) ) %&gt;%
   mutate(quantity = factor(quantity)) %&gt;%
@@ -335,15 +331,15 @@ rawTrainDF %&gt;%
   geom_point() +
   geom_abline( slope=1, intercept=0) +
   labs( title=&quot;Undiscounted profit and sales price for Accessories&quot;,
-        subtitle=&quot;by qunatity&quot;)</code></pre>
+        subtitle=&quot;by quantity&quot;)</code></pre>
 <p><img src="/post/superstore-profits/superstore_profits_files/figure-html/unnamed-chunk-14-1.png" width="528" style="display: block; margin: auto;" /></p>
-<p>As expected, there is nothing clear cut. In the case of quantity, we appear to have the total sales price and total profit, so although quantity moves the sales price to the right, but it is not obviously related to the percentage profit.</p>
+<p>As expected, there is nothing clear cut. In the case of quantity, we appear to have the total sales price and total profit, so although quantity moves the sales price to the right, it is not obviously related to the percentage profit.</p>
 </div>
 <div id="data-cleaning" class="section level1">
 <h1>Data Cleaning</h1>
 <p>There are no missing values or unlikely looking values, so all we need to do is to add baseSales and baseProfit to the data frame.</p>
 <pre class="r"><code># --- simple data cleaning ------------------------------------
-rawTrainDF %&gt;%
+trainRawDF %&gt;%
   mutate( baseSales  = sales / (1 - discount),
           baseProfit = profit + sales * discount / (1 - discount) ) -&gt; trainDF</code></pre>
 </div>
@@ -379,7 +375,7 @@ trainDF %&gt;%
 ## 16 sub_categorySupplies     -0.184    0.0200  4.09e- 20
 ## 17 sub_categoryTables       -0.138    0.0159  3.87e- 18</code></pre>
 <p>So <code>Accessories</code>, which is alphabetically first, is the baseline product with an intercept of -0.59, so an average profit of 26%. The margin is better on Binders at (-0.590+0.257=-0.333) or 46% and so on.</p>
-<p>We ought to treat the standard errors and p-values with caution because we know the variance is much greater for Accessories than it is for Binders; this violates one of the assumptions of the model. The effect of the violation will invalidate the standard errors but should not have much effect on the estimates.</p>
+<p>We ought to treat the standard errors and p-values with caution because we know the variance is much greater for Accessories than it is for Binders; this violates one of the assumptions of the model. The effect of the violation will invalidate the standard errors but should not have much effect on the estimates or predictions.</p>
 <p>The next question is whether any of the other factors add to the predictions. Because the variance differs by product, I’ll look at Accessories in the first instance.</p>
 <pre class="r"><code># --- effect of other predictors on accessories -------------
 trainDF %&gt;%
@@ -476,7 +472,7 @@ trainDF %&gt;%
 ##    rmse
 ##   &lt;dbl&gt;
 ## 1  53.6</code></pre>
-<p>53.6 is a good score given that the leaderboard scores range from 116.9 (1st) to 263 (prediction with the average value for all items).</p>
+<p>53.6 is a good score given that the leaderboard rmses range from 116.9 (1st) to 263 (prediction with the average value for all items).</p>
 <p>Here is the residual plot on the original (discounted) scale. I have added lines at plus/minus 500 to emphasise the largest prediction errors</p>
 <pre class="r"><code># --- residual plot on the discounted scale ---------------------
 trainDF %&gt;%
@@ -515,7 +511,7 @@ trainDF %&gt;%
 ## 13  5253 Supplies      8188.   328.   1377. -1049.
 ## 14  1994 Supplies      4164.    83.3   700.  -617.
 ## 15  9042 Supplies      3930.  -786.   -156.  -630.</code></pre>
-<p>Machines, Copiers and Supplies seem to cause the biggest problems. Machines and Copiers are expensive items so perhaps they should not surprise us, but why Supplies? Let’s look at the data plots for those items</p>
+<p>Machines, Copiers and Supplies seem to cause the biggest problems. Machines and Copiers are expensive items so perhaps it should not surprise us that they can create large residuals, but why Supplies? Let’s look at the data plots for those items</p>
 <pre class="r"><code># --- profit and sales for poorly predicted categories ----------
 trainDF %&gt;%
   filter( baseProfit &gt; 0.5 ) %&gt;%
@@ -528,14 +524,14 @@ trainDF %&gt;%
     facet_wrap( ~ sub_category)  +
   labs( title=&quot;Undiscounted profit and  sales price on a log scale&quot;)</code></pre>
 <p><img src="/post/superstore-profits/superstore_profits_files/figure-html/unnamed-chunk-24-1.png" width="528" style="display: block; margin: auto;" /></p>
-<p>The problem with <code>Supplies</code> is that the majority of items that fall in this category are cheap but have a high percentage profit, while a handful of sales are more expensive but less profitable. The model predicts a better return on the high sales and hence those items have large negative residuals. For machines (and copiers) the problem is that a few of items/sales were very expensive (over $10,000), so that an error in the predicted percentage profit has large consequences.</p>
+<p>The problem with <code>Supplies</code> is that the majority of items in this category are cheap but have a high percentage profit, while a handful of sales are more expensive but less profitable. The model predicts a better return on the high sales and hence those items have large negative residuals. For machines (and copiers) the problem is that a few of items/sales were very expensive (over $10,000), so that an error in the predicted percentage profit has large consequences.</p>
 <p>Not much we can do about it without more detailed information on the items.</p>
 </div>
 <div id="submission" class="section level1">
 <h1>Submission</h1>
 <p>The test data can be processed in exactly the same way.</p>
 <pre class="r"><code># --- prepare submission -------------------------------------
-rawTestDF %&gt;%
+testRawDF %&gt;%
   mutate( baseSales  = sales / (1-discount) ) %&gt;%
   mutate( .fitted = 10 ^ predict(mod, newdata=.) ) %&gt;%
   mutate( yhat = .fitted  - sales * discount / (1 - discount) ) %&gt;%
@@ -558,15 +554,16 @@ rawTestDF %&gt;%
 ## 10  3369   6.23
 ## # ... with 2,811 more rows</code></pre>
 <p>When I submitted these predictions as a late submission the RMSE was
-23.60925, which smashes the competition entries, which range from 116.9 (1st) to 263 (prediction with the average).</p>
+97.48, far better than the other competition entries, which range from 116.9 (1st) to 263 (prediction with the average).</p>
 </div>
 <div id="what-this-example-shows" class="section level1">
 <h1>What this example shows:</h1>
-<p>It is a common fault that people see everything as evidence that they were right all along, but this example certainly plays into my prejudices about machine learning. In particular, the tendency of data scientists to rely on automatic algorithms.</p>
-<p>When I taught statistical modelling, I tried to emphasise the importance of thinking about the problem; of course, data scientists will say that they think about the problem too, but I don’t see the evidence for that. Too often, machine learning involves data visualization followed by XGBoost, and rarely do the plots have any impact on the models. It is as if they were two separate processes.</p>
-<p>There is a movement within data science called probabilistic programming that is trying to correct these failings in machine learning, but this is just a rediscovery of statistical modelling under a new name.</p>
-<p>Perhaps, my rant is a little harsh, machine learning is a new discipline and so we must give it time to mature. As a statistician, I would not like to see by subject judged by statistical practice as it was 75 years ago.</p>
-<p>When you employ a statistician, you get the understanding of the statistician together with the performance of the statistical model. Machine learning adopts much the same models, but tries to use them automatically, that is to say, without human understanding. Take as an example a neural network that is designed to recognise images of cats and dogs. We all know that such neural networks can be trained to perform incredibly well, but we also know that by tweaking a few pixels we can fool the network into thinking that a car is actually a dog. A human would not be confused by these changes, because they have a deeper understanding of what they are doing. Without this human understanding ridiculous errors will occur and performance levels will drop. No doubt, machine learning algorithms will eventually develop to the point where they imitate human understanding; not only will they fit a logistic regression, but they will understand when the model is appropriate and they will understand what the results mean and so they will spot errors. We are not yet at that stage and so human understanding is needed. At present, it is still true that an analysis is only as good as the analyst that produced it.</p>
+<p>It is a common fault that people see everything as evidence that they were right all along, but this example certainly plays into my prejudices about machine learning. In particular, the tendency of data scientists to be over-reliant on automatic algorithms.</p>
+<p>When I taught statistical modelling, I tried to emphasise the importance of thinking about the problem; of course, data scientists will say that they think about the problem too, but I don’t see the evidence for that. Too often, machine learning involves data visualisation followed by XGBoost, and rarely do the plots have any impact on the models. It is as if they were two separate processes.</p>
+<p>There is a movement within data science called probabilistic programming that is trying to correct these failings, but this is just a rediscovery of statistical modelling under a new name.</p>
+<p>Perhaps, my rant is a little harsh, machine learning is a new discipline and so we must give it time to mature. As a statistician, I would not like to see my subject judged by statistical practice as it was 75 years ago.</p>
+<p>When you employ a statistician, you get the understanding of the statistician together with the performance of the statistical model. Machine learning uses very similar models, but tries to use them automatically, that is to say, without human understanding. Take as an example a neural network that is designed to recognise images of cats and dogs. We all know that neural networks can be trained to perform incredibly well at this task, but we also know that by tweaking a few pixels, we can fool the network into deciding that a car is a dog. A human would not be confused by these changes, because they have a deeper understanding of what they are doing. Without human understanding, errors are bound to occur and performance levels will suffer.</p>
+<p>No doubt, machine learning algorithms will eventually develop to the point where they imitate human understanding; not only will they fit a logistic regression, but they will understand when the model is appropriate and they will understand what the results mean and so they will spot errors. We are not yet at that stage and so human understanding is still needed in the modelling process. At present, it is still true that an analysis is only as good as the analyst that produced it.</p>
 </div>
 
   

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Methods on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/methods/</link>
+    <description>Recent content in Methods on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Tue, 07 Sep 2021 12:35:28 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/methods/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Sliced Methods Overview</title>
+      <link>https://modelling-with-r.netlify.app/methods_overview/</link>
+      <pubDate>Tue, 07 Sep 2021 12:35:28 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/methods_overview/</guid>
+      <description>IntroductionWhen analysing the Sliced datasets I have tried to use a consistent approach in order that my code is easier to follow. In this post I will give an overview of my approach.
+Naming of partsThe first thing that you will notice about my code is that all tibbles and data frames are given names that end in DF. Sorry if you don’t like it, but I find it helpful to distinguish the data frame names for the names of variables that sit within the data frame.</description>
+    </item>
+    
+  </channel>
+</rss>

@@ -6,14 +6,14 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="generator" content="Hugo 0.82.0" />
   
-  <meta name="description" content="IntroductionWhen analysing the sliced dataset I have tried to use a consistent approach in order that my code is easier to follow. In this post I will give an overview of this approach.
+  <meta name="description" content="IntroductionWhen analysing the Sliced datasets I have tried to use a consistent approach in order that my code is easier to follow. In this post I will give an overview of my approach.
 Naming of partsThe first thing that you will notice about my code is that all tibbles and data frames are given names that end in DF. Sorry if you don’t like it, but I find it helpful to distinguish the data frame names for the names of variables that sit within the data frame.">
-  <link rel="stylesheet" href="https://example.com/css/normalize.css">
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/normalize.css">
   <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
   
   
   
-  <link rel="stylesheet" href="https://example.com/css/cayman.ea0e967413f3851071cc8ace3621bc4205fe8fa79b2abe3d7bf94ff2841f0d47.css">
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/cayman.ea0e967413f3851071cc8ace3621bc4205fe8fa79b2abe3d7bf94ff2841f0d47.css">
   
   
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
@@ -64,7 +64,7 @@
   <h1>Sliced Methods Overview</h1>
   <div>
     
-    <strong>Publish date: </strong>2021-07-28
+    <strong>Publish date: </strong>2021-09-07
   </div>
   
   
@@ -79,7 +79,7 @@
         
         
       
-      <a href="https://example.com/tags/sliced/">Sliced</a>, <a href="https://example.com/tags/sliced-overview/">Sliced overview</a>
+      <a href="https://modelling-with-r.netlify.app/tags/sliced/">Sliced</a>, <a href="https://modelling-with-r.netlify.app/tags/methods/">Methods</a>
     </div>
   
   
@@ -88,35 +88,35 @@
 
 <div id="introduction" class="section level1">
 <h1>Introduction</h1>
-<p>When analysing the <code>sliced</code> dataset I have tried to use a consistent approach in order that my code is easier to follow. In this post I will give an overview of this approach.</p>
+<p>When analysing the <em>Sliced</em> datasets I have tried to use a consistent approach in order that my code is easier to follow. In this post I will give an overview of my approach.</p>
 </div>
 <div id="naming-of-parts" class="section level1">
 <h1>Naming of parts</h1>
 <p>The first thing that you will notice about my code is that all tibbles and data frames are given names that end in <code>DF</code>. Sorry if you don’t like it, but I find it helpful to distinguish the data frame names for the names of variables that sit within the data frame. You will see names like trainDF and testDF.</p>
 <p>Variables including columns within a data frame and independent objects are given names in lowerCaseCamel format, such as dateOfBirth, ageAtDiagnosis.</p>
 <p>Functions and files are given names in lower_case_snake format. I try to make function names verb-like so that they describe the task performed by the function, file names are more likely to be noun-like. Examples are, plot_damage(), calculate_summary(), processed_data.csv.</p>
-<p>In each episode of <code>sliced</code> we are given three files</p>
+<p>In each episode of <code>Sliced</code> we are given three files</p>
 <ul>
 <li><code>train.csv</code> the data to be used to create the model<br />
 </li>
-<li><code>test.csv</code> the data used to evaluation performance<br />
+<li><code>test.csv</code> the data used to evaluate performance<br />
 </li>
 <li><code>submission.csv</code> an example of the format of a submission</li>
 </ul>
 <p>When I read and process these files I try to use consistent names for my data frames data across all episodes.</p>
-<p>It is my practice to read <code>sliced</code> data files and immediately save them as <code>train.rds</code>, <code>test.rds</code> and <code>submission.rds</code>. Even though I have never found need to use <code>submission.rds</code></p>
+<p>It is my practice to read the <em>Sliced</em> data files and immediately save them as <code>train.rds</code>, <code>test.rds</code> and <code>submission.rds</code>. Even though I have never found need to use <code>submission.rds</code></p>
 <p>Then I create the following data frames</p>
-<p><code>rawTrainDF</code> … the training data as read from <code>train.rds</code><br />
-<code>rawTestDF</code> … the test data as read from <code>test.rds</code></p>
-<p><code>rawTrainDF</code> usually goes through preprocessing to produce a dataset that is used for training the model, I call the result of preprocessing, <code>trainDF</code>.</p>
-<p>Sometimes the <code>trainDF</code> is randomly split into a smaller training set and a validation set. I refer to these as the estimation dataset, <code>estimateDF</code>, and the validation dataset, <code>validateDF</code>.<br />
-If the pre-processing involves several stages, the intermediate datasets between <code>rawTrainDF</code> and <code>trainDF</code>, I like to collect the stages together in a function called <code>preprocess()</code> so that I can apply exactly the same process to the training and test data.</p>
+<p><code>trainRawDF</code> … the training data as read from <code>train.rds</code><br />
+<code>testRawDF</code> … the test data as read from <code>test.rds</code></p>
+<p><code>trainRawDF</code> usually goes through cleaning to produce a dataset that is used for training the model, I call the result of preprocessing, <code>trainDF</code>.</p>
+<p>Sometimes the <code>trainDF</code> is randomly split into a set for model fitting and a validation set. I refer to these as the estimation dataset, <code>estimateDF</code>, and the validation dataset, <code>validateDF</code>.</p>
+<p>If the pre-processing involves several stages, the intermediate datasets between <code>trainRawDF</code> and <code>trainDF</code>, I like to collect the stages together in a function such as <code>preprocess()</code> so that I can apply exactly the same process to the training and test data.</p>
 </div>
 <div id="file-structure" class="section level1">
 <h1>File structure</h1>
-<p>The data from each <code>sliced</code> episode is analysed in a different folder named after the episode, s01-e01, s01-e02 etc. So in the setup section of my code I deine the home directory, say,</p>
+<p>The data from each <em>Sliced</em> episode is analysed in a different folder named after the episode, s01-e01, s01-e02 etc. So in the setup section of my code you will see that I define the home directory, say,</p>
 <p>home &lt;- “C:/Projects/sliced/s01-e02”</p>
-<p>Within the home folders I create subfolders called</p>
+<p>Within the home folder, I create subfolders called</p>
 <p><code>data</code> … to hold data<br />
 <code>docs</code> … to hold any documents related to the analysis<br />
 <code>R</code> … R scripts<br />
@@ -126,8 +126,8 @@ If the pre-processing involves several stages, the intermediate datasets between
 <p><code>dataStore</code> … files of results<br />
 <code>rawData</code> … the original csv files<br />
 <code>rData</code> … R formatted files .rda or .rds</p>
-<p>I also have a standard subfolder structure with docs and archive subfolders with R and rmd, but for sliced I have not needed to use them.</p>
-<p>Although many of the subfolders do not get used for sliced, this is the structure that I use for every data analysis and so I have continued to use it. I have my own function that creates these folders and I run it at the start of every project.</p>
+<p>I also have a standard subfolder structure within docs and archive subfolders within R and rmd, but for <em>Sliced</em> I have not needed to use them.</p>
+<p>Although many of the subfolders do not get used for <em>Sliced</em>, this is the structure that I use for every data analysis and so I have kept it. I have a function that creates these folders and I run it at the start of every project, <em>Sliced</em> or otherwise.</p>
 </div>
 
   

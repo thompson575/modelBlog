@@ -1,0 +1,860 @@
+---
+title: "Sliced Episode 4: Rain Tomorrow"
+author: "John Thompson"
+date: "2021-09-13 10:41:13"
+layout: post
+tags:
+- Sliced
+- Bayesian analysis  
+- offset  
+- logistic regression  
+- imputation
+- mice (imputation by chained equations)
+- purrr
+- list columns
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+
+
+<div id="summary" class="section level1">
+<h1>Summary:</h1>
+<p><strong>Background:</strong> In episode 4 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on daily weather patterns in different parts of Australia. The aim was to predict whether or not it will rain the next day.<br />
+<strong>My approach:</strong> I started with the idea that location would be key to a good model and I tried two approaches, one based on average rainfall patterns for the time of year and the other based on a day’s weather predicting the weather on the following day. I used a Bayesian method to estimate the probability of rain in each month in each location. Before using the daily weather records I imputed the missing data using the <code>mice</code> package. I analysed each location separately by setting up a tibble with one row per location and a list column for the model fits.<br />
+<strong>Result:</strong> My model has an interpretable structure and did reasonably well at prediction. The logloss was about 5% worse than the competition leader.<br />
+<strong>Conclusion:</strong> The model could be improved by including the explanatory information including the weather records for the morning, the total rainfall and the wind direction that I omitted to save time. However, these data are really best suited to a Bayesian hierarchical model.</p>
+</div>
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>The fourth of the <code>sliced</code> datasets can be downloaded from <a href="https://www.kaggle.com/c/sliced-s01e04-knyna9" class="uri">https://www.kaggle.com/c/sliced-s01e04-knyna9</a>. The data describe daily weather conditions in different parts of Australia. The contestants were asked to predict whether or not it would rain on the following day based on those records. Rain tomorrow is a binary response, so the evaluation is by mean logloss.</p>
+<p>My initial thoughts are that Australia is a big place and the factors that determine whether it will rain in Darwin might be very different the factors that are predictive in Hobart. Either the model should consider locations separately, or it will need a lot of interactions.</p>
+</div>
+<div id="reading-the-data" class="section level1">
+<h1>Reading the data</h1>
+<p>It is my practice to read the data asis and to immediately save it in rds format within a directory called <code>data/rData</code>. For details of the way that I organise my analyses, you should read my post called <code>Sliced Methods Overview</code>.</p>
+<pre class="r"><code># --- setup: libraries &amp; options ------------------------
+library(tidyverse)
+library(lubridate)
+
+theme_set( theme_light())
+
+# --- set home directory -------------------------------
+home &lt;- &quot;C:/Projects/kaggle/sliced/s01-e04&quot;
+
+# --- read downloaded data -----------------------------
+trainRawDF &lt;- readRDS( file.path(home, &quot;data/rData/train.rds&quot;) )
+
+testRawDF &lt;- readRDS( file.path(home, &quot;data/rData/test.rds&quot;) )</code></pre>
+</div>
+<div id="data-exploration" class="section level1">
+<h1>Data Exploration</h1>
+<p>Let’s start by inspecting the training data with <code>skim()</code>.</p>
+<pre class="r"><code># --- summarise with skimr -------------------------------------
+skimr::skim(trainRawDF)</code></pre>
+<p>As always I have hidden the<code>skimr</code> output, because of its size. It shows that the dataset is quite large; a total of 34,191 daily records from 49 different locations covering the period between 2/11/2007 and 25/6/2017 and it rained on 22.4% of following days.</p>
+<p>The potential number of daily weather records for 49 locations between these dates is</p>
+<pre class="r"><code>as.numeric(as.Date(&quot;25-06-2017&quot;, format=&quot;%d-%m-%Y&quot;) - 
+   as.Date(&quot;2-11-2007&quot;, format=&quot;%d-%m-%Y&quot;) ) * 49</code></pre>
+<pre><code>## [1] 172627</code></pre>
+<p>So the training data represent about 20% of all weather records.</p>
+<p>Most of the weather records in the training data are over 90% complete, but about 40% of the cloud reports are missing and measures of sunshine and evaporation are almost completely missing.</p>
+</div>
+<div id="ask-a-silly-question" class="section level1">
+<h1>Ask a silly question</h1>
+<p>I also used <code>skimr</code> to look at the test data (again I have hidden the output).</p>
+<pre class="r"><code># --- summarise with skimr -------------------------------------
+skimr::skim(testRawDF)</code></pre>
+<p>14,653 weather records from the same 49 locations covering the period 8-11-2007 to 25-6-2017; about 8% of all possible records for that period.</p>
+<p>The periods covered by the training and test data are very similar, so the obvious question is whether or not the next day for the test data is in the training data. Let’s check. An inner join gives the matches present in both data frames.</p>
+<pre class="r"><code># --- Is the answer given in the training data? --------------------
+testRawDF %&gt;%
+  # --- the day for which prediction is required -------------------
+  mutate( date = date + 1 ) %&gt;%
+  select( date, location ) %&gt;%
+  # --- merge with the training data -------------------------------
+  inner_join( trainRawDF %&gt;% 
+                select(date, location, rain_today),
+              by=c(&quot;date&quot;, &quot;location&quot;))</code></pre>
+<pre><code>## # A tibble: 3,510 x 3
+##    date       location      rain_today
+##    &lt;date&gt;     &lt;chr&gt;              &lt;dbl&gt;
+##  1 2017-06-19 Newcastle              1
+##  2 2009-06-27 SydneyAirport          0
+##  3 2012-10-27 BadgerysCreek          0
+##  4 2010-08-10 Albany                 0
+##  5 2016-09-20 Woomera                1
+##  6 2015-10-17 Woomera                0
+##  7 2011-11-22 Cobar                  1
+##  8 2016-05-08 Townsville             0
+##  9 2011-12-24 Watsonia               0
+## 10 2016-12-27 Cobar                  0
+## # ... with 3,500 more rows</code></pre>
+<p>So there are 3,510 day-location combinations in the test data where the day we need to predict is in the training data. 3,510 is about 24% of the test data, so it looks like the test and training data were chosen at random and the organisers forget to ensure that the test data’s prediction days were not in the training data.</p>
+<p>Using this information would be against the spirit of the competition, so I’ll ignore it.</p>
+</div>
+<div id="data-exploration-1" class="section level1">
+<h1>Data exploration</h1>
+<p>Australia is a big place, with a wide range of climates. Woomera is in the desert, Townsville is tropical and Hobart is temperate. Mixing locations might produce very misleading results.</p>
+<p>Let’s take Perth as an example, for no other reason than that I visited that city just before the pandemic stopped all travel. It is a beautiful city and must be a great place to live once you get over the remoteness.</p>
+<pre class="r"><code># --- rain by month in Perth ---------------------------------
+trainRawDF %&gt;%
+  filter( location == &quot;Perth&quot; ) %&gt;%
+  filter( !is.na(rain_today)) %&gt;%
+  mutate( mth = factor(month(date), labels=month.abb)) %&gt;%
+  group_by(mth) %&gt;%
+  summarise( pctRain = 100*mean(rain_today), .groups=&quot;drop&quot;) %&gt;%
+  ggplot( aes(x=mth, y=pctRain)) +
+  geom_bar( stat=&quot;identity&quot;, fill=&quot;steelblue&quot;) +
+  labs( x = NULL, y= &quot;Percentage of rainy days&quot;, 
+        title=&quot;Rainy Days in Perth&quot;)</code></pre>
+<p><img src="/post/australian-weather/rain_tomorrow_files/figure-html/unnamed-chunk-6-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>No great surprise that it rains more in the Australian winter, but it is surprising, at least to me, that Perth in July has a higher percentage of rainy days than London in January.</p>
+<p>Next let’s look at tropical North Queensland</p>
+<pre class="r"><code># --- rain by month in North Queensland ------------------------
+trainRawDF %&gt;%
+  filter( location == &quot;Townsville&quot; ) %&gt;%
+  filter( !is.na(rain_today)) %&gt;%
+  mutate( mth = factor(month(date), labels=month.abb)) %&gt;%
+  group_by(mth) %&gt;%
+  summarise( pctRain = 100*mean(rain_today), .groups=&quot;drop&quot;) %&gt;%
+  ggplot( aes(x=mth, y=pctRain)) +
+  geom_bar( stat=&quot;identity&quot;, fill=&quot;steelblue&quot;) +
+  labs( x = NULL, y= &quot;Percentage of rainy days&quot;, 
+        title=&quot;Rainy Days in Townsville&quot;)</code></pre>
+<p><img src="/post/australian-weather/rain_tomorrow_files/figure-html/unnamed-chunk-7-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Low rainfall during the Australian winter but high rainfall in the summer months of January and February. Clearly, the Australian average cannot be applied to all locations.</p>
+<p>One more example to illustrate a particular problem. I’ve taken the town of Darwin in the Northern Territory. It is like an extreme version of Townsville; wet summers and no rain at all in the winter.</p>
+<pre class="r"><code># --- rain by month in Darwin ---------------------------------
+trainRawDF %&gt;%
+  filter( location == &quot;Darwin&quot; ) %&gt;%
+  filter( !is.na(rain_today)) %&gt;%
+  mutate( mth = factor(month(date), labels=month.abb)) %&gt;%
+  group_by(mth) %&gt;%
+  summarise( pctRain = 100*mean(rain_today), .groups=&quot;drop&quot;) %&gt;%
+  ggplot( aes(x=mth, y=pctRain)) +
+  geom_bar( stat=&quot;identity&quot;, fill=&quot;steelblue&quot;) +
+  labs( x = NULL, y= &quot;Percentage of rainy days&quot;, 
+        title=&quot;Rainy Days in Darwin&quot;)</code></pre>
+<p><img src="/post/australian-weather/rain_tomorrow_files/figure-html/unnamed-chunk-8-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The statistical problem is that there are months when, in this dataset, there were no rainy days. A simple estimate of the probability of rain in June would be zero, i.e. there is a chance of rain on 31st May, but rain on 1st June is impossible. This is counter to common-sense.</p>
+</div>
+<div id="a-simple-model" class="section level1">
+<h1>A simple model</h1>
+<p>There are two types of information that we can use to predict rain tomorrow</p>
+<ul>
+<li>long-term averages for that time of the year<br />
+</li>
+<li>the weather today</li>
+</ul>
+<p>My first model will be based on long-term averages. For each location-month combination I will use the percentage of rainy days as the estimate of the probability of rain tomorrow.</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  # --- drop days with missing rain_today ----------------
+  filter( !is.na(rain_today)) %&gt;%
+  # --- for each location/month combination --------------
+  mutate( mth = month(date)) %&gt;%
+  group_by(location, mth) %&gt;%
+  # --- proportion of rain days --------------------------
+  summarise( probRain = mean(rain_today), .groups=&quot;drop&quot;) %&gt;%
+  print() -&gt; probRainDF</code></pre>
+<pre><code>## # A tibble: 588 x 3
+##    location   mth probRain
+##    &lt;chr&gt;    &lt;dbl&gt;    &lt;dbl&gt;
+##  1 Adelaide     1   0.0294
+##  2 Adelaide     2   0.0526
+##  3 Adelaide     3   0.123 
+##  4 Adelaide     4   0.193 
+##  5 Adelaide     5   0.327 
+##  6 Adelaide     6   0.373 
+##  7 Adelaide     7   0.415 
+##  8 Adelaide     8   0.349 
+##  9 Adelaide     9   0.222 
+## 10 Adelaide    10   0.254 
+## # ... with 578 more rows</code></pre>
+<p>The idea is to use these probabilities as the estimates for the test data.</p>
+<p>However, as we have already seen, there is a problem. In some places and months, such as Darwin in July, there are no rainy days in the training data, so the estimated probability will be zero. Evaluation is by logloss, which requires the log of the probability estimates; logloss fails when the probability equals 0 or 1. I expect that kaggle has code to cope with zeros, but predictions very close to zero will increase the variance of the metric.</p>
+<p>A good way to handle the zeros is with a Bayesian model in which a prior is placed on the monthly probability of rain and the final estimate is a weighted average of the observed probability and the prior probability.</p>
+<p>Let’s look at the numbers for Darwin</p>
+<pre class="r"><code># --- proportion of rainy days in Darwin ------------------
+trainRawDF %&gt;%
+  filter( location == &quot;Darwin&quot;) %&gt;%
+  filter( !is.na(rain_today)) %&gt;%
+  mutate( mth = month(date)) %&gt;%
+  # --- by month -----------------------
+  group_by(mth) %&gt;%
+  summarise( n       = n(),
+             rainDay = sum(rain_today),
+             prop    = rainDay / n,
+             .groups = &quot;drop&quot;) %&gt;%
+  print() %&gt;%
+  # --- over the whole year ------------
+  ungroup() %&gt;%
+  summarise( n       = sum(n),
+             rainDay = sum(rainDay),
+             prop    = rainDay / n )</code></pre>
+<pre><code>## # A tibble: 12 x 4
+##      mth     n rainDay   prop
+##    &lt;dbl&gt; &lt;int&gt;   &lt;dbl&gt;  &lt;dbl&gt;
+##  1     1    74      42 0.568 
+##  2     2    57      35 0.614 
+##  3     3    63      32 0.508 
+##  4     4    49      15 0.306 
+##  5     5    61       9 0.148 
+##  6     6    66       0 0     
+##  7     7    61       0 0     
+##  8     8    76       0 0     
+##  9     9    71       4 0.0563
+## 10    10    64      14 0.219 
+## 11    11    68      22 0.324 
+## 12    12    51      25 0.490</code></pre>
+<pre><code>## # A tibble: 1 x 3
+##       n rainDay  prop
+##   &lt;int&gt;   &lt;dbl&gt; &lt;dbl&gt;
+## 1   761     198 0.260</code></pre>
+<p>Over the year, 26% of days have rain, but this varies by month from 0% to 61%.</p>
+<p>Suppose, in a poor person’s Bayesian analysis, when estimating the probability of rain in a given month, we treat the yearly figure as a crude estimate. So crude that it is only worth 5 days of real data from the month in question. In which case, the yearly proportion of 0.26 would be like observing 1.3 rainy days in 5.</p>
+<p>The yearly data can be pooled with the monthly data and get a combined estimate</p>
+<pre class="r"><code># --- combination of monthly and annual proportions -----------
+trainRawDF %&gt;%
+  filter( location == &quot;Darwin&quot;) %&gt;%
+  filter( !is.na(rain_today)) %&gt;%
+  mutate( mth = month(date)) %&gt;%
+  group_by(mth) %&gt;%
+  summarise( n       = n(),
+             rainDay = sum(rain_today),
+             prop    = rainDay/n,
+             bayes   = (rainDay + 1.3) / (n + 5),
+             .groups = &quot;drop&quot; ) </code></pre>
+<pre><code>## # A tibble: 12 x 5
+##      mth     n rainDay   prop  bayes
+##    &lt;dbl&gt; &lt;int&gt;   &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;
+##  1     1    74      42 0.568  0.548 
+##  2     2    57      35 0.614  0.585 
+##  3     3    63      32 0.508  0.490 
+##  4     4    49      15 0.306  0.302 
+##  5     5    61       9 0.148  0.156 
+##  6     6    66       0 0      0.0183
+##  7     7    61       0 0      0.0197
+##  8     8    76       0 0      0.0160
+##  9     9    71       4 0.0563 0.0697
+## 10    10    64      14 0.219  0.222 
+## 11    11    68      22 0.324  0.319 
+## 12    12    51      25 0.490  0.470</code></pre>
+<p>The new estimate moves the monthly averages slightly towards the annual estimate. Notice that not all zeros are equal. 0 out of 76 is moved less than 0 out of 61.</p>
+<p>Why is the annual figure worth 5 days from a given month? It is subjective. My judgement is that 6 days of data from, say, September tells us slightly more about rain in September than does knowing that Darwin is relatively dry over the year, but, in my judgement, 4 days of data from September is slightly less reliable.</p>
+<p>If you feel differently, then in the spirit of Bayes, you should use a different prior.</p>
+<p>Let’s build my Bayesian prior into the model</p>
+<pre class="r"><code># --- combined estimates for all months &amp; location ----------
+trainRawDF %&gt;%
+  filter( !is.na(rain_today)) %&gt;%
+  mutate( mth = month(date)) %&gt;%
+  # --- by month &amp; location ----------------
+  group_by(location, mth) %&gt;%
+  summarise( n       = n(),
+             rainDay = sum(rain_today),
+             prop    = rainDay/n, 
+             .groups=&quot;drop&quot;) %&gt;%
+  # --- annual by location -----------------
+  group_by( location) %&gt;%
+  mutate( nAnnual    = sum(n),
+          rainAnnual = sum(rainDay),
+          propAnnual = rainAnnual / nAnnual) %&gt;%
+  # --- combined estimates ----------------
+  mutate( bayes = (rainDay + propAnnual * 5) / (n + 5) ) %&gt;%
+  select( location, mth, prop, bayes) %&gt;%
+  print() -&gt; probRainDF</code></pre>
+<pre><code>## # A tibble: 588 x 4
+## # Groups:   location [49]
+##    location   mth   prop  bayes
+##    &lt;chr&gt;    &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;
+##  1 Adelaide     1 0.0294 0.0424
+##  2 Adelaide     2 0.0526 0.0660
+##  3 Adelaide     3 0.123  0.130 
+##  4 Adelaide     4 0.193  0.195 
+##  5 Adelaide     5 0.327  0.318 
+##  6 Adelaide     6 0.373  0.359 
+##  7 Adelaide     7 0.415  0.401 
+##  8 Adelaide     8 0.349  0.340 
+##  9 Adelaide     9 0.222  0.222 
+## 10 Adelaide    10 0.254  0.251 
+## # ... with 578 more rows</code></pre>
+<p>The in-sample logloss for predictions based on these Bayesian estimates is</p>
+<pre class="r"><code># --- in-sample logloss -----------------------------
+trainRawDF %&gt;%
+  mutate( mth = month(date)) %&gt;%
+  left_join( probRainDF, by=c(&quot;location&quot;, &quot;mth&quot;)) %&gt;% 
+  summarise( logloss = -mean( rain_tomorrow*log(bayes) + 
+                               (1 - rain_tomorrow)*log(1 - bayes)))</code></pre>
+<pre><code>## # A tibble: 1 x 1
+##   logloss
+##     &lt;dbl&gt;
+## 1   0.496</code></pre>
+<p>Over-fitting should not be a problem because the dataset is large and there has been very little tuning. So the logloss of 0.496 should be a good indicator of performance in the test set.</p>
+<p>The sample submission provided by the organisers sets the probability of rain at 0.5 for every location and every day and that base model gets a logloss of 0.693. The best entry on the leaderboard got a logloss of 0.332, which means that my model has some way to go, but let’s be positive, there is a lot of daily weather data that has not yet been used.</p>
+<p>Let’s prepare a first submission</p>
+<pre class="r"><code>testRawDF %&gt;%
+  mutate( mth = month(date)) %&gt;%
+  select( id, location, mth) %&gt;%
+  left_join(probRainDF, by=c(&quot;location&quot;, &quot;mth&quot;)) %&gt;%
+  select( id, bayes) %&gt;%
+  rename( rain_tomorrow = bayes) %&gt;%
+  write.csv(file.path(home, &quot;temp/submission1.csv&quot;),  row.names=FALSE) </code></pre>
+<p>This submission had a logloss of 0.502 (based on 99% of the test data). This is very much in line with the in-sample figure of 0.496, but somehow the psychology of going over 0.5 makes it feel worse. Clearly, we will need to make use of the daily weather conditions.</p>
+</div>
+<div id="improved-model" class="section level1">
+<h1>Improved model</h1>
+<p>We could have got the predictions for our Bayesian model by using a logistic regression. Since a logistic regression models the logit of the probability, I’ll make <code>logitBayes</code> an offset (known term in the model) and I will not have an intercept.</p>
+<pre class="r"><code># --- location-month fitted by glm ------------------------
+trainRawDF %&gt;%
+  mutate( mth = month(date) ) %&gt;%
+  left_join( probRainDF, by=c(&quot;mth&quot;, &quot;location&quot;)) %&gt;%
+  mutate( logitBayes = log(bayes/(1-bayes)) ) %&gt;%
+  glm( rain_tomorrow ~ -1, 
+         family=&quot;binomial&quot;, offset=logitBayes, data=.) -&gt; mod
+
+# --- insample logloss ------------------------------------
+trainRawDF %&gt;%
+  mutate( p = predict(mod, type=&quot;response&quot;)) %&gt;% 
+  summarise( logloss = -mean( rain_tomorrow*log(p) + 
+                               (1 - rain_tomorrow)*log(1 - p)))</code></pre>
+<pre><code>## # A tibble: 1 x 1
+##   logloss
+##     &lt;dbl&gt;
+## 1   0.496</code></pre>
+<p>The logloss is 0.496, the same as before.</p>
+<p>The logistic structure can be used to see if knowing rain_today helps predict rain_tomorrow</p>
+<pre class="r"><code>library(broom)
+
+# --- long-term average + rain_today -----------------------------
+trainRawDF %&gt;%
+  filter( !is.na(rain_today)) %&gt;%
+  mutate( mth = month(date) ) %&gt;%
+  left_join( probRainDF, by=c(&quot;mth&quot;, &quot;location&quot;)) %&gt;%
+  mutate( logitBayes = log(bayes/(1-bayes)) ) %&gt;%
+  glm( rain_tomorrow ~ rain_today, 
+         family=&quot;binomial&quot;, offset=logitBayes, data=.) -&gt; mod
+
+tidy(mod)</code></pre>
+<pre><code>## # A tibble: 2 x 5
+##   term        estimate std.error statistic   p.value
+##   &lt;chr&gt;          &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;
+## 1 (Intercept)   -0.384    0.0177     -21.7 1.41e-104
+## 2 rain_today     1.16     0.0299      38.8 0.</code></pre>
+<p>rain_today is obviously a very important predictor.</p>
+<pre class="r"><code># --- in-sample logloss ------------------------------------
+trainRawDF %&gt;%
+  filter( !is.na(rain_today)) %&gt;%
+  mutate( p = predict(mod, type=&quot;response&quot;)) %&gt;% 
+  summarise( logloss = -mean( rain_tomorrow*log(p) + 
+                               (1 - rain_tomorrow)*log(1 - p)))</code></pre>
+<pre><code>## # A tibble: 1 x 1
+##   logloss
+##     &lt;dbl&gt;
+## 1   0.471</code></pre>
+<p>A disappointing reduction in in-sample logloss from 0.496 to 0.471, but the comparison is confused by the days on which <code>rain-today</code> is missing.</p>
+<p>Let’s look at some of the continuous weather measures. I would imagine that 3pm values are more informative that 9am measures, because they occur closer in time to tomorrow. So I’ll concentrate on 3pm.</p>
+<p>Let’s add these factors into the model.</p>
+<pre class="r"><code># --- model adding continuous afternoon measures -------------
+trainRawDF %&gt;%
+  filter( !is.na(rain_today) &amp; !is.na(humidity3pm) &amp;
+          !is.na(pressure3pm) &amp; !is.na(temp3pm) &amp; 
+          !is.na(wind_gust_speed) &amp; !is.na(wind_speed3pm)) %&gt;%
+  mutate( mth = month(date) ) %&gt;%
+  left_join( probRainDF, by=c(&quot;mth&quot;, &quot;location&quot;)) %&gt;%
+  mutate( logitBayes = log(bayes/(1-bayes)) ) %&gt;%
+  { glm( rain_tomorrow ~ rain_today + humidity3pm +
+           temp3pm + pressure3pm + wind_speed3pm + wind_gust_speed, 
+         family=&quot;binomial&quot;, offset=logitBayes, data=.)} -&gt; mod
+
+# --- coefficients -------------------------------------------
+tidy(mod)</code></pre>
+<pre><code>## # A tibble: 7 x 5
+##   term            estimate std.error statistic   p.value
+##   &lt;chr&gt;              &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;
+## 1 (Intercept)     77.3       3.16        24.5  4.43e-132
+## 2 rain_today       0.278     0.0398       6.97 3.21e- 12
+## 3 humidity3pm      0.0600    0.00125     48.1  0.       
+## 4 temp3pm         -0.00357   0.00345     -1.04 3.01e-  1
+## 5 pressure3pm     -0.0812    0.00306    -26.5  6.85e-155
+## 6 wind_speed3pm   -0.0475    0.00279    -17.0  4.80e- 65
+## 7 wind_gust_speed  0.0573    0.00195     29.4  2.33e-190</code></pre>
+<p>Humidity, pressure and wind speed are clearly important but temperature tells you nothing. We get a similar story from the analysis of deviance table, except that this table is sequential, that is when temperature enters the model we do not yet know about the pressure or the wind-speed, hence it seems more important.</p>
+<pre class="r"><code>anova(mod)</code></pre>
+<pre><code>## Analysis of Deviance Table
+## 
+## Model: binomial, link: logit
+## 
+## Response: rain_tomorrow
+## 
+## Terms added sequentially (first to last)
+## 
+## 
+##                 Df Deviance Resid. Df Resid. Dev
+## NULL                            28799      28185
+## rain_today       1  1268.91     28798      26916
+## humidity3pm      1  2957.15     28797      23959
+## temp3pm          1    74.62     28796      23885
+## pressure3pm      1  1790.60     28795      22094
+## wind_speed3pm    1    16.10     28794      22078
+## wind_gust_speed  1   912.67     28793      21165</code></pre>
+<p>We can look at the distribution of afternoon humidity, when it did or did not rain on the following day.</p>
+<pre class="r"><code># --- humidity in the afternoon ------------------------------
+trainRawDF %&gt;%
+  mutate( rain_tomorrow = factor(rain_tomorrow, 
+                                 labels=c(&quot;no&quot;, &quot;yes&quot;))) %&gt;%
+  ggplot( aes(x=humidity3pm, fill=rain_tomorrow) ) +
+  geom_density( alpha=0.5) +
+  labs( title=&quot;Humidity at 3pm&quot;, fill=&quot;rain tomorrow&quot;) +
+  theme( legend.position = c(0.15, 0.85))</code></pre>
+<p><img src="/post/australian-weather/rain_tomorrow_files/figure-html/unnamed-chunk-20-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>As you would expect high humidity means that rain is more likely (the regression coefficient was positive)</p>
+<p>Here is a similar plot for pressure</p>
+<pre class="r"><code># --- pressure in the afternoon ------------------------------
+trainRawDF %&gt;%
+  mutate( rain_tomorrow = factor(rain_tomorrow, labels=c(&quot;no&quot;, &quot;yes&quot;))) %&gt;%
+  ggplot( aes(x=pressure3pm, fill=rain_tomorrow) ) +
+  geom_density( alpha=0.5) +
+  labs( title=&quot;Pressure at 3pm&quot;, fill=&quot;rain tomorrow&quot;) +
+  theme( legend.position = c(0.15, 0.85))</code></pre>
+<p><img src="/post/australian-weather/rain_tomorrow_files/figure-html/unnamed-chunk-21-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The lower the pressure (negative coefficient), the more likely it is to rain tomorrow, but pressure is less informative than humidity.</p>
+<p>What do these extra measurements do to the logloss?</p>
+<pre class="r"><code># --- in-sample logloss --------------------------------------
+trainRawDF %&gt;%
+  filter( !is.na(rain_today) &amp; !is.na(humidity3pm) &amp;
+          !is.na(pressure3pm) &amp; !is.na(temp3pm) &amp; 
+          !is.na(wind_gust_speed) &amp; !is.na(wind_speed3pm) ) %&gt;%
+  mutate( p = predict(mod, type=&quot;response&quot;)) %&gt;% 
+  summarise( logloss = -mean( rain_tomorrow*log(p) + 
+                               (1 - rain_tomorrow)*log(1 - p)))</code></pre>
+<pre><code>## # A tibble: 1 x 1
+##   logloss
+##     &lt;dbl&gt;
+## 1   0.367</code></pre>
+<p>These variables reduce the in-sample logloss from 0.460 to 0.367. At least we are approaching respectability.</p>
+<p>In fact, we could calculate the logloss directly from the analysis of deviance table. For a logistic regession model the total logloss is half the residual deviance i.e. 21165/2 = 10582.5 and since there are 28800 observations once we have dropped the missing values, the mean logloss is 10582.5/28800=0.367</p>
+<p>So far we have not used cloud cover, an integer measure that ranges from 0 (clear sky) to 8(total cloud cover).</p>
+<pre class="r"><code># --- rain tomorrow by cloud cover --------------------------
+trainRawDF %&gt;%
+  mutate( rain_tomorrow = factor(rain_tomorrow, labels=c(&quot;no&quot;, &quot;yes&quot;))) %&gt;%
+  ggplot( aes(x=cloud3pm, fill=rain_tomorrow) ) +
+  geom_bar( position=&quot;dodge2&quot;) +
+  labs( title=&quot;Cloud cover at 3pm&quot;, fill=&quot;rain tomorrow&quot;) +
+  scale_x_continuous( breaks=0:8, limits=c(-0.5, 8.5)) </code></pre>
+<p><img src="/post/australian-weather/rain_tomorrow_files/figure-html/unnamed-chunk-23-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Cloud cover looks to be predictive, but it is frequently missing. Even without cloud cover we lost 15% of the observations due to missing data, add in cloud cover and it will go over 50%. We are going to need imputation.</p>
+</div>
+<div id="imputation" class="section level1">
+<h1>Imputation</h1>
+<p>Not only would imputation enable us to use the cloud cover data, but some imputation will be necessary if we are to make predictions for all of the records in the test data using the logistic regression model.</p>
+<p>I have decided to use chained regression imputation with the package <code>mice</code>. Briefly, the package sets up a series of regression equations, one for each variable that has missing data. Initial guesses are inserted for the missing values and then the regression equations are fitted to the data and used to improve the guesses. The process is iterated until the predicted missing values stabilise. The imputed values that are taken from the regression equations are selected at random, so that they reflect not only the mean prediction, but also the uncertainty. In this way, <code>mice</code> can be used to create multiple imputations.</p>
+<p>Since we will need to impute both the training data and the test data and we want the two imputations to be consistent, I will combine the two data sets and impute on the combined data. I’ll add the percent rainy days by month and location, as I suspect that this might be a good predictor of the missing data.</p>
+<p>Wind direction may well be important but it will be difficult to predict. In coastal locations rain is usually associated with wind blowing in from the ocean, but the sea is to the west of Perth, to the east of Sydney and to the south of Adelaide. Imputation by regression equation would be difficult.</p>
+<pre class="r"><code># --- combine test and training data ----------------------------
+bind_rows(trainRawDF, testRawDF) %&gt;%
+  mutate( mth = month(date),
+          yr  = year(date))  %&gt;%
+  # --- add percent rainy days to fullDF --------------
+  left_join(probRainDF, 
+            by = c(&quot;location&quot;, &quot;mth&quot;)) %&gt;%
+  mutate( logitBayes = log(bayes/(1-bayes)) ) %&gt;%
+  # make factors --------------------------------------
+  select( -evaporation, -sunshine, -prop, -bayes, -date,
+          -wind_dir9am, -wind_dir3pm, -wind_gust_dir) %&gt;%
+  mutate( rain_today    = factor(rain_today),
+          rain_tomorrow = factor(rain_tomorrow),
+          location      = factor(location),
+          mth           = factor(mth),
+          yr            = factor(yr))      -&gt; fullDF</code></pre>
+<p>To start with, I will run the default mice imputation with no iterations. This has the effect of getting mice to prepare the imputation without actually running it.</p>
+<pre class="r"><code>library(mice)
+
+# -- setup chained equations without running them ---------------
+imp &lt;- mice(fullDF, maxit=0)
+
+# --- inspect the chosen methods --------------------------------
+imp$method</code></pre>
+<pre><code>##              id        location        min_temp        max_temp        rainfall 
+##              &quot;&quot;              &quot;&quot;           &quot;pmm&quot;           &quot;pmm&quot;           &quot;pmm&quot; 
+## wind_gust_speed   wind_speed9am   wind_speed3pm     humidity9am     humidity3pm 
+##           &quot;pmm&quot;           &quot;pmm&quot;           &quot;pmm&quot;           &quot;pmm&quot;           &quot;pmm&quot; 
+##     pressure9am     pressure3pm        cloud9am        cloud3pm         temp9am 
+##           &quot;pmm&quot;           &quot;pmm&quot;           &quot;pmm&quot;           &quot;pmm&quot;           &quot;pmm&quot; 
+##         temp3pm      rain_today   rain_tomorrow             mth              yr 
+##           &quot;pmm&quot;        &quot;logreg&quot;        &quot;logreg&quot;              &quot;&quot;              &quot;&quot; 
+##      logitBayes 
+##              &quot;&quot;</code></pre>
+<p>In most cases <code>mice</code> recommends pmm (predictive mean matching). This method takes the fitted value of a regression equation for each missing value and then looks for observations with complete data that have similar fitted values. From those cases, one is chosen at random and the actual observation of the selected case is used for imputation. This gives us a random value from the observed uncertainty and saves us from making distributional assumptions.</p>
+<p><code>rain_today</code> and <code>rain_tomorrow</code> are both 0/1 factors and will be modelled by logistic regression. Variables without missing values have no imputation equation and are shown as "".</p>
+<p>We are free to change the imputation methods if we wish, but the choices are sensible and you would need good grounds to interfere.</p>
+<p>Two issues that needs some thought are the inclusion of <code>rain_tomorrow</code> in the imputation and the use of a single model for all of Australia. <code>rain_tomorrow</code> is the very thing that we are trying to model and it is missing for the test data. So the imputation will give us a prediction for <code>rain_tomorrow</code> in the test set, but it will be an imputed 0/1 value not a probability. The argument for including it, is that <code>rain_tomorrow</code> could be a useful variable when we are trying to impute some of the other missing data, such as missing values of <code>rain_today</code>. Using a single model for all Australia is a practical compromise; given time and effort we could probably do better.</p>
+<p>The next thing to inspect is the list of variables that will be used in the regression equations to make the predictions. This structure is stored in a predictor matrix, which is large, so we will look at one line; I’ve chosen the predictors of temp9am.</p>
+<pre class="r"><code>imp$predictorMatrix[&quot;temp9am&quot;, ]</code></pre>
+<pre><code>##              id        location        min_temp        max_temp        rainfall 
+##               1               1               1               1               1 
+## wind_gust_speed   wind_speed9am   wind_speed3pm     humidity9am     humidity3pm 
+##               1               1               1               1               1 
+##     pressure9am     pressure3pm        cloud9am        cloud3pm         temp9am 
+##               1               1               1               1               0 
+##         temp3pm      rain_today   rain_tomorrow             mth              yr 
+##               1               1               1               1               1 
+##      logitBayes 
+##               1</code></pre>
+<p>Do we really want to predict temp9am from the id number? Since we do not know how the observations were numbered this would not be advisable. So let’s remove id from all of the prediction equations.</p>
+<pre class="r"><code># --- save the methods -------------------------------------
+pmeth &lt;- imp$method
+# --- don&#39;t use id as a predictors -------------------------
+pmat &lt;- imp$predictorMatrix
+pmat[, c(&quot;id&quot;)] &lt;- 0
+pmat[&quot;temp9am&quot;, ]</code></pre>
+<pre><code>##              id        location        min_temp        max_temp        rainfall 
+##               0               1               1               1               1 
+## wind_gust_speed   wind_speed9am   wind_speed3pm     humidity9am     humidity3pm 
+##               1               1               1               1               1 
+##     pressure9am     pressure3pm        cloud9am        cloud3pm         temp9am 
+##               1               1               1               1               0 
+##         temp3pm      rain_today   rain_tomorrow             mth              yr 
+##               1               1               1               1               1 
+##      logitBayes 
+##               1</code></pre>
+<p>Now we can run the imputation. I’ve chosen to run 10 iterations so as to give the imputations time to settle down, the default is 5. It takes a while, so time for a tea break.</p>
+<pre class="r"><code># --- create 5 imputed datasets ----------------------------
+# --- (10 iterations of the algorithm for each) ------------
+set.seed(6728)
+mice(fullDF, m = 5, maxit = 10, 
+             predictorMatrix = pmat, 
+             method = pmeth, print = FALSE) %&gt;%
+saveRDS( file.path(home, &quot;data/rData/imp2.rds&quot;) )</code></pre>
+</div>
+<div id="predictions-for-each-location" class="section level1">
+<h1>Predictions for each location</h1>
+<p>It is clear that the weather is heavily dependent on location and if we were to model all of the data at the same time, we would need to include a lot of interactions between location and the other measures.</p>
+<p>The alternative, which I will adopt, is to have separate models for each location.</p>
+<p>When we have developed a prediction model, we will fit it to each of the 5 imputed datasets and then average the predictions of rain tomorrow.</p>
+<p>My feeling is that the imputation will induce a degree of over-fitting and so I’ll create a validation set to give us a better idea of model performance than we would get from the in-sample measure.</p>
+<p>To start with everything is run on imputed dataset 1. When that is working, I will include the other four imputed datasets.</p>
+<pre class="r"><code># --- create estimation and validation sets ---------------------
+set.seed(8231)
+split &lt;- sample(1:34191, size=10000, replace=FALSE)
+# --- extract the first imputation of training data -------------
+complete(imp2, action=1) %&gt;%
+  slice( 1:34191 ) %&gt;%
+  as_tibble() -&gt; trainDF
+
+estimateDF &lt;- trainDF[-split, ]
+validateDF &lt;- trainDF[ split, ]</code></pre>
+<p>I’ll set up the full analysis in stages, starting with imputation 1 for Perth.</p>
+<pre class="r"><code># --- Model for Perth ---------------------------------------------
+#
+
+# --- fit prediction model to imputed training data ----------------
+estimateDF %&gt;%
+  filter( location == &quot;Perth&quot; ) %&gt;%
+  { glm( rain_tomorrow ~ rain_today + humidity3pm +
+           temp3pm + pressure3pm + wind_speed3pm + wind_gust_speed, 
+           family=&quot;binomial&quot;, offset=logitBayes, data=.)} -&gt; mod
+
+# --- coefficients ------------------------------------------------
+tidy(mod)</code></pre>
+<pre><code>## # A tibble: 7 x 5
+##   term            estimate std.error statistic  p.value
+##   &lt;chr&gt;              &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;
+## 1 (Intercept)     293.       44.1        6.64  3.22e-11
+## 2 rain_today1      -0.322     0.356     -0.903 3.66e- 1
+## 3 humidity3pm       0.0587    0.0144     4.08  4.41e- 5
+## 4 temp3pm          -0.218     0.0633    -3.45  5.68e- 4
+## 5 pressure3pm      -0.287     0.0421    -6.83  8.58e-12
+## 6 wind_speed3pm    -0.105     0.0428    -2.46  1.40e- 2
+## 7 wind_gust_speed   0.0563    0.0235     2.40  1.64e- 2</code></pre>
+<p>The performance in the validation set</p>
+<pre class="r"><code># --- in-sample logloss -------------------------------------------
+validateDF %&gt;%
+  filter( location == &quot;Perth&quot; ) %&gt;%
+  mutate( rain_tomorrow = as.numeric(rain_tomorrow) -1 ) %&gt;%
+  mutate( p = predict(mod, type=&quot;response&quot;, newdata=.)) %&gt;%
+  summarise( logloss = -mean( rain_tomorrow*log(p) +
+                               (1 - rain_tomorrow)*log(1 - p)))</code></pre>
+<pre><code>## # A tibble: 1 x 1
+##   logloss
+##     &lt;dbl&gt;
+## 1   0.327</code></pre>
+<p>0.327 is comparable with the top models on the leaderboard, but of course this is just one location and one imputed dataset.</p>
+<p>Now that we have set up the method, we can prepare functions that can be used on any chosen location.</p>
+<pre class="r"><code># --- modelfit() --------------------------------------------------
+# function to fit a model to a selected location
+# arguments
+#   place  ... name of the chosen location
+#   thisDF ... the data frame that we want to analyse
+# return
+#   fitted model structure
+#
+modelfit &lt;- function(place, thisDF) {
+  thisDF %&gt;%
+    filter( location == place) %&gt;%
+  { glm( rain_tomorrow ~ rain_today + humidity3pm +
+           temp3pm + pressure3pm + wind_speed3pm + wind_gust_speed, 
+           family=&quot;binomial&quot;, offset=logitBayes, data=.)} %&gt;%
+    return()
+}
+
+# --- outsample() --------------------------------------------------
+# function to calculate the validation logloss
+# arguments
+#   place  ... name of the chosen location
+#   model  ... fitted model structure
+#   thisDF ... the data frame that we want to predict
+# return
+#   mean logloss
+#
+outsample &lt;- function(place, model, thisDF) {
+  thisDF %&gt;%
+    filter( location == place) %&gt;%
+    mutate( rain_tomorrow = as.numeric(rain_tomorrow) -1 ) %&gt;%
+    mutate( p = predict(model, type=&quot;response&quot;, newdata=.)) %&gt;%
+    summarise( logloss = -mean( rain_tomorrow*log(p) +
+                               (1 - rain_tomorrow)*log(1 - p))) %&gt;%
+    pull( logloss) %&gt;%
+    return()
+}
+
+# --- ndays() ----------------------------------------------------
+# find number of days of data 
+# arguments
+#   place  ... name of the chosen location
+#   thisDF ... the data frame that we want to analyse
+# return
+#   number of days of data
+#
+ndays &lt;- function(place, thisDF) {
+  thisDF %&gt;%
+    filter( location == place) %&gt;%
+    summarise( n = n(),
+               r = sum(rain_today == &quot;1&quot;),
+               pct = round(100*r/n, 1)) %&gt;%
+    return()
+}</code></pre>
+<p>Now we can use the map functions from <code>purrr</code> to fit the same model to every location and save the results in list columns.</p>
+<pre class="r"><code># --- separate models for each location -------------------------
+tibble( place = unique(trainDF$location) ) %&gt;%
+  mutate( model   = map(place, modelfit, thisDF=estimateDF)) %&gt;%
+  mutate( n       = map_df(place, ndays, thisDF=estimateDF)) %&gt;%
+  mutate( logloss = map2_dbl(place, model, outsample,
+                             thisDF=validateDF)) %&gt;%
+  print()  -&gt; modDF</code></pre>
+<pre><code>## # A tibble: 49 x 4
+##    place         model    n$n    $r  $pct logloss
+##    &lt;fct&gt;         &lt;list&gt; &lt;int&gt; &lt;int&gt; &lt;dbl&gt;   &lt;dbl&gt;
+##  1 BadgerysCreek &lt;glm&gt;    475    92  19.4   0.334
+##  2 Sale          &lt;glm&gt;    536   123  22.9   0.319
+##  3 Nhil          &lt;glm&gt;    263    40  15.2   0.323
+##  4 Townsville    &lt;glm&gt;    488    76  15.6   0.302
+##  5 Uluru         &lt;glm&gt;    254    23   9.1   0.200
+##  6 Nuriootpa     &lt;glm&gt;    518    97  18.7   0.310
+##  7 Albany        &lt;glm&gt;    524   140  26.7   0.416
+##  8 Watsonia      &lt;glm&gt;    490   104  21.2   0.365
+##  9 Perth         &lt;glm&gt;    534   116  21.7   0.327
+## 10 Tuggeranong   &lt;glm&gt;    467    87  18.6   0.327
+## # ... with 39 more rows</code></pre>
+<p>We can see Perth’s 0.327 confirming that the method is working. If we look at the overall result.</p>
+<pre class="r"><code>modDF %&gt;%
+  summarise( mll = mean(logloss, weight=n$n) )</code></pre>
+<pre><code>## # A tibble: 1 x 1
+##     mll
+##   &lt;dbl&gt;
+## 1 0.352</code></pre>
+<p>The average logloss of 0.352 would only just get us into the top ten on the leaderboard, where the leading model scored 0.332.</p>
+<p>Here are the locations that are poorly predicted.</p>
+<pre class="r"><code>modDF %&gt;%
+  arrange( desc(logloss))</code></pre>
+<pre><code>## # A tibble: 49 x 4
+##    place         model    n$n    $r  $pct logloss
+##    &lt;fct&gt;         &lt;list&gt; &lt;int&gt; &lt;int&gt; &lt;dbl&gt;   &lt;dbl&gt;
+##  1 NorfolkIsland &lt;glm&gt;    527   173  32.8   0.524
+##  2 SydneyAirport &lt;glm&gt;    497   123  24.7   0.484
+##  3 CoffsHarbour  &lt;glm&gt;    454   135  29.7   0.478
+##  4 Portland      &lt;glm&gt;    510   184  36.1   0.470
+##  5 Williamtown   &lt;glm&gt;    454   106  23.3   0.464
+##  6 Cairns        &lt;glm&gt;    529   177  33.5   0.460
+##  7 Launceston    &lt;glm&gt;    499   118  23.6   0.458
+##  8 Melbourne     &lt;glm&gt;    381    90  23.6   0.456
+##  9 NorahHead     &lt;glm&gt;    490   137  28     0.439
+## 10 Newcastle     &lt;glm&gt;    518   127  24.5   0.434
+## # ... with 39 more rows</code></pre>
+<p>My impression is that these locations are relatively rainy. This impression is supported by plotting logloss against percent rainy days for the 49 locations.</p>
+<pre class="r"><code># --- logloss vs pct rainy days by location ------------------
+modDF %&gt;%
+  ggplot( aes(x=n$pct, y=logloss)) +
+  geom_point() +
+  labs( x = &quot;percent rainy days&quot;,
+        y = &quot;mean log loss&quot;)</code></pre>
+<p><img src="/post/australian-weather/rain_tomorrow_files/figure-html/unnamed-chunk-37-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>So far we have only looked at imputation 1, so now I’ll loop through all of the imputed datasets.</p>
+<pre class="r"><code>set.seed(2964)
+# --- vector to save the results ----------------------------------------
+avgLogLoss &lt;- rep(0, 5)
+# --- loop over the 5 imputations ---------------------------------------
+for( iset in 1:5 ) {
+  # --- extract the required imputed training data ----------------------
+  complete(imp2, action=iset) %&gt;%
+    slice( 1:34191 ) %&gt;%
+    as_tibble() -&gt; trainDF
+
+  split &lt;- sample(1:34191, size=10000, replace=FALSE)
+  estimateDF &lt;- trainDF[-split, ]
+  validateDF &lt;- trainDF[ split, ]
+
+  # --- calculate the out of sample mean logloss ----------------------
+  tibble( place = unique(trainDF$location) ) %&gt;%
+     mutate( model   = map(place, modelfit, thisDF=estimateDF)) %&gt;%
+     mutate( n       = map_df(place, ndays, thisDF=estimateDF)) %&gt;%
+     mutate( logloss = map2_dbl(place, model, outsample,
+                                thisDF=validateDF)) %&gt;%
+     summarise( mll  = mean(logloss, weight=n$n) ) %&gt;%
+     pull(mll) -&gt; avgLogLoss[iset]
+}
+summary(avgLogLoss)</code></pre>
+<pre><code>##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+##  0.3337  0.3384  0.3395  0.3420  0.3470  0.3514</code></pre>
+<p>The loglosses across the 5 imputed datasets are very consistent and average 0.342.</p>
+</div>
+<div id="submission" class="section level1">
+<h1>Submission</h1>
+<p>I will fit the model to each imputed training set and then make predictions for the corresponding imputed test set. The submission will be the average of the 5 predicted probabilities.</p>
+<p>We will need a function that returns the predictions for a given location.</p>
+<pre class="r"><code># --- predict_rain() --------------------------------------------------
+# function to predict rain_tomorrow
+# arguments
+#   place  ... name of the chosen location
+#   model  ... fitted model structure
+#   thisDF ... data frame with predictors
+# return
+#   data frame with id and prediction
+#
+predict_rain &lt;- function(place, model, thisDF) {
+  thisDF %&gt;%
+    filter( location == place) %&gt;%
+    mutate( rain_tomorrow = predict(model, 
+                                    type=&quot;response&quot;, newdata=.)) %&gt;%
+    select(id, rain_tomorrow) %&gt;%
+    return()
+}</code></pre>
+<p>Test the function on the first imputation</p>
+<pre class="r"><code># --- training data for imputation 1 -----------------------
+complete(imp2, action=1) %&gt;%
+  slice( 1:34191 ) %&gt;%
+  as_tibble() -&gt; trainDF
+
+# --- test data for imputation 1 ---------------------------
+complete(imp2, action=1) %&gt;%
+  slice( 34192:48844 ) %&gt;%
+  as_tibble() -&gt; testDF
+
+# --- predicted probabilities ------------------------------
+tibble( place = unique(trainDF$location) ) %&gt;%
+  mutate( model = map(place, modelfit, thisDF=trainDF)) %&gt;%
+  mutate( p     = map2(place, model, predict_rain, thisDF=testDF)) %&gt;%
+  select(p) %&gt;%
+  unnest(p)</code></pre>
+<pre><code>## # A tibble: 14,653 x 2
+##       id rain_tomorrow
+##    &lt;dbl&gt;         &lt;dbl&gt;
+##  1  2036       0.205  
+##  2 41258       0.00598
+##  3 37733       0.0585 
+##  4 41920       0.0866 
+##  5 15188       0.111  
+##  6  7118       0.838  
+##  7 22425       0.0879 
+##  8 26516       0.0517 
+##  9 40344       0.867  
+## 10 10035       0.0286 
+## # ... with 14,643 more rows</code></pre>
+<p>Now I’ll make predictions for all locations and all 5 imputed datasets</p>
+<pre class="r"><code># --- predictions for all 5 imputed datasets --------------------
+for( iset in 1:5 ) {
+  # --- extract the required imputed training data --------------
+  complete(imp2, action=iset) %&gt;%
+    slice( 1:34191 ) %&gt;%
+    as_tibble() -&gt; trainDF
+
+  complete(imp2, action=iset) %&gt;%
+    slice( 34192:48844 ) %&gt;%
+    as_tibble() -&gt; testDF
+
+# --- predicted probabilities ------------------------------
+  tibble( place = unique(trainDF$location) ) %&gt;%
+    mutate( model = map(place, modelfit, thisDF=trainDF)) %&gt;%
+    mutate( p     = map2(place, model, 
+                         predict_rain, thisDF=testDF)) %&gt;%
+    select(p) %&gt;%
+    unnest(p) %&gt;% 
+    saveRDS( file.path(home, 
+              paste(&quot;data/rData/pred&quot;, iset, &quot;.rds&quot;, sep=&quot;&quot;)) )
+}</code></pre>
+<p>Let’s combine the saved predictions and see how they vary.</p>
+<pre class="r"><code># --- read and combine the predictions --------------------
+bind_rows(
+   readRDS( file.path(home, &quot;data/rData/pred1.rds&quot;)),
+   readRDS( file.path(home, &quot;data/rData/pred2.rds&quot;)),
+   readRDS( file.path(home, &quot;data/rData/pred3.rds&quot;)),
+   readRDS( file.path(home, &quot;data/rData/pred4.rds&quot;)),
+   readRDS( file.path(home, &quot;data/rData/pred5.rds&quot;)),
+          .id=&quot;imputation&quot;) -&gt; predictionDF
+# --- inspect the predictions  ----------------------------
+predictionDF %&gt;%
+  pivot_wider(values_from=rain_tomorrow, names_from=imputation)</code></pre>
+<pre><code>## # A tibble: 14,653 x 6
+##       id     `1`     `2`     `3`     `4`     `5`
+##    &lt;dbl&gt;   &lt;dbl&gt;   &lt;dbl&gt;   &lt;dbl&gt;   &lt;dbl&gt;   &lt;dbl&gt;
+##  1  2036 0.205   0.205   0.194   0.211   0.202  
+##  2 41258 0.00598 0.00590 0.00580 0.00599 0.00589
+##  3 37733 0.0585  0.0541  0.0577  0.0561  0.0552 
+##  4 41920 0.0866  0.0866  0.0856  0.0869  0.0861 
+##  5 15188 0.111   0.109   0.112   0.109   0.109  
+##  6  7118 0.838   0.842   0.838   0.841   0.838  
+##  7 22425 0.0879  0.0885  0.0848  0.0897  0.0880 
+##  8 26516 0.0517  0.0528  0.0506  0.0528  0.0526 
+##  9 40344 0.867   0.865   0.866   0.866   0.864  
+## 10 10035 0.0286  0.0275  0.0281  0.0281  0.0280 
+## # ... with 14,643 more rows</code></pre>
+<p>There is broad agreement. Obviously, the predictions will vary more for days that had missing values in key predictors.</p>
+<p>The actual submission will be based on the average prediction. There is an argument for averaging on a logit scale, but that seems over the top.</p>
+<p>Here is the average prediction across imputations.</p>
+<pre class="r"><code># --- create submission from the average prediction -------------------
+predictionDF %&gt;%
+  group_by(id) %&gt;%
+  summarise( rain_tomorrow = mean(rain_tomorrow), .groups=&quot;drop&quot;) %&gt;%
+  select( id, rain_tomorrow) %&gt;%
+  print() %&gt;%
+  write.csv( file.path(home, &quot;temp/submission2.csv&quot;),
+             row.names=FALSE)</code></pre>
+<pre><code>## # A tibble: 14,653 x 2
+##       id rain_tomorrow
+##    &lt;dbl&gt;         &lt;dbl&gt;
+##  1     1       0.344  
+##  2     2       0.253  
+##  3     3       0.134  
+##  4     4       0.975  
+##  5    11       0.303  
+##  6    12       0.368  
+##  7    16       0.0785 
+##  8    21       0.00777
+##  9    22       0.100  
+## 10    24       0.00275
+## # ... with 14,643 more rows</code></pre>
+<p>When I submitted this file the logloss was calculated as 0.35636. The top model scored 0.33173, so my model’s performance is a little disappointing.</p>
+</div>
+<div id="what-this-example-shows" class="section level1">
+<h1>What this example shows</h1>
+<p>This quite a hard example for a two hour competition; days within locations and lots of missing data.</p>
+<p>I quite like the idea of the Bayesian estimates of the proportion of days on which it rained calculated by location and month. Given more time, it would be interesting to extend the Bayesian approach and to fit a hierarchical Bayesian model to the full data set. There is an obvious structure of weather features within locations that would be perfectly suited to Bayesian estimation. The impact of, say, humidity on rain tomorrow could be viewed as an average effect for all Australia plus a random effect over locations. This would mean that each location’s regression coefficients would be shrunk towards the Australian average. A big advantage of such a model would be that it could be fitted to the data without the need for imputation.</p>
+<p>The use of list columns to store multiple models is described by Hadley Wickham in his on-line book, <code>R for Data Science</code>, at <a href="https://r4ds.had.co.nz/many-models.html" class="uri">https://r4ds.had.co.nz/many-models.html</a> and in a video at <a href="https://www.youtube.com/watch?v=rz3_FDVt9eg" class="uri">https://www.youtube.com/watch?v=rz3_FDVt9eg</a>. These data provide a nice example of the method, but they also highlight the limitation of analysing one location without taking the others into account. At the least, location ought to be grouped by position within Australia, for instance, Sydney and Newcastle ought to experience similar weather patterns.</p>
+<p>The imputation has left me with concerns, chiefly that having stressed the importance of location in modifying the effect of say humidity on rainfall, the imputation model only used average effects.</p>
+<p>No doubt the model performance could have been improved by using more of the daily weather data. I left out, the morning records, the total rainfall and the wind direction.</p>
+<p>Another weakness, from a machine learning perspective, is the limited data visualisation. My own feeling is that if you use interpretable models, then the models will convey the same messages as the visualisations. Pretty maps might have looked good, but I do not think that they would have added much.</p>
+<p>Having had the experience of this analysis, were I to start again I would definitely use <code>stan</code> to fit a Bayesian model. My aim is to analyse all of the <em>Sliced</em> datasets and then to revisit them. I have in mind a post on generalized additive models and splines as a background to episode 1, so perhaps I will write a post on Bayesian analysis linked to these data.</p>
+</div>

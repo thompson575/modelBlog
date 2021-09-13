@@ -29,10 +29,10 @@ Variables including columns within a data frame and independent objects are give
 
 Functions and files are given names in lower_case_snake format. I try to make function names verb-like so that they describe the task performed by the function, file names are more likely to be noun-like. Examples are, plot_damage(), calculate_summary(), processed_data.csv.
 
-In each episode of `sliced` we are given three files  
+In each episode of `Sliced` we are given three files  
 
 * `train.csv` the data to be used to create the model   
-* `test.csv` the data used to evaluation performance  
+* `test.csv` the data used to evaluate performance  
 * `submission.csv` an example of the format of a submission  
 
 When I read and process these files I try to use consistent names for my data frames data across all episodes.
@@ -53,11 +53,11 @@ If the pre-processing involves several stages, the intermediate datasets between
 
 # File structure
 
-The data from each *Sliced* episode is analysed in a different folder named after the episode, s01-e01, s01-e02 etc. So in the setup section of my code I deine the home directory, say,
+The data from each *Sliced* episode is analysed in a different folder named after the episode, s01-e01, s01-e02 etc. So in the setup section of my code you will see that I define the home directory, say,
 
 home <- "C:/Projects/sliced/s01-e02"
 
-Within the home folders I create subfolders called
+Within the home folder, I create subfolders called
 
 `data`    ... to hold data  
 `docs`    ... to hold any documents related to the analysis  
@@ -71,7 +71,7 @@ within data I have three folders
 `rawData`   ... the original csv files  
 `rData`     ... R formatted files .rda or .rds  
 
-I also have a standard subfolder structure with docs and archive subfolders with R and rmd, but for sliced I have not needed to use them. 
+I also have a standard subfolder structure within docs and archive subfolders within R and rmd, but for *Sliced* I have not needed to use them. 
 
-Although many of the subfolders do not get used for *Sliced*, this is the structure that I use for every data analysis and so I have continued to use it. I have a function that creates these folders and I run it at the start of every project.
+Although many of the subfolders do not get used for *Sliced*, this is the structure that I use for every data analysis and so I have kept it. I have a function that creates these folders and I run it at the start of every project, *Sliced* or otherwise.
 

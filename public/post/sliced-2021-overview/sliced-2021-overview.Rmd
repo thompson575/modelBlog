@@ -5,7 +5,7 @@ date: "`r Sys.time()`"
 layout: post
 tags:
 - Sliced
-- Episode overview
+- Sliced overview
 output:
     html_document:
     keep_md: true
@@ -19,7 +19,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Introduction
 
-Sliced is a data science competition hosted by Nick Wan on twitch ( https://www.twitch.tv/nickwan_datasci ). In each episode, 4 data scientists with very different backgrounds are given the same dataset and in 2 hours they must explore the data and build a predictive model. As well as the training data, they are given a test set that lacks the variable to be predicted. The model that best predicts in the test data according to a specified metric, wins the prediction element of the competition, but other points are available for data visualization, golden features and popularity as voted for by chat.
+Sliced is a data science competition hosted by Nick Wan and Meg Risdal on twitch ( https://www.twitch.tv/nickwan_datasci ). In each episode, 4 data scientists with very different backgrounds are given the same dataset and in 2 hours they must explore the data and build a predictive model. As well as the training data, they are given a test set that lacks the variable to be predicted. The model that best predicts in the test data according to a specified metric, wins the prediction element of the competition, but other points are available for data visualization, golden features and popularity as voted for by chat.
 
 The datasets are all available on kaggle and while the competition is live on twitch, members of the audience can run their own analyses and submit them so that they are assessed alongside the models of the competitors. Afterwards, anyone can download the data and submit a late entry, but it will not be added to the leaderboard.
 
@@ -157,3 +157,48 @@ In the case of the superstore, we know the relationship between sales price, dis
 My model beats the submissions on the leaderboard by a wide margin, so I can only assume that those competitors ignored the specific structure of the problem.  
 
 The code used for this problem is very basic. All that you needed to win the competition were a few scatter plots and some simple linear models.
+
+
+## Episode 4: Rain tomorrow
+
+### Keywords
+
+weather prediction; Bayesian estimates of a proportion; multiple imputation by chained equations (mice); logistic regression; combining many models; list columns; map() functions; user-written functions;
+
+### Packages
+
+tidyverse; broom; mice; purrr;
+
+### The data 
+
+The data for this episode can be downloaded from https://www.kaggle.com/c/sliced-s01e04-knyna9.
+
+### The problem
+
+The data consist of daily weather records from 49 different locations in Australia. The objective is to predict whether or not it rained on the following day and the metric was logloss.
+
+Like episode 2 this is a large complex dataset that would be quite challenging under competition conditions. Australia is huge and the weather patterns vary enormously by location. 
+
+When the organisers set up this episode they must have taken weather records going back many years and randomly picked the days for each location so that a random sample went into the training set and another random sample went into the test set. However, they seem to have drawn the two sample independently because sometimes it happens that the day after for a test day is one of the days given in the training data. This means that for about a quarter of the test data be are actually told the thing that we are meant to predict.
+
+One of the rules of the competition is 'no exploits'. So I have dutifully ignored the known answer when making my predictions, but it was tempting.  
+
+Not only is this dataset large and location-specific but it contains a fair amount of missing data. Weather variables, such as humidity, pressure, wind speed, temperature and rainfall are all closely interrelated so it is important to allow for this when imputing the missing data. Like episode 2 the problem is really too difficult for a 2 hour competition.
+
+### My Analysis
+
+I considered two ways of predicting the probability of rain  
+
+* take long-term averages for that time of year  
+* use today's conditions to predict rain tomorrow  
+
+I started with the approach of long-term averages and used a Bayesian estimate of the proportion of rainy days in a given location during a given month that avoids the problem of a zero probability prediction.  
+
+Data exploration shows that there is considerable extra information in the daily weather pattern. Because of the amount of missing data, today's conditions cannot be used without imputation.
+
+I used multiple imputation based on chained equations as implemented by the `mice` package. 
+
+The data exploration shows that the impact of today's conditions varies depending on location. This suggests that we will need a model with interactions between location and the other predictors. As an alternative to using interactions, I decided to fit separate models to each location. This is implemented in a tibble with list columns using the map functions from `purrr`. 
+
+Predictions are made separately for each imputed dataset and then averaged. To save time, I omitted some of the potentially predictive variables and this adversely affected performance. The model is competitive but definitely could be improved.
+

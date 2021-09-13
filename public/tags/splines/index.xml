@@ -2,17 +2,17 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>splines on Modelling with R</title>
-    <link>https://example.com/tags/splines/</link>
+    <link>https://modelling-with-r.netlify.app/tags/splines/</link>
     <description>Recent content in splines on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Sun, 05 Sep 2021 11:36:30 +0000</lastBuildDate><atom:link href="https://example.com/tags/splines/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Sun, 05 Sep 2021 11:36:30 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/splines/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>Sliced Episode 1: Boardgame Ratings</title>
-      <link>https://example.com/boardgames/</link>
+      <link>https://modelling-with-r.netlify.app/boardgames/</link>
       <pubDate>Sun, 05 Sep 2021 11:36:30 +0000</pubDate>
       
-      <guid>https://example.com/boardgames/</guid>
+      <guid>https://modelling-with-r.netlify.app/boardgames/</guid>
       <description>SummaryBackground: In episode 1 of the 2021 series of Sliced, the competitors were given two hours to analyse a set of data on boardgames. The aim was to predict the games’ ratings.
 My approach: In the data exploration I transform the ratings and plot them against the potential predictors. I note inconsistencies in the data. The mechanics of the game and the type of game are described as text, so I create indicator variables for the words most closely associated with the games’ ratings.</description>
     </item>

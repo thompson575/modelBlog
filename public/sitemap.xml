@@ -2,55 +2,61 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
-    <loc>https://example.com/</loc>
+    <loc>https://modelling-with-r.netlify.app/</loc>
+    <lastmod>2021-09-07T14:00:31+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/external-knowledge/</loc>
+    <lastmod>2021-09-07T14:00:31+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/offset/</loc>
+    <lastmod>2021-09-07T14:00:31+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/post/</loc>
+    <lastmod>2021-09-07T14:00:31+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/sliced/</loc>
+    <lastmod>2021-09-07T14:00:31+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/superstore_profits/</loc>
+    <lastmod>2021-09-07T14:00:31+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/</loc>
+    <lastmod>2021-09-07T14:00:31+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/methods/</loc>
+    <lastmod>2021-09-07T12:35:28+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/methods_overview/</loc>
+    <lastmod>2021-09-07T12:35:28+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/data-cleaning/</loc>
     <lastmod>2021-09-05T12:07:34+00:00</lastmod>
   </url><url>
-    <loc>https://example.com/tags/data-cleaning/</loc>
+    <loc>https://modelling-with-r.netlify.app/tags/features-from-text/</loc>
     <lastmod>2021-09-05T12:07:34+00:00</lastmod>
   </url><url>
-    <loc>https://example.com/tags/features-from-text/</loc>
+    <loc>https://modelling-with-r.netlify.app/tags/logistic-regression/</loc>
     <lastmod>2021-09-05T12:07:34+00:00</lastmod>
   </url><url>
-    <loc>https://example.com/tags/logistic-regression/</loc>
+    <loc>https://modelling-with-r.netlify.app/tags/missing-data/</loc>
     <lastmod>2021-09-05T12:07:34+00:00</lastmod>
   </url><url>
-    <loc>https://example.com/tags/missing-data/</loc>
+    <loc>https://modelling-with-r.netlify.app/wildlife_strikes/</loc>
     <lastmod>2021-09-05T12:07:34+00:00</lastmod>
   </url><url>
-    <loc>https://example.com/post/</loc>
-    <lastmod>2021-09-05T12:07:34+00:00</lastmod>
-  </url><url>
-    <loc>https://example.com/tags/sliced/</loc>
-    <lastmod>2021-09-05T12:07:34+00:00</lastmod>
-  </url><url>
-    <loc>https://example.com/wildlife_strikes/</loc>
-    <lastmod>2021-09-05T12:07:34+00:00</lastmod>
-  </url><url>
-    <loc>https://example.com/tags/</loc>
-    <lastmod>2021-09-05T12:07:34+00:00</lastmod>
-  </url><url>
-    <loc>https://example.com/tags/generalised-additive-models/</loc>
+    <loc>https://modelling-with-r.netlify.app/tags/generalised-additive-models/</loc>
     <lastmod>2021-09-05T11:36:30+00:00</lastmod>
   </url><url>
-    <loc>https://example.com/boardgames/</loc>
+    <loc>https://modelling-with-r.netlify.app/boardgames/</loc>
     <lastmod>2021-09-05T11:36:30+00:00</lastmod>
   </url><url>
-    <loc>https://example.com/tags/splines/</loc>
+    <loc>https://modelling-with-r.netlify.app/tags/splines/</loc>
     <lastmod>2021-09-05T11:36:30+00:00</lastmod>
   </url><url>
-    <loc>https://example.com/tags/writing-functions/</loc>
+    <loc>https://modelling-with-r.netlify.app/tags/writing-functions/</loc>
     <lastmod>2021-09-05T11:36:30+00:00</lastmod>
   </url><url>
-    <loc>https://example.com/tags/external-knowledge/</loc>
-    <lastmod>2021-07-29T11:15:04+00:00</lastmod>
-  </url><url>
-    <loc>https://example.com/tags/offset/</loc>
-    <lastmod>2021-07-29T11:15:04+00:00</lastmod>
-  </url><url>
-    <loc>https://example.com/superstore_profits/</loc>
-    <lastmod>2021-07-29T11:15:04+00:00</lastmod>
-  </url><url>
-    <loc>https://example.com/about/</loc>
+    <loc>https://modelling-with-r.netlify.app/about/</loc>
     <lastmod>2021-07-24T00:00:00+00:00</lastmod>
   </url>
 </urlset>
