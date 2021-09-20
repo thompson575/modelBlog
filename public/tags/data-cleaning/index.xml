@@ -6,11 +6,11 @@
     <description>Recent content in data cleaning on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Mon, 13 Sep 2021 12:48:28 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/data-cleaning/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Sun, 12 Sep 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/data-cleaning/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>Sliced Episode 2: Wildlife Strikes</title>
       <link>https://modelling-with-r.netlify.app/wildlife_strikes/</link>
-      <pubDate>Mon, 13 Sep 2021 12:48:28 +0000</pubDate>
+      <pubDate>Sun, 12 Sep 2021 00:00:00 +0000</pubDate>
       
       <guid>https://modelling-with-r.netlify.app/wildlife_strikes/</guid>
       <description>Summary:Background: In episode 2 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on wildlife strikes with aircraft. The aim was to predict whether or not the aircraft was damaged in the collision.

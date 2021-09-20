@@ -1,7 +1,7 @@
 ---
 title: "Sliced Methods Overview"
 author: "John Thompson"
-date: "`r Sys.time()`"
+date: "2021-09-08"
 layout: post
 tags:
 - Sliced

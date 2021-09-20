@@ -6,11 +6,11 @@
     <description>Recent content in Sliced episode overview on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Mon, 13 Sep 2021 12:47:06 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/sliced-episode-overview/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Tue, 07 Sep 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/sliced-episode-overview/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>Sliced 2021 Overview</title>
       <link>https://modelling-with-r.netlify.app/sliced-2021-overview/</link>
-      <pubDate>Mon, 13 Sep 2021 12:47:06 +0000</pubDate>
+      <pubDate>Tue, 07 Sep 2021 00:00:00 +0000</pubDate>
       
       <guid>https://modelling-with-r.netlify.app/sliced-2021-overview/</guid>
       <description>IntroductionSliced is a data science competition hosted by Nick Wan and Meg Risdal on twitch ( https://www.twitch.tv/nickwan_datasci ). In each episode, 4 data scientists with very different backgrounds are given the same dataset and in 2 hours they must explore the data and build a predictive model. As well as the training data, they are given a test set that lacks the variable to be predicted. The model that best predicts in the test data according to a specified metric, wins the prediction element of the competition, but other points are available for data visualization, golden features and popularity as voted for by chat.</description>

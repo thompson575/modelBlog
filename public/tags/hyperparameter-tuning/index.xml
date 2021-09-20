@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>hyperparameter tuning on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/hyperparameter-tuning/</link>
+    <description>Recent content in hyperparameter tuning on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Mon, 20 Sep 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/hyperparameter-tuning/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Airbnb Price Prediction</title>
+      <link>https://modelling-with-r.netlify.app/airbnb_prices/</link>
+      <pubDate>Mon, 20 Sep 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/airbnb_prices/</guid>
+      <description>Summary:Background: In episode 5 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on Airbnb properties in New York City. The aim was to predict the price per night.
+My approach: I work on a log(price + 1) scale as suggested by the evaluation metric. I spend quite a lot of time on feature extraction. I extract keywords from the description of the property and I merge geographically close neighbourhoods with few properties.</description>
+    </item>
+    
+  </channel>
+</rss>

@@ -1,0 +1,952 @@
+---
+title: "Airbnb Price Prediction"
+author: "John Thompson"
+date: "2021-09-20"
+layout: post
+tags:
+- Sliced
+- features from text
+- merging small areas
+- xgboost
+- hyperparameter tuning
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+
+
+<div id="summary" class="section level1">
+<h1>Summary:</h1>
+<p><strong>Background:</strong> In episode 5 of the 2021 series of <em>Sliced</em>, the competitors were given two hours in which to analyse a set of data on Airbnb properties in New York City. The aim was to predict the price per night.<br />
+<strong>My approach:</strong> I work on a log(price + 1) scale as suggested by the evaluation metric. I spend quite a lot of time on feature extraction. I extract keywords from the description of the property and I merge geographically close neighbourhoods with few properties. I use XGBoost on the derived features.<br />
+<strong>Result:</strong> My first XGBoost model performed well; it would have come second on the leaderboard. When I tuned the model, I got a small, but meaningless, improvement in performance.<br />
+<strong>Conclusion:</strong> XGBoost is a good algorithm but it is often misused. I use these data to question the sense of machine learning’s obsession with model tuning.</p>
+</div>
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>For this episode of <em>Sliced</em>, the competitors were asked to predict the prices of Airbnb accommodation in New York City based on features that describe the property and its location. The evaluation metric was the RMSE measured on a log(x+1) scale.</p>
+<p>This a relatively complex dataset that requires a lot of feature extraction prior to analysis. In particular, there is a text field that describes the property from which we need to extract key words. <strong>I use this example to demonstrate the use of XGBoost</strong>, although there is quite a lot of data cleaning to do first.</p>
+<p>XGBoost is a very efficient, tree-based algorithm that has become the work-horse of machine learning competitions. It is ideal for complex prediction problems of the type used in <em>Sliced</em>. My doubts are not with algorithm, but rather with the way that it is sometimes used. I’ll discuss my concerns after the analysis.</p>
+</div>
+<div id="reading-the-data" class="section level1">
+<h1>Reading the data</h1>
+<p>The data for this episode can be downloaded from <a href="https://www.kaggle.com/c/sliced-s01e05-WXx7h8/overview" class="uri">https://www.kaggle.com/c/sliced-s01e05-WXx7h8/overview</a>.</p>
+<p>It is my practice to read the data asis and to immediately save it in rds format within a directory called <code>data/rData</code>. For details of the way that I organise my analyses you should read my post <code>Sliced Methods Overview</code>.</p>
+<pre class="r"><code># --- setup: libraries &amp; options ------------------------
+library(tidyverse)
+
+theme_set( theme_light())
+
+# --- set home directory -------------------------------
+home &lt;- &quot;C:/Projects/kaggle/sliced/s01-e05&quot;
+
+# --- read downloaded data -----------------------------
+trainRawDF &lt;- readRDS( file.path(home, &quot;data/rData/train.rds&quot;) )
+
+testRawDF &lt;- readRDS( file.path(home, &quot;data/rData/test.rds&quot;) )</code></pre>
+</div>
+<div id="data-exploration" class="section level1">
+<h1>Data Exploration</h1>
+<p>As always, I start by looking at the training data using <code>skim()</code>.</p>
+<pre class="r"><code>skimr::skim(trainRawDF)</code></pre>
+<p>I have hidden the <code>skim()</code> output because of its length. You can run it yourself it you are interested, I’ll just summarise what I learned.</p>
+<p>The training data describe 34,266 properties. As well as an identification number and the price per night, there are 14 potential predictors.</p>
+<p>There are 4 predictors related to location</p>
+<ul>
+<li>neighbourhood: 217 small areas in NYC<br />
+</li>
+<li>neighbourhood_ group: 5 Boroughs of NYC<br />
+</li>
+<li>latitude:<br />
+</li>
+<li>longitude:</li>
+</ul>
+<p>Three predictors related to Airbnb reviews</p>
+<ul>
+<li>number_of_reviews:<br />
+</li>
+<li>last_review: date of the last review<br />
+</li>
+<li>reviews_per_month:</li>
+</ul>
+<p>When the number of reviews is zero (7008/34226=20%), the other two predictors are missing</p>
+<p>Three predictors related to the property</p>
+<ul>
+<li>room_type: entire, private room or shared room<br />
+</li>
+<li>minimum_nights: minimum booking<br />
+</li>
+<li>availability_365: number of days available in a year</li>
+</ul>
+<p>Three predictors related to the host</p>
+<ul>
+<li>host name: first name of host<br />
+</li>
+<li>host_id: unique identifier<br />
+</li>
+<li>calculated_host_listings_count: the number of properties that this host is advertising on Airbnb</li>
+</ul>
+<p>Finally, there is a free text field that is rather misleadingly called <code>name</code>; this contains a short piece of text describing the type of property and its location.</p>
+<p>Apart from the lack of reviews for every property, missing data are rare; the <code>name</code> field is missing for 9 properties and the <code>host_name</code> is missing for 14.</p>
+<div id="the-response" class="section level2">
+<h2>The response</h2>
+<p>The average price of the properties is $152 per night and the prices range from $0 to $10,000. Much as Airbnb offers good value, I doubt that any property is being advertised for $0. I assume that the zeros represent either missing values or entry errors.</p>
+<p>Here is some information on the eight, $0 per night, properties.</p>
+<pre class="r"><code># --- properties with a price of $0 --------------------------
+trainRawDF %&gt;%
+  filter( price == 0 ) %&gt;%
+  select( name, room_type, neighbourhood )</code></pre>
+<pre><code>## # A tibble: 8 x 3
+##   name                                          room_type      neighbourhood    
+##   &lt;chr&gt;                                         &lt;chr&gt;          &lt;chr&gt;            
+## 1 Best Coliving space ever! Shared room.        Shared room    Bushwick         
+## 2 Modern apartment in the heart of Williamsburg Entire home/a~ Williamsburg     
+## 3 Cozy yet spacious private brownstone bedroom  Private room   Bedford-Stuyvesa~
+## 4 MARTIAL LOFT 3: REDEMPTION (upstairs, 2nd ro~ Private room   Bushwick         
+## 5 â˜…Hostel Style Room | Ideal Traveling Buddi~ Private room   East Morrisania  
+## 6 Coliving in Brooklyn! Modern design / Shared~ Shared room    Bushwick         
+## 7 Spacious comfortable master bedroom with nic~ Private room   Bedford-Stuyvesa~
+## 8 Sunny, Quiet Room in Greenpoint               Private room   Greenpoint</code></pre>
+<p>and here is a histogram of the prices</p>
+<pre class="r"><code># --- histogram of property prices ----------------------------
+trainRawDF %&gt;%
+  ggplot( aes(x=price)) +
+  geom_histogram( bins=100, fill=&quot;steelblue&quot;) +
+  labs( title=&quot;Prices per night of airbnb properties in NYC&quot;)</code></pre>
+<p><img src="/post/airbnb_prices/airbnb_prices_files/figure-html/unnamed-chunk-4-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The distribution is extremely skew, so I can see why evaluation is on a log-scale and the offset of 1 has been inserted to allow for the zero prices.</p>
+<pre class="r"><code># --- histogram of log(price+1) ------------------------------
+trainRawDF %&gt;%
+  ggplot( aes(x=log(price+1)) ) +
+  geom_histogram( bins=100, fill=&quot;steelblue&quot;) +
+  labs(title=&quot;log transformed prices per night&quot;)</code></pre>
+<p><img src="/post/airbnb_prices/airbnb_prices_files/figure-html/unnamed-chunk-5-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The distribution is much less skewed, but shows signs of digit preference in the pricing; $100 per night is much more common that $101 per night.</p>
+<p>I will analyse price on the log(x+1) scale because that transformation is built into the evaluation metric, but I will delete the properties with a price of $0. There are only a few of them and they cannot be genuine.</p>
+<pre class="r"><code># --- transform the response ---------------------------
+trainRawDF %&gt;%
+  filter( price != 0 ) %&gt;%
+  mutate( price = log(price + 1)) -&gt; prep1DF</code></pre>
+<p><code>prep1DF</code> is may way of denoting the first stage of preprocessing.</p>
+</div>
+<div id="the-predictors" class="section level2">
+<h2>The Predictors</h2>
+<p>Now I run a simple exploratory analysis of the predictors</p>
+<div id="location" class="section level3">
+<h3>Location</h3>
+<p>I start with the boroughs. I do not know NYC very well but the high prices in Manhattan are not surprising. <code>gm</code> (geometric mean) puts the average price back into dollars.</p>
+<pre class="r"><code># --- average prices by borough ------------------------
+prep1DF %&gt;%
+  group_by( neighbourhood_group ) %&gt;%
+  summarise( n = n(),
+             m = mean(price),
+             s = sd(price),
+             gm = exp(m) - 1,
+             .groups=&quot;drop&quot;) </code></pre>
+<pre><code>## # A tibble: 5 x 5
+##   neighbourhood_group     n     m     s    gm
+##   &lt;chr&gt;               &lt;int&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+## 1 Bronx                 760  4.26 0.583  70.1
+## 2 Brooklyn            14091  4.58 0.635  96.5
+## 3 Manhattan           15146  5.01 0.668 149. 
+## 4 Queens               3972  4.37 0.570  78.4
+## 5 Staten Island         249  4.41 0.696  81.5</code></pre>
+<p>Next the smaller areas</p>
+<pre class="r"><code># --- average prices by neighbourhood ------------------
+prep1DF %&gt;%
+  group_by( neighbourhood ) %&gt;%
+  summarise( n = n(),
+             m = mean(price),
+             s = sd(price),
+             gm = exp(m) - 1,
+             lat = mean(latitude),
+             lng = mean(longitude),
+             .groups=&quot;drop&quot;) %&gt;%
+  arrange( desc(m))</code></pre>
+<pre><code>## # A tibble: 217 x 7
+##    neighbourhood         n     m      s    gm   lat   lng
+##    &lt;chr&gt;             &lt;int&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+##  1 Woodrow               1  6.55 NA      700   40.5 -74.2
+##  2 Tribeca             128  5.82  0.813  335.  40.7 -74.0
+##  3 Prince&#39;s Bay          3  5.60  1.38   270.  40.5 -74.2
+##  4 Flatiron District    55  5.59  0.668  268.  40.7 -74.0
+##  5 Neponsit              2  5.58  0.394  265.  40.6 -73.9
+##  6 NoHo                 53  5.54  0.546  254.  40.7 -74.0
+##  7 Sea Gate              7  5.46  1.27   233.  40.6 -74.0
+##  8 Midtown            1113  5.44  0.634  230.  40.8 -74.0
+##  9 Breezy Point          2  5.40  0.175  221.  40.6 -73.9
+## 10 West Village        525  5.38  0.554  217.  40.7 -74.0
+## # ... with 207 more rows</code></pre>
+<p>Some neighbourhoods have very few properties, so the true average price in those areas will be poorly estimated. From the very small sample that I’ve looked at, it seems that the expensive properties are situated fairly close to one another.</p>
+<p>Here is a histogram of the (geometric) average price for each neighbourhood in dollars.</p>
+<pre class="r"><code># --- distribution of average prices by neighbourhood ---
+prep1DF %&gt;%
+  group_by( neighbourhood ) %&gt;%
+  summarise( m = mean(price),
+             .groups=&quot;drop&quot;) %&gt;%
+  mutate( mp = exp(m) - 1) %&gt;%
+  ggplot( aes(x=mp)) +
+  geom_histogram( bins=100, fill=&quot;steelblue&quot;) +
+  labs(title=&quot;Average price in each neighbourhood&quot;,
+       x = &quot;Geometric mean price per night (dollars)&quot;)</code></pre>
+<p><img src="/post/airbnb_prices/airbnb_prices_files/figure-html/unnamed-chunk-9-1.png" width="528" style="display: block; margin: auto;" /></p>
+<div id="the-room" class="section level4">
+<h4>The Room</h4>
+<p>A key predictor is the type of accommodation, but unfortunately the categorisation is quite crude.</p>
+<pre class="r"><code># --- prices by room type -------------------------------
+prep1DF %&gt;%
+  group_by( room_type ) %&gt;%
+  summarise( n = n(),
+             m = mean(price),
+             s = sd(price),
+             gm = exp(m) - 1,
+             .groups=&quot;drop&quot;)</code></pre>
+<pre><code>## # A tibble: 3 x 5
+##   room_type           n     m     s    gm
+##   &lt;chr&gt;           &lt;int&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+## 1 Entire home/apt 17806  5.15 0.561 171. 
+## 2 Private room    15615  4.31 0.506  73.3
+## 3 Shared room       797  3.98 0.647  52.6</code></pre>
+<p>The ordering and mean prices are much as one would expect.</p>
+<p>Some accommodation is advertised with a minimum stay; usually up to a year but houses may be advertised for much longer. The range is wide enough to justify a log scale.</p>
+<pre class="r"><code># --- price by minimum stay ----------------------------
+prep1DF %&gt;%
+  ggplot( aes(x=log10(minimum_nights), y=price, colour=room_type)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title = &quot;Price by minimum length of stay&quot;,
+       y = &quot;log(price+1)&quot;) +
+  theme( legend.position = c(0.85, 0.85))</code></pre>
+<p><img src="/post/airbnb_prices/airbnb_prices_files/figure-html/unnamed-chunk-11-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>House/Apartment prices seem not to depend on the minimum length of stay, but perhaps room prices increase slightly for longer stays.</p>
+<p>From the plot we can see clusters of properties that can be booked for a minimum of 1 night, 1 week, 1 month and 1 year. There are smaller groups at 2 weeks and at a few other lengths of stay.</p>
+<p>It appears that the price per night drops for stays over 3 days, but is higher in the few properties available for over a month.</p>
+<p>The next feature is the number of days in a year that the property is available. I assume that this was calculated for the most recent year because 12132 properties have availability of 0 indicating that the list of properties may, in part, be out of date.</p>
+<p>It would be interesting to know how availability was calculated. If a room is let for a month, is it available during that time?</p>
+<pre class="r"><code># --- days available in a given year ---------------------
+prep1DF %&gt;%
+  ggplot( aes(x=availability_365, y=price)) +
+  geom_point() +
+  geom_smooth() +
+  labs( title=&quot;Price and days available for rent in a year&quot;,
+       y = &quot;log(price+1)&quot;, x=&quot;days&quot;)</code></pre>
+<p><img src="/post/airbnb_prices/airbnb_prices_files/figure-html/unnamed-chunk-12-1.png" width="528" style="display: block; margin: auto;" /></p>
+</div>
+</div>
+<div id="reviews" class="section level3">
+<h3>Reviews</h3>
+<p>The number of reviews tells you something about the number of people who have have rented the accommodation and the date of the last review says something about recent activity, but it is not obvious that these will relate to price.</p>
+<p>Number of reviews tells you very little since it will be related to the length of time that the property has been on the market. From the plot it appears that cheaper properties have more reviews.</p>
+<pre class="r"><code># --- number of reviews -----------------------------------
+prep1DF %&gt;%
+  ggplot( aes(x=log10(number_of_reviews+1), y=price)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title=&quot;Price and the number of reviews&quot;,
+       y = &quot;log(price+1)&quot;, x=&quot;total number of reviews&quot;)</code></pre>
+<p><img src="/post/airbnb_prices/airbnb_prices_files/figure-html/unnamed-chunk-13-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>7008 properties have never had a review, so I’ve made reviews per month equal to zero when there were no reviews. I’ve also truncated reviews_per_month at 20; some properties had an incredibly high number of reviews per month (more than the number of days in a month).</p>
+<pre class="r"><code># --- reviews per month -------------------------------------
+prep1DF %&gt;%
+  mutate( reviews_per_month = ifelse(
+                 number_of_reviews == 0, 0, reviews_per_month),
+          reviews_per_month = pmin(20, reviews_per_month) ) %&gt;%
+  ggplot( aes(x=reviews_per_month, y=price)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title=&quot;Price and reviews per month&quot;,
+       subtitle=&quot;truncated at 20&quot;,
+       y = &quot;log(price+1)&quot;, x=&quot;reviews per month&quot;)</code></pre>
+<p><img src="/post/airbnb_prices/airbnb_prices_files/figure-html/unnamed-chunk-14-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The date of the last review might say something about recent activity.</p>
+<pre class="r"><code># --- date of last review -----------------------------------
+prep1DF %&gt;%
+  mutate( last_review = as.Date(last_review)) %&gt;%
+  ggplot( aes(x=last_review, y=price)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title=&quot;Price and the date of the last review&quot;,
+       subtitle=&quot;7008 properties had not been reviewed at all&quot;,
+       y = &quot;log(price+1)&quot;, x=&quot;date&quot;)</code></pre>
+<p><img src="/post/airbnb_prices/airbnb_prices_files/figure-html/unnamed-chunk-15-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>It does not look as though the last review is very predictive of price.</p>
+</div>
+<div id="host" class="section level3">
+<h3>Host</h3>
+<p>It seems to me that the key host related feature is whether someone is running a business with lots of properties on Airbnb, or they are an individual renting out a single property or room. We can see this on a plot of price against the number of properties a host rents out.</p>
+<pre class="r"><code># --- number of properties per host --------------------------
+prep1DF %&gt;%
+  ggplot( aes(x=calculated_host_listings_count, y=price)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title=&quot;Price and number of properties that host rents out&quot;,
+       y = &quot;log(price+1)&quot;, x=&quot;number of properties&quot;)</code></pre>
+<p><img src="/post/airbnb_prices/airbnb_prices_files/figure-html/unnamed-chunk-16-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The cluster of properties over 300 were all rented out by the same person/company. Let’s look at them</p>
+<pre class="r"><code># --- host with over 300 properties -------------------------
+prep1DF %&gt;%
+  filter( calculated_host_listings_count &gt; 300) %&gt;%
+  select( host_id, host_name,  calculated_host_listings_count)</code></pre>
+<pre><code>## # A tibble: 229 x 3
+##      host_id host_name    calculated_host_listings_count
+##        &lt;int&gt; &lt;chr&gt;                                 &lt;int&gt;
+##  1 219517861 Sonder (NYC)                            327
+##  2 219517861 Sonder (NYC)                            327
+##  3 219517861 Sonder (NYC)                            327
+##  4 219517861 Sonder (NYC)                            327
+##  5 219517861 Sonder (NYC)                            327
+##  6 219517861 Sonder (NYC)                            327
+##  7 219517861 Sonder (NYC)                            327
+##  8 219517861 Sonder (NYC)                            327
+##  9 219517861 Sonder (NYC)                            327
+## 10 219517861 Sonder (NYC)                            327
+## # ... with 219 more rows</code></pre>
+<p>So, one company (Sonder) is plotted 327 times, because they have 327 properties.</p>
+<p>Let’s plot the hosts rather than the properties and place the number on a log-scale</p>
+<pre class="r"><code># --- average price by number of host&#39;s properties -----------
+prep1DF %&gt;%
+  group_by( host_id ) %&gt;%
+  summarise( count = mean(calculated_host_listings_count),
+             price = mean(price),
+             .groups=&quot;drop&quot;) %&gt;%
+  mutate( count = pmin(50, count)) %&gt;%
+  ggplot( aes(x=count, y=price)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title=&quot;Average price and number of properties&quot;,
+       subtitle=&quot;truncated at 50 properties&quot;,
+       y = &quot;log(price+1)&quot;, x=&quot;number of properties&quot;)</code></pre>
+<p><img src="/post/airbnb_prices/airbnb_prices_files/figure-html/unnamed-chunk-18-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The dip around 5 properties is interesting and may reflect the division between individuals and companies.</p>
+</div>
+<div id="name" class="section level3">
+<h3>name</h3>
+<p><code>name</code> is a misnomer, what we actually have is a brief description of the property.</p>
+<p>Here are some examples</p>
+<pre class="r"><code># --- example of the name field ----------------------------
+prep1DF %&gt;%
+  select( name) </code></pre>
+<pre><code>## # A tibble: 34,218 x 1
+##    name                                    
+##    &lt;chr&gt;                                   
+##  1 Cute big one bedroom                    
+##  2 Feel like you never leave your home     
+##  3 Pristine Lower East Side Sanctuary      
+##  4 Luxe, Spacious 2BR 2BA Nr Trains        
+##  5 1BD brownstone apt in Fort Greene!      
+##  6 LOVELY  LARGE SUNNY ROOM    Sunset Park 
+##  7 NE..Comfortable Room All Inclusive      
+##  8 Bright, Spacious Studio in Brooklyn     
+##  9 Upper west Apt close to Central Pk      
+## 10 Artist&#39;s Jungle Suite + Private Bathroom
+## # ... with 34,208 more rows</code></pre>
+<p>There are problems with these descriptions. Some use abbreviations and other don’t, some describe the property and some describe the location and some do neither.</p>
+<p>First, I convert everything to lower case, remove the punctuation and the digits and replace a few of the abbreviations</p>
+<pre class="r"><code># --- clean the name field ---------------------------------
+prep1DF %&gt;%
+  mutate( name = tolower(name),
+          name = ifelse( is.na(name), &quot;&quot;, name),
+          name = gsub(&#39;[[:punct:] ]+&#39;,&#39; &#39;,name),
+          name = gsub(&#39;[[:digit:] ]+&#39;,&#39; &#39;,name),
+          name = str_replace(name, &quot;bd &quot;, &quot;bedroom &quot;),
+          name = str_replace(name, &quot;br &quot;, &quot;bedroom &quot;),
+          name = str_replace(name, &quot;nr &quot;, &quot;near&quot;),
+          name = str_replace(name, &quot; rm&quot;, &quot; room&quot;),
+          name = str_replace(name, &quot;pk&quot;, &quot;park&quot;),
+          name = str_replace(name, &quot;lux &quot;, &quot;luxury &quot;),
+          name = str_replace(name, &quot; ft&quot;, &quot; foot&quot;),
+          name = str_replace(name, &quot;sq &quot;, &quot;square &quot;),
+          name = str_replace(name, &quot; st &quot;, &quot; street &quot;),
+          name = str_replace(name, &quot; apt&quot;, &quot; apartment&quot;)) -&gt; prep2DF</code></pre>
+<p>Next, I split the sentences into words (max 12) and make a long column out of all of the words. Of course, some (123) entries have more than 12 words and the extra words will be lost, c’est la vie.</p>
+<p>For the first <em>Spiced</em> challenge, <code>s01-e01</code>, I wrote a function that does just what we need, you can find the code in that post. I placed the function in a package called <code>myText</code> and I’ll use it again here.</p>
+<pre class="r"><code>library(myText)
+
+prep2DF %&gt;%
+  select_indicators(col=name, response=price, 
+                    nTerms=12, minCount=100, sep=&quot; &quot;) %&gt;%
+  filter( str_length(term) &gt; 1 ) %&gt;%
+  filter( !(term %in% c(&quot;the&quot;, &quot;an&quot;, &quot;to&quot;, &quot;in&quot;,
+                        &quot;of&quot;, &quot;by&quot;, &quot;with&quot;, &quot;and&quot;,
+                        &quot;at&quot;, &quot;from&quot;, &quot;for&quot;, &quot;on&quot;,
+                        &quot;w/&quot;)) ) %&gt;%
+  filter( count &gt; 100 &amp; p_value &lt; 0.001 ) %&gt;%
+  print(n=20) -&gt; wordsDF</code></pre>
+<pre><code>## # A tibble: 174 x 5
+##    term       count   p_value mWithout mWith
+##    &lt;chr&gt;      &lt;int&gt;     &lt;dbl&gt;    &lt;dbl&gt; &lt;dbl&gt;
+##  1 room       16343 6.00e-323     4.87  4.59
+##  2 private     5100 1.37e-303     4.79  4.44
+##  3 cozy        3569 3.95e-157     4.77  4.48
+##  4 village     1605 4.11e-156     4.72  5.14
+##  5 luxury      1345 8.97e-150     4.72  5.27
+##  6 bushwick    1025 2.97e-141     4.75  4.26
+##  7 blueground   158 2.01e-129     4.73  5.71
+##  8 bedroom     9034 1.32e-115     4.69  4.88
+##  9 sonder       299 3.72e-107     4.73  5.43
+## 10 bed        10834 1.14e- 97     4.68  4.85
+## 11 apartment   8056 2.11e- 88     4.70  4.86
+## 12 west        1132 1.94e- 84     4.72  5.13
+## 13 art         9981 2.32e- 81     4.69  4.84
+## 14 chelsea      501 1.40e- 75     4.73  5.27
+## 15 own         2991 2.69e- 75     4.71  4.97
+## 16 midtown      914 1.21e- 73     4.73  5.17
+## 17 shared       307 3.65e- 68     4.74  4.02
+## 18 studio      2917 1.34e- 67     4.72  4.90
+## 19 doorman      317 2.79e- 67     4.73  5.37
+## 20 gym          316 3.81e- 66     4.73  5.43
+## # ... with 154 more rows</code></pre>
+<p>So we have 174 potential features in the form of words that occur in the <code>name</code> variable. Some duplicate location information e.g. <code>bushwick</code>, others duplicate host information e.g. <code>sonder</code> or room type information e.g. <code>bedroom</code>. In my judgement it is not worth the effort of trying to edit the words any further and I take the 174 features asis.</p>
+</div>
+</div>
+<div id="cleaning-the-data" class="section level2">
+<h2>Cleaning the data</h2>
+<div id="neighbourhoods" class="section level3">
+<h3>Neighbourhoods</h3>
+<p>I need to sort out the problem of neighbourhoods with very few properties. Such neighbourhoods will produce unreliable estimates in the model.</p>
+<p>I will employ a simple clustering algorithm that takes any neighbourhood with fewer that 25 properties and merges it with its closest neighbouring neighbourhood, where distance is calculated from the latitude and longitude.</p>
+<p>I checked and found that some of the neighbourhoods in the test data do not appear in the training data and one neighbourhood (<code>Bay Terrace</code>) appears in the test data as <code>Bay Terrace, Staten Island</code>. I reclassify the neighbourhoods based on the combined test and training data in order to ensure that the classifications are consistent.</p>
+<p>Here is the code</p>
+<pre class="r"><code># --- create DF of unique neighbourhoods ------------
+# merge is a flag that I&#39;ll use in the subsequent analysis
+# it will be set to the row number of the neighbourhood
+# that this neighbourhood is merged with
+prep2DF %&gt;%
+  select( neighbourhood, latitude, longitude) %&gt;%
+  bind_rows( testRawDF %&gt;%
+               mutate( neighbourhood = str_replace(neighbourhood,
+                      &quot;Bay Terrace, Staten Island&quot;, &quot;Bay Terrace&quot;)) %&gt;%
+             select( neighbourhood, latitude, longitude) ) %&gt;%
+  group_by( neighbourhood) %&gt;%
+  summarise( n = n(),
+             lat = mean(latitude),
+             lng = mean(longitude),.groups = &quot;drop&quot;) %&gt;%
+  mutate( merge = 0 ) %&gt;%
+  print() -&gt; nbdDF</code></pre>
+<pre><code>## # A tibble: 220 x 5
+##    neighbourhood         n   lat   lng merge
+##    &lt;chr&gt;             &lt;int&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+##  1 Allerton             42  40.9 -73.9     0
+##  2 Arden Heights         4  40.6 -74.2     0
+##  3 Arrochar             21  40.6 -74.1     0
+##  4 Arverne              77  40.6 -73.8     0
+##  5 Astoria             900  40.8 -73.9     0
+##  6 Bath Beach           17  40.6 -74.0     0
+##  7 Battery Park City    70  40.7 -74.0     0
+##  8 Bay Ridge           141  40.6 -74.0     0
+##  9 Bay Terrace           8  40.7 -73.9     0
+## 10 Baychester            7  40.9 -73.8     0
+## # ... with 210 more rows</code></pre>
+<p>Next I write a function that takes a target neighbourhood and merges it with its nearest neighbour</p>
+<pre class="r"><code># --- merge_neighbourhoods --------------------------
+# function to merge with the nearest neighbour
+#    target ... name of neighbourhood to me merged
+merge_neighbourhoods &lt;- function(target) {
+  # --- row to be merged ----------------------------
+  row &lt;- which(nbdDF$neighbourhood == target &amp; nbdDF$merge == 0)
+  # --- distances to other neighbourhoods -----------
+  distance &lt;- (nbdDF$lat - nbdDF$lat[row])^2 +
+    (nbdDF$lng - nbdDF$lng[row])^2 
+  # --- make distance large if already merged -------
+  distance &lt;- ifelse( nbdDF$merge &gt; 0, 999, distance )
+  # --- make distance to itself large ---------------
+  distance[row] &lt;- 999
+  # --- find the closest ----------------------------
+  closest &lt;- which( distance == min(distance) )[1]
+  # --- find new total number -----------------------
+  nbdDF$n[closest] &lt;- nbdDF$n[row] + nbdDF$n[closest]
+  # --- register the identity of the merge ----------
+  nbdDF$merge[row] &lt;- closest
+  return(nbdDF)
+}</code></pre>
+<p>Finally I make the merges by working through nbdDF looking for neighbourhoods with fewer than 25 properties.</p>
+<pre class="r"><code># --- How many small areas are left unmerged? ------
+nSmall &lt;- sum( nbdDF$n &lt; 25 &amp; nbdDF$merge == 0)
+# --- merge while small areas remain ---------------
+while( nSmall &gt; 0 ) {
+  # --- find a target ------------------------------
+  nbdDF %&gt;%
+    filter( n &lt; 25 &amp; merge == 0 )  %&gt;%
+    dplyr::slice(1) %&gt;%
+    pull(neighbourhood) -&gt; target
+  # --- merge using the function -------------------
+  nbdDF &lt;- merge_neighbourhoods( target)
+  
+  # --- How many small areas are left --------------
+  nSmall &lt;- sum( nbdDF$n &lt; 25 &amp; nbdDF$merge == 0)
+}
+
+print(nbdDF)</code></pre>
+<pre><code>## # A tibble: 220 x 5
+##    neighbourhood         n   lat   lng merge
+##    &lt;chr&gt;             &lt;int&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+##  1 Allerton             42  40.9 -73.9     0
+##  2 Arden Heights         4  40.6 -74.2   101
+##  3 Arrochar             21  40.6 -74.1    46
+##  4 Arverne              77  40.6 -73.8     0
+##  5 Astoria             900  40.8 -73.9     0
+##  6 Bath Beach           17  40.6 -74.0    17
+##  7 Battery Park City    70  40.7 -74.0     0
+##  8 Bay Ridge           153  40.6 -74.0     0
+##  9 Bay Terrace           8  40.7 -73.9   125
+## 10 Baychester            7  40.9 -73.8   154
+## # ... with 210 more rows</code></pre>
+<p>So Allerton did not need to be merged but Arden Heights got merged with row 101 (Huguenot). I’m afraid that the names of the neighbourhoods mean little to me, but the merges look sensible on Google maps.</p>
+<p>Next I reclassify the properties and create a new variable called <code>neighbourhood2</code></p>
+<pre class="r"><code># --- create a second neighbourhood variable ------
+prep2DF$neighbourhood2 &lt;- prep2DF$neighbourhood
+# --- fill neighbourhood2 with the larger group ---
+for( i in 1:nrow(nbdDF)) {
+  if( nbdDF$merge[i] &gt; 0 ) {
+    from &lt;- nbdDF$neighbourhood[i]
+    to   &lt;- nbdDF$neighbourhood[nbdDF$merge[i]]
+    j &lt;- which(prep2DF$neighbourhood2==from)
+    prep2DF$neighbourhood2[j] &lt;- to
+  }
+}</code></pre>
+<p>We can check that neighbourhood2 looks sensible</p>
+<pre class="r"><code># --- look at the new variable -------------------
+prep2DF %&gt;%
+  group_by( neighbourhood2) %&gt;%
+  summarise( n = n(),
+             .groups = &quot;drop&quot;) </code></pre>
+<pre><code>## # A tibble: 134 x 2
+##    neighbourhood2         n
+##    &lt;chr&gt;              &lt;int&gt;
+##  1 Allerton              35
+##  2 Arverne               53
+##  3 Astoria              640
+##  4 Battery Park City     44
+##  5 Bay Ridge            116
+##  6 Bayside               36
+##  7 Bedford-Stuyvesant  2595
+##  8 Bensonhurst           76
+##  9 Boerum Hill          132
+## 10 Borough Park          90
+## # ... with 124 more rows</code></pre>
+<p>We have reduced the number of neighbourhoods to 134 and all of them have at least 25 properties in the combined test and training data, though not necessarily in the training data alone.</p>
+</div>
+</div>
+<div id="a-data-cleaning-function" class="section level2">
+<h2>A data cleaning function</h2>
+<p>Rather than preprocessing the data in gradual steps, I combine the data cleaning steps into a function, so that I can run exactly the same process on both the training and the test sets.</p>
+<p>The function brings together all of the things that I have already done</p>
+<pre class="r"><code># --- clean() --------------------------------------------
+# arguments
+#    thisDF    ... data frame to be cleaned
+#    wordsDF   ... data frame of keywords
+#    nbdDF     ... data frame of grouped neighbourhoods
+#
+clean &lt;- function( thisDF, wordsDF, nbdDF) {
+   thisDF %&gt;%
+      mutate( name = tolower(name),
+              name = ifelse( is.na(name), &quot;&quot;, name),
+              name = gsub(&#39;[[:punct:] ]+&#39;,&#39; &#39;,name),
+              name = gsub(&#39;[[:digit:] ]+&#39;,&#39; &#39;,name),
+              name = str_replace(name, &quot;bd &quot;, &quot;bedroom &quot;),
+              name = str_replace(name, &quot;br &quot;, &quot;bedroom &quot;),
+              name = str_replace(name, &quot;nr &quot;, &quot;near&quot;),
+              name = str_replace(name, &quot; rm&quot;, &quot; room&quot;),
+              name = str_replace(name, &quot;pk&quot;, &quot;park&quot;),
+              name = str_replace(name, &quot;lux &quot;, &quot;luxury &quot;),
+              name = str_replace(name, &quot; ft&quot;, &quot; foot&quot;),
+              name = str_replace(name, &quot;sq &quot;, &quot;square &quot;),
+              name = str_replace(name, &quot; st &quot;, &quot; street &quot;),
+              name = str_replace(name, &quot; apt&quot;, &quot; apartment&quot;)) -&gt; prepDF
+  
+   prepDF$neighbourhood2 &lt;- prepDF$neighbourhood
+   for( i in 1:nrow(nbdDF)) {
+      if( nbdDF$merge[i] &gt; 0 ) {
+         from &lt;- nbdDF$neighbourhood[i]
+         to   &lt;- nbdDF$neighbourhood[nbdDF$merge[i]]
+         j &lt;- which(prepDF$neighbourhood2==from)
+         prepDF$neighbourhood2[j] &lt;- to
+      }
+   }
+   
+   nbdDF %&gt;%
+     filter( merge == 0 ) %&gt;%
+     pull(neighbourhood) -&gt; nbds
+
+   for( j in 1:length(nbds) ) {
+      prepDF[ paste(&quot;N&quot;, j, sep=&quot;&quot;)] &lt;- 
+         as.numeric( prepDF$neighbourhood2 == nbds[j])
+   }
+   
+   rts &lt;- unique(prepDF$room_type)
+
+   for( j in 1:length(rts) ) {
+      prepDF[ paste(&quot;R&quot;, j, sep=&quot;&quot;)] &lt;- 
+        as.numeric( prepDF$room_type == rts[j])
+   }
+
+   for( i in 1:nrow(wordsDF)) {
+     prepDF[ paste(&quot;X&quot;, i, sep=&quot;&quot;) ] &lt;- as.numeric(str_detect(prepDF$name, wordsDF$term[i]) )
+   }
+
+   prep2DF$reviews_per_month[ is.na(prep2DF$reviews_per_month)] &lt;- 0
+   return(prepDF)
+}</code></pre>
+<p>It is interesting how I seem to have reverted to base R. This was not a conscious decision, I just use whatever seems easier. It suggests that there is either a gap in the tidyverse, or a gap in my knowledge of the tidyverse.</p>
+<div id="save-results-of-the-pre-processing" class="section level3">
+<h3>Save results of the pre-processing</h3>
+<pre class="r"><code># --- save the cleaned data -----------------------------
+trainRawDF %&gt;%
+  filter( price != 0 ) %&gt;%
+  mutate( price = log(price + 1)) %&gt;%
+  clean( wordsDF, nbdDF) %&gt;%
+  saveRDS( file.path(home, &quot;data/rData/processed_train.rds&quot;))
+
+testRawDF %&gt;%
+  mutate( neighbourhood = str_replace(neighbourhood,
+                &quot;Bay Terrace, Staten Island&quot;, &quot;Bay Terrace&quot;)) %&gt;%
+  clean( wordsDF, nbdDF) %&gt;%
+  saveRDS( file.path(home, &quot;data/rData/processed_test.rds&quot;))</code></pre>
+</div>
+</div>
+</div>
+<div id="model-fitting" class="section level1">
+<h1>Model fitting</h1>
+<p>I start by dividing the training data into an estimation and a validation set.</p>
+<pre class="r"><code># --- read the clean data ------------------------------------
+trainDF &lt;- readRDS( file.path(home, &quot;data/rData/processed_train.rds&quot;))
+
+# --- split the training data --------------------------------
+set.seed(8751)
+
+split &lt;- sample(1:nrow(trainDF), size=10000, replace=FALSE)
+
+validateDF &lt;- trainDF[ split, ]
+estimateDF &lt;- trainDF[-split, ]</code></pre>
+<div id="xgboost" class="section level2">
+<h2>XGBoost</h2>
+<p>The data are complex enough to justify a tree-based model and I decided to try boosted trees with <code>xgboost</code>, because by reputation this is a very good algorithm.</p>
+<p><code>xgboost</code> requires numerical predictors in a matrix, otherwise it is straightforward to use. I deliberately use the package <code>xgboost</code> directly and not via <code>caret</code> or <code>tidymodels</code> or <code>mlr3</code>. I want to get close to the algorithm, in order to understand how it works.</p>
+<p>My first model is fitted with the default settings. The number of <code>xgboost</code> parameters that you can adjust might look like a strength, because it suggests that you can modify the algorithm to work for your problem. However, for me it is a weakness; it makes the algorithm difficult to understand and it creates a potential for overfitting.</p>
+<p>I save the numerical predictors in a matrix and run the algorithm for just 10 iterations in order to set up the method.</p>
+<pre class="r"><code>library(xgboost)
+
+# --- place predictors is matrix X -------------------------
+estimateDF %&gt;%
+  select( minimum_nights, reviews_per_month,
+          calculated_host_listings_count, availability_365,
+          starts_with(&quot;N&quot;, ignore.case=FALSE), 
+          starts_with(&quot;R&quot;, ignore.case=FALSE), 
+          starts_with(&quot;X&quot;, ignore.case=FALSE)) %&gt;%
+  as.matrix() -&gt; X
+
+# --- place response in vector Y ---------------------------
+estimateDF %&gt;% 
+  pull(price) -&gt; Y
+
+# --- fit the model ----------------------------------------
+xgmod &lt;- xgboost(data=X, label=Y, nrounds=10, verbose=2)</code></pre>
+<pre><code>## [1]  train-rmse:3.027656 
+## [2]  train-rmse:2.149653 
+## [3]  train-rmse:1.545361 
+## [4]  train-rmse:1.135799 
+## [5]  train-rmse:0.864560 
+## [6]  train-rmse:0.691984 
+## [7]  train-rmse:0.586478 
+## [8]  train-rmse:0.524449 
+## [9]  train-rmse:0.489097 
+## [10] train-rmse:0.468396</code></pre>
+<p>It is easy to extract the in-sample RMSEs and plot them,</p>
+<pre class="r"><code>xgmod$evaluation_log %&gt;%
+  ggplot( aes(x=iter, y=train_rmse)) +
+  geom_line(colour=&quot;blue&quot;)</code></pre>
+<p><img src="/post/airbnb_prices/airbnb_prices_files/figure-html/unnamed-chunk-31-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>and to calculate the variable importance measures.</p>
+<pre class="r"><code>xgb.importance(model=xgmod) %&gt;%
+  as_tibble() %&gt;%
+  print() -&gt; importDF</code></pre>
+<pre><code>## # A tibble: 111 x 4
+##    Feature                           Gain  Cover Frequency
+##    &lt;chr&gt;                            &lt;dbl&gt;  &lt;dbl&gt;     &lt;dbl&gt;
+##  1 R1                             0.721   0.136     0.0219
+##  2 N78                            0.0369  0.0663    0.0219
+##  3 availability_365               0.0277  0.0703    0.0973
+##  4 reviews_per_month              0.0187  0.0410    0.117 
+##  5 minimum_nights                 0.0161  0.0479    0.105 
+##  6 N61                            0.0142  0.0471    0.0170
+##  7 X18                            0.0113  0.0319    0.0292
+##  8 N19                            0.0100  0.0438    0.0146
+##  9 calculated_host_listings_count 0.00970 0.0146    0.0535
+## 10 X4                             0.00907 0.0338    0.0122
+## # ... with 101 more rows</code></pre>
+<p>The continuous predictors are used a lot in the trees (high frequency), presumably because they can be split in many ways. But R1 (entire house/apartment) gives by far the biggest gain (improvement in RMSE). The N’s are neighbourhoods and the X’s are words from the <code>name</code> field.</p>
+<p>Since we have a validation set, we can ask xgboost to tell us the out-of-sample RMSE as well as the in-sample RMSE. To do this, we need to use the <code>xgb.DMatrix</code> function to pack together the predictors and the label (response).</p>
+<pre class="r"><code># --- pack the estimation data ----------------------
+dtrain &lt;- xgb.DMatrix(data = X, label = Y)
+
+# --- extract the validation data -----------------
+validateDF %&gt;%
+  select( minimum_nights, reviews_per_month,
+          calculated_host_listings_count, availability_365,
+          starts_with(&quot;N&quot;, ignore.case=FALSE), 
+          starts_with(&quot;R&quot;, ignore.case=FALSE), 
+          starts_with(&quot;X&quot;, ignore.case=FALSE)) %&gt;%
+  as.matrix() -&gt; XV
+
+validateDF %&gt;% 
+  pull(price) -&gt; YV
+
+# --- pack the validation data --------------------------
+dtest &lt;- xgb.DMatrix(data = XV, label=YV)</code></pre>
+<p>I use the <code>xgb.train()</code> function to fit the model. The function <code>xgboost()</code> that was used before is a wrapper that calls <code>xgb.train()</code> in the background.</p>
+<pre class="r"><code># --- fit and monitor estimation and validation RMSE ---------
+xgb.train(data=dtrain, 
+        watchlist=list(train=dtrain, test=dtest),
+        objective=&quot;reg:squarederror&quot;,
+        nrounds=10, verbose=2) -&gt; xgmod</code></pre>
+<pre><code>## [1]  train-rmse:3.027656 test-rmse:3.029342 
+## [2]  train-rmse:2.149653 test-rmse:2.152541 
+## [3]  train-rmse:1.545361 test-rmse:1.549091 
+## [4]  train-rmse:1.135799 test-rmse:1.140541 
+## [5]  train-rmse:0.864560 test-rmse:0.870254 
+## [6]  train-rmse:0.691984 test-rmse:0.699555 
+## [7]  train-rmse:0.586478 test-rmse:0.596175 
+## [8]  train-rmse:0.524449 test-rmse:0.536010 
+## [9]  train-rmse:0.489097 test-rmse:0.502010 
+## [10] train-rmse:0.468396 test-rmse:0.482440</code></pre>
+<p>We see evidence of slight overfitting in the training RMSE and this overfitting is getting larger as the iterations progress. The validation RMSE is still improving so it would make sense to run more iterations.</p>
+<div id="submission" class="section level3">
+<h3>Submission</h3>
+<p>Although this model was not tuned, let’s get an idea of performance by making a submission.</p>
+<p>I refit the model using all of the training data and run 200 iterations to give the model time to minimise the loss.</p>
+<pre class="r"><code># --- place predictors is matrix X -------------------------
+trainDF %&gt;%
+  select( minimum_nights, reviews_per_month,
+          calculated_host_listings_count, availability_365,
+          starts_with(&quot;N&quot;, ignore.case=FALSE), 
+          starts_with(&quot;R&quot;, ignore.case=FALSE), 
+          starts_with(&quot;X&quot;, ignore.case=FALSE)) %&gt;%
+  as.matrix() -&gt; X
+
+# --- place response in vector Y ---------------------------
+trainDF %&gt;% 
+  pull(price) -&gt; Y
+
+# --- fit the model ----------------------------------------
+xgmod &lt;- xgboost(data=X, label=Y, nrounds=200, verbose=0)
+
+xgmod$evaluation_log %&gt;% 
+  dplyr::slice(1,10,25,50,100,150,200)</code></pre>
+<pre><code>##    iter train_rmse
+## 1:    1   3.027281
+## 2:   10   0.467436
+## 3:   25   0.412192
+## 4:   50   0.386695
+## 5:  100   0.359233
+## 6:  150   0.342308
+## 7:  200   0.327474</code></pre>
+<p>The in-sample RMSE looks impressive but we know that this is misleading.</p>
+<p>Now I create the test submission</p>
+<pre class="r"><code># --- read clean test data ---------------------------------
+testDF &lt;- readRDS( file.path(home, &quot;data/rData/processed_test.rds&quot;))
+
+# --- predictors: note change in column numbers (no price) -
+testDF %&gt;%
+  select( minimum_nights, reviews_per_month,
+          calculated_host_listings_count, availability_365,
+          starts_with(&quot;N&quot;, ignore.case=FALSE), 
+          starts_with(&quot;R&quot;, ignore.case=FALSE), 
+          starts_with(&quot;X&quot;, ignore.case=FALSE)) %&gt;%
+  as.matrix() -&gt; XT
+
+# --- make predictions and save ----------------------------
+testDF %&gt;%
+  mutate( yhat     = predict(xgmod, newdata=XT ) ) %&gt;%
+  # --- transform price to dollars ---------------
+  mutate( price = exp(yhat) - 1 ) %&gt;%
+  select(id, price) %&gt;%
+  write.csv( file.path(home, &quot;temp/submission1.csv&quot;),
+             row.names=FALSE)</code></pre>
+<p>I submitted this file and got RMSE=0.43089, good enough to put us in second place on the leaderboard.</p>
+</div>
+</div>
+<div id="hyperparameter-tuning" class="section level2">
+<h2>Hyperparameter tuning</h2>
+<p><code>XGBoost</code> is a complex algorithm. I have not counted the number of parameters that the user can adjust, but my guess is that there must be between 10 and 20. My impression from watching youTube videos is that a popular approach amongst data scientists is to try everything in a semi-systematic way in the hope of hitting on the magic combination. Not an approach that appeals to me.</p>
+<p>Hyperparameter tuning is a critical topic that affects all machine learning algorithms. I’ll use this example to start looking at it, but I expect that I will return to it in future episodes.</p>
+<div id="number-of-iterations" class="section level3">
+<h3>Number of Iterations</h3>
+<p>Let’s look at the number of iterations; without doubt, this is the most critical hyperparameter.</p>
+<p>It is in the nature of gradient boosting that we progress towards the minimum loss in a series of small steps. At each step we fit a tree targeted on the observations that are currently poorly predicted. Too few iterations and we will not minimise the loss, too many and we will start to pick up random blips in the training data that will not be seen in the test data, i.e we will overfit.</p>
+<p>The optimum will depend on the complexity of the problem that you are analysing, so it cannot be predicted in advance. The only thing that you can do, is to try a large number iterations and look at the loss at each step.</p>
+<p>Here is what happens if we run 1000 iterations.</p>
+<pre class="r"><code># --- fit 1000 iterations --------------------------
+xgb.train(data=dtrain, 
+        watchlist=list(train=dtrain, test=dtest),
+        objective=&quot;reg:squarederror&quot;,
+        nrounds=1000, verbose=0) -&gt; xgmod
+
+# --- progress of the fit -------------------------
+xgmod$evaluation_log %&gt;% 
+  dplyr::slice(1, seq(100, 1000, by=100))</code></pre>
+<pre><code>##     iter train_rmse test_rmse
+##  1:    1   3.027656  3.029342
+##  2:  100   0.349448  0.423110
+##  3:  200   0.315679  0.422535
+##  4:  300   0.285025  0.425237
+##  5:  400   0.262911  0.428523
+##  6:  500   0.241819  0.432565
+##  7:  600   0.225361  0.434975
+##  8:  700   0.208922  0.437627
+##  9:  800   0.194874  0.440214
+## 10:  900   0.182076  0.442238
+## 11: 1000   0.170291  0.444098</code></pre>
+<p>I will wrap my plotting code in a function, so that I can reuse it later.</p>
+<pre class="r"><code># --- plot RMSE by iteration ----------------------
+xgmod$evaluation_log %&gt;%
+    ggplot( aes(x=iter, y=train_rmse)) +
+    geom_line(colour=&quot;blue&quot;) +
+    geom_line( aes(y=test_rmse), colour=&quot;red&quot;) +
+    scale_y_continuous( limits = c(0, 1), breaks=seq(0, 1, by=0.1)) +
+    labs(x=&quot;Iteration&quot;, y=&quot;RMSE&quot;, 
+         title=&quot;In-sample and out-of-sample RMSE&quot;)</code></pre>
+<p><img src="/post/airbnb_prices/airbnb_prices_files/figure-html/unnamed-chunk-38-1.png" width="528" style="display: block; margin: auto;" />
+The in-sample RMSE keeps improving. It will eventually plateau at the minimum possible loss for this tree-based model, but the complexity of the trees is such that by the time that that happens we will be picking up every meaningless blip in the data.</p>
+<p>For the Airbnb data, the out-of-sample RMSE is minimised at about 200 iterations and after that it increases slowly. The optimum happens to coincide with the choice that I made for my submission. You will just have to believe me when I say that this was a lucky guess. However, the rise in the out-of-sample RMSE is so slow that we lose very little by having a few extra iterations. Generally, a few too many iterations is better than not enough.</p>
+<p>For these data, the actual minimum RMSE occurs at iteration 170</p>
+<pre class="r"><code># --- iteration with the minumum RMSE -----------------------
+xgmod$evaluation_log %&gt;%
+  summarise( minIter = which(test_rmse == min(test_rmse))[1] )</code></pre>
+<pre><code>##   minIter
+## 1     170</code></pre>
+<p>This, of course, is only the result for this particular validation sample. Let’s try some different random estimation/validation splits</p>
+<pre class="r"><code># --- optimum performance for different data splits --------
+set.seed(4256)
+# --- variables for saving the results
+minIteration &lt;- minRMSE &lt;- rep(0,5)
+for( i in 1:5 ) {
+  # --- random split --------------------------
+  split &lt;- sample(1:nrow(trainDF), size=10000, replace=FALSE)
+  # --- training X and Y matrices -------------
+  trainDF[-split, ] %&gt;%
+    select( minimum_nights, reviews_per_month,
+            calculated_host_listings_count, availability_365,
+            starts_with(&quot;N&quot;, ignore.case=FALSE), 
+            starts_with(&quot;R&quot;, ignore.case=FALSE), 
+            starts_with(&quot;X&quot;, ignore.case=FALSE)) %&gt;%
+    as.matrix() -&gt; Xi
+  trainDF[-split, ] %&gt;% 
+    pull(price) -&gt; Yi
+  dtraini &lt;- xgb.DMatrix(data = Xi, label = Yi)
+  # --- validation X and Y matrices ----------
+  trainDF[ split, ] %&gt;%
+    select( minimum_nights, reviews_per_month,
+            calculated_host_listings_count, availability_365,
+            starts_with(&quot;N&quot;, ignore.case=FALSE), 
+            starts_with(&quot;R&quot;, ignore.case=FALSE), 
+            starts_with(&quot;X&quot;, ignore.case=FALSE)) %&gt;%
+    as.matrix() -&gt; XVi
+  trainDF[ split, ] %&gt;% 
+    pull(price) -&gt; YVi
+  dtesti &lt;- xgb.DMatrix(data = XVi, label=YVi)
+  # --- fit the model ------------------------
+  xgb.train(data=dtraini, 
+            watchlist=list(train=dtraini, test=dtesti),
+            objective=&quot;reg:squarederror&quot;,
+            nrounds=300, verbose=0) -&gt; xgmod
+  # --- find optimum number of iterations ----
+  xgmod$evaluation_log %&gt;%
+    summarise( minIter = which(test_rmse == min(test_rmse))[1] ) %&gt;%
+    pull(minIter) -&gt; minIteration[i]
+  # --- RMSE at the optimum ------------------
+  minRMSE[i] &lt;- xgmod$evaluation_log$test_rmse[minIteration[i]]
+}
+print(minIteration)</code></pre>
+<pre><code>## [1] 186 168 115 183 215</code></pre>
+<pre class="r"><code>print(minRMSE)</code></pre>
+<pre><code>## [1] 0.417998 0.431867 0.427539 0.419533 0.426129</code></pre>
+<p>A single validation sample only gives an approximation to the optimum number of iterations. In this analysis, the validation sample has size 10,000, which it is quite large. Many problems will have a much smaller validation sample and therefore be far less stable.</p>
+<p>The random splits suggest that the required number of iterations for this problem is something between 115 and 215.</p>
+<p>My submission was based on 200 iterations of the algorithm, but looking at these results I might have chosen 150 iterations instead. If I had, perhaps my model would have topped the leaderboard or come 5th instead of 2nd.</p>
+<p>The five random splits give minimum RMSEs between 0.418 and 0.432. This tells us that there is no point in getting excited about selections of hyperparameters that improve a single measure of the RMSE by say, 0.010.</p>
+<p>A cross-validated RMSE would be equivalent to averaging over several validation samples so would be more stable, but it would still have an error associated with it.</p>
+</div>
+</div>
+<div id="learning-rate" class="section level2">
+<h2>Learning rate</h2>
+<p>Let’s return to our original split and look at the learning rate. The idea of boosting is that we create a succession of trees that each fit to the current residuals. That is, at each iteration, the algorithm identifies the observations that are poorly predicted and fits a tree that specifically targets those observations.</p>
+<p>By their nature, trees divide the space of predictors into sets of (multi-dimensional) rectangles. Each observation within a rectangle is predicted to have a response equal to the mean response of all observations in the rectangle. These rectangles are the basis functions for constructing the prediction and the means are the coefficients. When we combine trees, we just create a finer array of rectangles and we set the prediction to be a weighted combination of the current prediction and the prediction from the new tree. The question is, what weight should the algorithm use.</p>
+<p>The weight given to the latest tree is controlled by a parameter called <code>eta</code>, which is short for the <code>learning rate</code>. It can be any number between 0 and 1. By default <code>xgboost</code> sets <code>eta</code> to 0.3 and usually this value works fine.</p>
+<p>Let’s see what happens if we set some extreme values of <code>eta</code>, I try 0.01, 0.3 and 0.99.</p>
+<pre class="r"><code>minIteration &lt;- minRMSE &lt;- rep(0,3)
+# --- fit with eta = 0.01 --------------------
+xgb.train(data=dtrain, 
+        watchlist=list(train=dtrain, test=dtest),
+        objective=&quot;reg:squarederror&quot;,
+        nrounds=500, eta=0.01, verbose=0) -&gt; xgmod1
+
+xgmod1$evaluation_log %&gt;%
+    summarise( minIter = which(test_rmse == min(test_rmse))[1] ) %&gt;%
+    pull(minIter) -&gt; minIteration[1]
+minRMSE[1] &lt;- xgmod1$evaluation_log$test_rmse[minIteration[1]]
+
+# --- fit with eta = 0.3 --------------------
+xgb.train(data=dtrain, 
+        watchlist=list(train=dtrain, test=dtest),
+        objective=&quot;reg:squarederror&quot;,
+        nrounds=500, eta=0.3, verbose=0) -&gt; xgmod2
+
+xgmod2$evaluation_log %&gt;%
+    summarise( minIter = which(test_rmse == min(test_rmse))[1] ) %&gt;%
+    pull(minIter) -&gt; minIteration[2]
+minRMSE[2] &lt;- xgmod2$evaluation_log$test_rmse[minIteration[2]]
+
+# --- fit with eta = 0.99 --------------------
+xgb.train(data=dtrain, 
+        watchlist=list(train=dtrain, test=dtest),
+        objective=&quot;reg:squarederror&quot;,
+        nrounds=500, eta=0.99, verbose=0) -&gt; xgmod3
+
+xgmod3$evaluation_log %&gt;%
+    summarise( minIter = which(test_rmse == min(test_rmse))[1] ) %&gt;%
+    pull(minIter) -&gt; minIteration[3]
+minRMSE[3] &lt;- xgmod3$evaluation_log$test_rmse[minIteration[3]]
+
+# --- best performance -----------------------
+print(minIteration)</code></pre>
+<pre><code>## [1] 500 170  14</code></pre>
+<pre class="r"><code>print(minRMSE)</code></pre>
+<pre><code>## [1] 0.450512 0.421795 0.448148</code></pre>
+<pre class="r"><code># --- plot the out-of-sample RMSE ------------
+bind_rows(
+  xgmod1$evaluation_log, 
+  xgmod2$evaluation_log, 
+  xgmod3$evaluation_log) %&gt;%
+  mutate( eta = factor(rep(c(0.01,0.3,0.99), each=500)))  %&gt;%
+  ggplot( aes(x=iter, y=test_rmse, colour=eta)) +
+  geom_line(size=1) +
+  scale_y_continuous( limits = c(0.4, 0.8), 
+                      breaks=seq(0.4, 0.8, by=0.1)) +
+  labs(x=&quot;Iteration&quot;, y=&quot;RMSE&quot;, 
+         title=&quot;Out-of-sample RMSE&quot;)</code></pre>
+<p><img src="/post/airbnb_prices/airbnb_prices_files/figure-html/unnamed-chunk-41-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Making <code>eta</code> very small means that the algorithm needs more iterations to minimise the loss; so the downside is computation time. In this example, the out-of-sample RMSE is still on the way down after 500 iterations. Separately, I ran the algorithm for longer and hit a minimum RMSE of 0.417322 after 4986 iterations. This out-performs <code>eta</code>=0.3 by 0.004. Remember though that we previously found that different random validation sets cause the out-of-sample minimum RMSE to vary between 0.418 to 0.432, a difference that is 4 times as large as the gain from using a small <code>eta</code> and running the algorithm for a long time.</p>
+<p>Making <code>eta</code> too large causes the algorithm to hit its minimum very quickly, but it never matches the best performance of <code>eta</code>=0.3.</p>
+<p>The optimum policy would be to make <code>eta</code> smaller, say 0.1, and to run the algorithm for longer. However, if eta=0.01 only improves the loss by 0.004, changing from 0.3 to 0.1 cannot be expected to make a meaningful difference. <code>eta</code>=0.3 represents a sensible compromise, you will lose next to nothing in performance and <code>xgboost</code> will not take too long to run. If the problem is small, or you have a very fast computer, then play safe and reduce <code>eta</code> but don’t do so with high expectations.</p>
+<p>Whatever <code>eta</code> you decide on, fix it and then select the appropriate number of iterations. Jointly optimising over <code>eta</code> and the number of iterations makes no sense.</p>
+<div id="other-hyperparameters" class="section level3">
+<h3>Other hyperparameters</h3>
+<p>There are too many hyperparameters to run through them all here and this post is already very long. I’ll look at some other hyperparameters when I next use <code>xgboost</code>.</p>
+</div>
+</div>
+</div>
+<div id="what-this-example-shows" class="section level1">
+<h1>What this example shows:</h1>
+<p>XGBoost is a good algorithm, but it has a huge set of hyperparameters, most of which have very little impact on performance. A good strategy seems to be, fix the learning rate, <code>eta</code>, based on computation time and then find the optimum number of iterations. Apart from that, it is wise not to be obsessive about selecting the hyperparameters, you probably will not have the data to distinguish between the default values and any other reasonable choices.</p>
+<p>Imagine that in a machine learning competition 20 people each use XGBoost in identical analyses; same data cleaning, same feature selection. The only difference is that when they create their validation sample, they use a different random number seed. They will each choose their own optimum set of hyperparameters based on their particular estimation/validation split and one of those sets of hyperparameters will, by chance, be best for the test data and that model will win the contest. However, the organisers also chose a random number seed when they split the test and training sets and had they chosen a different seed, one of the other models would, by chance, have been best for the test data and won the contest. Use of XGBoost by many competitors leads to overfitting of the test data. XGBoost looks even better than it is and the competition turns into a lottery.</p>
+<p>Machine learning game shows are run for fun, so obviously they must not be used to determine our machine learning strategies, but they do highlight some real problems. I like to think in terms of two key quantities related to the loss function; the <code>smallest significant difference</code> and the <code>smallest meaningful difference</code>. By the smallest significant difference, I mean the smallest difference between two values of the loss that could not be accounted for by chance and by the smallest meaningful difference, I mean the smallest difference that would make a material difference when the model is used in practice.</p>
+<p>For this episode of <em>Sliced</em>, the leaderboard shows RMSEs on the test set measured to 5 decimal places. Looking down the leaderboard I found that one model scored 0.49006 and finished in 11th place and another scored 0.49007 and finished in 12th place. Do you think that this difference might be due to chance? Are you sure that the order would not have been reversed had the organisers used a slightly different test set? Do you think that this difference is meaningful? If you were a manager looking for a pricing model would this difference in RMSEs influence your choice?</p>
+<p>In the context of the game show, I’d like the organisers to state in the rules that, say, evaluation will be by RMSE and models with differences in loss of less that 0.005 will be treated as equivalent. So it might be that the points for best prediction get shared. (Yes, I do realise that you would need a special rule for, model A=0.430, model B=0.434, model C=0.438).</p>
+<p>Meanwhile, in the real world, data scientists ought to think about accuracy when they plan an analysis and they should not waste time searching for models that make ridiculously small improvements in performance. In my opinion, hyperparameter tuning should be used to find sensible parameter values, but, after that, there is no reason to continue refining the parameters in pursuit of small (non-significant or meaningless) improvements in loss.</p>
+<p>Hyperparameter tuning is the mainstay of many machine learning pipelines. Yet, it is often used inappropriately. I see a lot of videos on YouTube in which many sets of hyperparameters are tried in a frantic attempt to hit upon a combination that magically minimises the loss function. Sadly, this approach is rather encouraged by the competitive nature of <em>Sliced</em>.</p>
+<p>I should like to see more emphasis on understanding the roles played by the hyperparameters. The analyst has a lot of knowledge about the nature of the problem and that knowledge ought to be used when selecting hyperparameters values. This approach is ruled out when <code>xgboost</code> is treated as a black box. By all means use <code>xgboost</code>, it is a good algorithm, just use it intelligently. <em>It ain’t what you do, it’s the way that you do it.</em></p>
+</div>

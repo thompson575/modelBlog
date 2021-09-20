@@ -1,7 +1,7 @@
 ---
 title: "Sliced 2021 Overview"
 author: "John Thompson"
-date: "`r Sys.time()`"
+date: "2021-09-07"
 layout: post
 tags:
 - Sliced
@@ -201,4 +201,37 @@ I used multiple imputation based on chained equations as implemented by the `mic
 The data exploration shows that the impact of today's conditions varies depending on location. This suggests that we will need a model with interactions between location and the other predictors. As an alternative to using interactions, I decided to fit separate models to each location. This is implemented in a tibble with list columns using the map functions from `purrr`. 
 
 Predictions are made separately for each imputed dataset and then averaged. To save time, I omitted some of the potentially predictive variables and this adversely affected performance. The model is competitive but definitely could be improved.
+
+
+## Episode 5: Airbnb prices
+
+### Keywords
+
+Airbnb price per night prediction; transformed response; merging small areas; extraction of keywords from free text; user-written functions; boosted models; xgboost; model overfitting; hyperparameter tuning;
+
+### Packages
+
+tidyverse; xgboost;
+
+### The data 
+
+The data for this episode can be downloaded from https://www.kaggle.com/c/sliced-s01e05-WXx7h8/overview  
+
+### The problem
+
+The dataset contains details of properties in New York City that were advertised on Airbnb. The objective is to predict the rental price of the property given details of the location, type of property, host and property reviews. There is also a short description of each property in free text.  
+
+### My approach
+
+I started with a simple exploratory analysis of the data and once I had a good idea of what features were likely to be important, I started data cleaning and feature extraction. I felt that location would have a strong influence on price and decided to use the 300+ local neighbourhoods as my measure of location. Some neighbourhoods only contain a few properties and I felt that this might lead to unstable price estimates, so I developed an algorithm for merging geographically close neighbourhoods until all had at least 25 properties. I used code similar to that which I developed for episode 1 in order to extract keywords from the free text.
+
+I decided to use this example to illustrate the use of XGBoost, perhaps the most popular algorithm in  machine learning. I wanted to get close to the algorithm in order to start to understand how it works, so I used the package directly and not through one of the machine learning packages, such as `caret` or `tidymodels` or `mlr3`.  
+
+My first attempt at an `xgboost` model worked well and would have come second on the *Sliced* leaderboard. 
+
+I started the process of looking at hyperparameter tuning (it is too big a topic for one post) by investigating the effects of the number of iterations (rounds) and the learning rate. Selecting a sensible number of iterations of the boosting algorithm is key to good performance, but the learning rate is much less critical. 
+
+I look at the way that estimates of the hyperparameters are themselves subject to error and consider how the data do not provide the precision needed to make choices between apparently very different values of the parameters. I use these data to demonstrate how, when it is misused, hyperparameter tuning can reduce to following meaningless random fluctuation in the estimates.  
+
+After the analysis, I have a small rant about bad practice in machine learning, in particular, I object to the misuse of hyperparameter tuning.
 
