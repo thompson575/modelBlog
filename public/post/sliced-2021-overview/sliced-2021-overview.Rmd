@@ -221,7 +221,7 @@ The data for this episode can be downloaded from https://www.kaggle.com/c/sliced
 
 The dataset contains details of properties in New York City that were advertised on Airbnb. The objective is to predict the rental price of the property given details of the location, type of property, host and property reviews. There is also a short description of each property in free text.  
 
-### My approach
+### My Analysis
 
 I started with a simple exploratory analysis of the data and once I had a good idea of what features were likely to be important, I started data cleaning and feature extraction. I felt that location would have a strong influence on price and decided to use the 300+ local neighbourhoods as my measure of location. Some neighbourhoods only contain a few properties and I felt that this might lead to unstable price estimates, so I developed an algorithm for merging geographically close neighbourhoods until all had at least 25 properties. I used code similar to that which I developed for episode 1 in order to extract keywords from the free text.
 
@@ -235,3 +235,31 @@ I look at the way that estimates of the hyperparameters are themselves subject t
 
 After the analysis, I have a small rant about bad practice in machine learning, in particular, I object to the misuse of hyperparameter tuning.
 
+
+## Episode 6: Ranking games played on twitch
+
+### Keywords
+
+predicting ranks;
+
+### Packages
+
+tidyverse;
+
+### The data 
+
+The data for this episode can be downloaded from https://www.kaggle.com/c/sliced-s01e06-2ld97c
+
+### The problem
+
+The competitors were given historical data on games streamed on twitch and were required to predict the exact ranks of the top 200 games in May 2021, where rank depends on the number of person-hours spent watching.
+
+### My Analysis
+
+The description of the data provided on the kaggle webpage includes a rather vague definition of the something called the average viewer ratio. It says that it is the ratio of hours watched to hours streamed. However, we know the hours streamed and we want to predict the hours watched because that is the basis of the ranks!
+
+Sure enough if you multiple the ratio by the hours streamed you get the hours watched exactly!! There is no prediction error, we can just calculate the answer in a couple of lines of R code.
+
+If you look at the leaderboard you will see that three people scored a perfect 1.0, so presumably they must have either cheated by downloading the data from twitch, or they noticed the relationship for themselves or they stumbled on a model, such as a linear model on a log scale, that predicts the data exactly. The best of the rest were a long way behind with a score around 0.3.
+
+If you read the data description carefully, you can solve the problem in about 5 minutes.  

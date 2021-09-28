@@ -1,5 +1,5 @@
 ---
-title: "Airbnb Price Prediction"
+title: "Sliced Episode 5: Airbnb Price Prediction"
 author: "John Thompson"
 date: "2021-09-20"
 layout: post

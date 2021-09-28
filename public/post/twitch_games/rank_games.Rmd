@@ -1,0 +1,121 @@
+---
+title: "Ranking Twitch Games"
+author: "John Thompson"
+date: "2021-09-28"
+layout: post
+tags:
+- Sliced
+- rank
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE, fig.align='center')
+```
+
+# Summary
+
+**Background:** In episode 6 of the 2021 series of *Sliced*, the competitors were given two hours to analyse a set of data on the top 200 games broadcast on twitch. The aim was to predict their exact rankings.   
+**My approach:** The ranking is based on the number of hours of streaming that were watched. Presumably the organisers did not notice that they provided two predictors, which when multiplied gave the number of hours watched. So the ranks can be predicted with 100% accuracy.  
+**Result:** I got a perfect score.   
+**Conclusion:** Always read the question.     
+
+# Introduction
+
+The sixth of the `sliced` datasets asks the competitors to predict the rank order of the top 200 computer games featured on Twitch using predictors such as the games ranks in previous months, the number of people streaming the games etc.
+
+The ranking of a game depends on the number of hours that people watch that game being streamed; the more hours the higher the rank. So we have the choice of predicting rank directly, or predicting hours watched and then calculating the rank.
+
+The training data are given monthly from the start of 2016 until April 2021 and we are asked to predict the ranks for May 2021.
+
+Evaluation is by simple accuracy, so if game A is ranked 1 out of 200 and game B is ranked 2 out of 200, you score 2/200 for A=1, B=2, 1/200 for A=1, B=200 and 0/200 for A=2, B=1. Get all 200 ranks correct and you score a perfect 1.
+
+# Data Exploration
+
+Let's first inspect the training data. I've followed my normal practice of downloading the raw data and saving it in rds files. I have chosen to refer to the training set as trainRawDF. 
+```{r}
+# --- setup the libraries etc. ---------------------------------
+library(tidyverse)
+
+theme_set( theme_light())
+
+# --- the project folder ---------------------------------------
+home  <- "C:/Projects/kaggle/sliced/s01-e06"
+
+# --- read the training data -----------------------------------
+read.csv( file.path(home, "data/rawData/train.csv")) %>%
+  as_tibble() %>%
+  saveRDS( file.path(home, "data/rData/train.rds")) 
+
+trainRawDF <- readRDS(file.path(home, "data/rData/train.rds"))
+
+# --- summarise with skimr -------------------------------------
+skimr::skim(trainRawDF)
+```
+
+For once I have shown the output from `skim()`. This is a relatively small dataset with no missing data.
+
+# Ask a silly question
+
+Before we launch into data exploration, it pays to look carefully at the definitions of the predictors. 
+
+One of the variables that we are given for prediction is
+`Avg_viewer_ratio`, the definition given on kaggle is a little confusing. It reads  
+"The average viewers watching a given game divided by the average channels streaming a given game, both in the same month + year"  
+
+but it amounts to
+
+`Avg_viewer_ratio` = `Hours_watched` / `Hours_Streamed`  
+
+where we are told `Hours_Streamed` and we are asked to predict `Hours_watched` in order to be able to calculate the ranks.
+
+It follows that the exact rank from the just two of the predictors. **There is no machine learning problem!**
+
+Just to confirm it
+
+```{r}
+# --- plot measured vs calculated Hours_watched ---------
+trainRawDF %>%
+  mutate( yhat = Hours_Streamed * Avg_viewer_ratio) %>%
+  ggplot( aes(y=Hours_watched, x=yhat)) +
+  geom_point() +
+  geom_abline( intercept=0, slope=1, colour="red") +
+  labs( title="Hours watched can be calculated exactly",
+        x="Hours_Streamed * Avg_viewer_ratio")
+```
+
+Of course, if you do not notice this, then a good machine learning algorithm will discover the relationship and make exact predictions. Indeed, if you opt to work on a log scale, a simple linear regression model will give perfect predictions.
+
+Let's read the test data and see how we go
+
+```{r}
+# --- read test data --------------------------------------
+read.csv( file.path(home, "data/rawData/test.csv")) %>%
+  as_tibble() %>%
+  saveRDS( file.path(home, "data/rData/test.rds")) 
+
+testRawDF <- readRDS(file.path(home, "data/rData/test.rds"))
+
+# --- create a submission ----------------------------------
+testRawDF %>%
+  mutate( yhat = Hours_Streamed * Avg_viewer_ratio) %>%
+  # --- rank large to small -----------------
+  mutate( Rank = rank(-yhat) ) %>%
+  # --- format submission -----------------
+  select( Game, Rank) %>%
+  arrange( Rank) %>% 
+  print() %>%
+  write.csv( file.path( home, "temp/submission1.csv"),
+                        row.names=FALSE)
+
+```
+
+I submitted this and, of course, I scored a perfect 1.0. Three other competitors also scored 1.0, but apart from those entries the best score was 0.36. What can you say? 
+
+# What this example shows
+
+Fortunately for *Sliced*, the four competitors did not notice that the correct predictions were so obvious, otherwise it would have been a very short episode.
