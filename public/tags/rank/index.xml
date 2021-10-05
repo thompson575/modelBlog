@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>rank on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/rank/</link>
+    <description>Recent content in rank on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Tue, 28 Sep 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/rank/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Sliced Episode 6: Ranking Games on Twitch</title>
+      <link>https://modelling-with-r.netlify.app/rank_games/</link>
+      <pubDate>Tue, 28 Sep 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/rank_games/</guid>
+      <description>SummaryBackground: In episode 6 of the 2021 series of Sliced, the competitors were given two hours to analyse a set of data on the top 200 games broadcast on twitch. The aim was to predict their exact rankings.
+My approach: The ranking is based on the number of hours of streaming that were watched. Presumably the organisers did not notice that they provided two predictors, which when multiplied gave the number of hours watched.</description>
+    </item>
+    
+  </channel>
+</rss>

@@ -6,7 +6,61 @@
     <description>Recent content in Tags on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Mon, 20 Sep 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Tue, 05 Oct 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Multi-dimensional scaling</title>
+      <link>https://modelling-with-r.netlify.app/tags/multi-dimensional-scaling/</link>
+      <pubDate>Tue, 05 Oct 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/multi-dimensional-scaling/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Multivariate data exploration</title>
+      <link>https://modelling-with-r.netlify.app/tags/multivariate-data-exploration/</link>
+      <pubDate>Tue, 05 Oct 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/multivariate-data-exploration/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Self-organising map</title>
+      <link>https://modelling-with-r.netlify.app/tags/self-organising-map/</link>
+      <pubDate>Tue, 05 Oct 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/self-organising-map/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Sliced</title>
+      <link>https://modelling-with-r.netlify.app/tags/sliced/</link>
+      <pubDate>Tue, 05 Oct 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/sliced/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>xgboost</title>
+      <link>https://modelling-with-r.netlify.app/tags/xgboost/</link>
+      <pubDate>Tue, 05 Oct 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/xgboost/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>rank</title>
+      <link>https://modelling-with-r.netlify.app/tags/rank/</link>
+      <pubDate>Tue, 28 Sep 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/rank/</guid>
+      <description></description>
+    </item>
+    
     <item>
       <title>features from text</title>
       <link>https://modelling-with-r.netlify.app/tags/features-from-text/</link>
@@ -31,24 +85,6 @@
       <pubDate>Mon, 20 Sep 2021 00:00:00 +0000</pubDate>
       
       <guid>https://modelling-with-r.netlify.app/tags/merging-small-areas/</guid>
-      <description></description>
-    </item>
-    
-    <item>
-      <title>Sliced</title>
-      <link>https://modelling-with-r.netlify.app/tags/sliced/</link>
-      <pubDate>Mon, 20 Sep 2021 00:00:00 +0000</pubDate>
-      
-      <guid>https://modelling-with-r.netlify.app/tags/sliced/</guid>
-      <description></description>
-    </item>
-    
-    <item>
-      <title>xgboost</title>
-      <link>https://modelling-with-r.netlify.app/tags/xgboost/</link>
-      <pubDate>Mon, 20 Sep 2021 00:00:00 +0000</pubDate>
-      
-      <guid>https://modelling-with-r.netlify.app/tags/xgboost/</guid>
       <description></description>
     </item>
     

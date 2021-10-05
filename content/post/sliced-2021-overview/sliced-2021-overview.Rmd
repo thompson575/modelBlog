@@ -263,3 +263,29 @@ Sure enough if you multiple the ratio by the hours streamed you get the hours wa
 If you look at the leaderboard you will see that three people scored a perfect 1.0, so presumably they must have either cheated by downloading the data from twitch, or they noticed the relationship for themselves or they stumbled on a model, such as a linear model on a log scale, that predicts the data exactly. The best of the rest were a long way behind with a score around 0.3.
 
 If you read the data description carefully, you can solve the problem in about 5 minutes.  
+
+## Episode 7: Customer churn
+
+### Keywords
+
+predicting bank churn; distance-based exploratory analysis; multi-dimensional scaling (MDS); self-organising maps; xgboost; tree depth
+
+### Packages
+
+tidyverse; gridExtra; class; xgboost
+
+### The data 
+
+The data for this episode can be downloaded from https://www.kaggle.com/c/sliced-s01e07-HmPsw2  
+
+## The problem
+
+The data describe the characteristics of bank customers such as their credit limit, their balance and the number of transactions that they made in a fixed (but unstated) time. From these features we have to predict whether or not the customers will churn (close their account and move to another bank). Model evaluation is based on logloss.
+
+
+## My Analysis
+
+This is a rather routine problem, so to create some interest I decided to try multivariate data exploration using distance-based methods that highlight clusters of customers with similar characteristics. These analyses support by suspicion that customers churn for different reasons and that the model will need to identify groups of customers with different characteristics but the same outcome.
+
+`xgboost` is a natural choice of algorithm for modelling these data. Boosting will create a range of trees such that some will be good at capturing one cluster while others will identify another. Tree-based boosting works well with these data and creates a model with prediction accuracy similar to the models near the top of the leaderboard. 
+

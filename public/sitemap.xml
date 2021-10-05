@@ -2,11 +2,38 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
-    <loc>https://modelling-with-r.netlify.app/airbnb_prices/</loc>
-    <lastmod>2021-09-20T00:00:00+00:00</lastmod>
-  </url><url>
     <loc>https://modelling-with-r.netlify.app/</loc>
-    <lastmod>2021-09-20T00:00:00+00:00</lastmod>
+    <lastmod>2021-10-05T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/multi-dimensional-scaling/</loc>
+    <lastmod>2021-10-05T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/multivariate-data-exploration/</loc>
+    <lastmod>2021-10-05T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/post/</loc>
+    <lastmod>2021-10-05T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/self-organising-map/</loc>
+    <lastmod>2021-10-05T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/sliced/</loc>
+    <lastmod>2021-10-05T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/customer_churn/</loc>
+    <lastmod>2021-10-05T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/</loc>
+    <lastmod>2021-10-05T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/xgboost/</loc>
+    <lastmod>2021-10-05T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/rank/</loc>
+    <lastmod>2021-09-28T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/rank_games/</loc>
+    <lastmod>2021-09-28T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/features-from-text/</loc>
     <lastmod>2021-09-20T00:00:00+00:00</lastmod>
@@ -17,16 +44,7 @@
     <loc>https://modelling-with-r.netlify.app/tags/merging-small-areas/</loc>
     <lastmod>2021-09-20T00:00:00+00:00</lastmod>
   </url><url>
-    <loc>https://modelling-with-r.netlify.app/post/</loc>
-    <lastmod>2021-09-20T00:00:00+00:00</lastmod>
-  </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/sliced/</loc>
-    <lastmod>2021-09-20T00:00:00+00:00</lastmod>
-  </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/</loc>
-    <lastmod>2021-09-20T00:00:00+00:00</lastmod>
-  </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/xgboost/</loc>
+    <loc>https://modelling-with-r.netlify.app/airbnb_prices/</loc>
     <lastmod>2021-09-20T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/bayesian-analysis/</loc>

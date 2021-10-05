@@ -240,4 +240,28 @@ editor_options:
 <p>If you read the data description carefully, you can solve the problem in about 5 minutes.</p>
 </div>
 </div>
+<div id="episode-7-customer-churn" class="section level2">
+<h2>Episode 7: Customer churn</h2>
+<div id="keywords-6" class="section level3">
+<h3>Keywords</h3>
+<p>predicting bank churn; distance-based exploratory analysis; multi-dimensional scaling (MDS); self-organising maps; xgboost; tree depth</p>
+</div>
+<div id="packages-6" class="section level3">
+<h3>Packages</h3>
+<p>tidyverse; gridExtra; class; xgboost</p>
+</div>
+<div id="the-data-6" class="section level3">
+<h3>The data</h3>
+<p>The data for this episode can be downloaded from <a href="https://www.kaggle.com/c/sliced-s01e07-HmPsw2" class="uri">https://www.kaggle.com/c/sliced-s01e07-HmPsw2</a></p>
+</div>
+</div>
+<div id="the-problem-6" class="section level2">
+<h2>The problem</h2>
+<p>The data describe the characteristics of bank customers such as their credit limit, their balance and the number of transactions that they made in a fixed (but unstated) time. From these features we have to predict whether or not the customers will churn (close their account and move to another bank). Model evaluation is based on logloss.</p>
+</div>
+<div id="my-analysis-6" class="section level2">
+<h2>My Analysis</h2>
+<p>This is a rather routine problem, so to create some interest I decided to try multivariate data exploration using distance-based methods that highlight clusters of customers with similar characteristics. These analyses support by suspicion that customers churn for different reasons and that the model will need to identify groups of customers with different characteristics but the same outcome.</p>
+<p><code>xgboost</code> is a natural choice of algorithm for modelling these data. Boosting will create a range of trees such that some will be good at capturing one cluster while others will identify another. Tree-based boosting works well with these data and creates a model with prediction accuracy similar to the models near the top of the leaderboard.</p>
+</div>
 </div>

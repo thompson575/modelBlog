@@ -6,9 +6,19 @@
     <description>Recent content in xgboost on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Mon, 20 Sep 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/xgboost/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Tue, 05 Oct 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/xgboost/index.xml" rel="self" type="application/rss+xml" />
     <item>
-      <title>Airbnb Price Prediction</title>
+      <title>Sliced Episode 7: Customer Churn</title>
+      <link>https://modelling-with-r.netlify.app/customer_churn/</link>
+      <pubDate>Tue, 05 Oct 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/customer_churn/</guid>
+      <description>Summary:Background: In episode 7 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on bank customers. The aim was to predict whether a customer would churn (leave the bank).
+My approach: I started with the idea that people churn for different reasons and because of this, it will be difficult to find a single scale that distinguishes churners from non-churners.</description>
+    </item>
+    
+    <item>
+      <title>Sliced Episode 5: Airbnb Price Prediction</title>
       <link>https://modelling-with-r.netlify.app/airbnb_prices/</link>
       <pubDate>Mon, 20 Sep 2021 00:00:00 +0000</pubDate>
       

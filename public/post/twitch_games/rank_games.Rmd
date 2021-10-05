@@ -1,5 +1,5 @@
 ---
-title: "Ranking Twitch Games"
+title: "Sliced Episode 6: Ranking Games on Twitch"
 author: "John Thompson"
 date: "2021-09-28"
 layout: post

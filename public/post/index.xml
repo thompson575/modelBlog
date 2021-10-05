@@ -6,9 +6,29 @@
     <description>Recent content in Posts on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Mon, 20 Sep 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Tue, 05 Oct 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
     <item>
-      <title>Airbnb Price Prediction</title>
+      <title>Sliced Episode 7: Customer Churn</title>
+      <link>https://modelling-with-r.netlify.app/customer_churn/</link>
+      <pubDate>Tue, 05 Oct 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/customer_churn/</guid>
+      <description>Summary:Background: In episode 7 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on bank customers. The aim was to predict whether a customer would churn (leave the bank).
+My approach: I started with the idea that people churn for different reasons and because of this, it will be difficult to find a single scale that distinguishes churners from non-churners.</description>
+    </item>
+    
+    <item>
+      <title>Sliced Episode 6: Ranking Games on Twitch</title>
+      <link>https://modelling-with-r.netlify.app/rank_games/</link>
+      <pubDate>Tue, 28 Sep 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/rank_games/</guid>
+      <description>SummaryBackground: In episode 6 of the 2021 series of Sliced, the competitors were given two hours to analyse a set of data on the top 200 games broadcast on twitch. The aim was to predict their exact rankings.
+My approach: The ranking is based on the number of hours of streaming that were watched. Presumably the organisers did not notice that they provided two predictors, which when multiplied gave the number of hours watched.</description>
+    </item>
+    
+    <item>
+      <title>Sliced Episode 5: Airbnb Price Prediction</title>
       <link>https://modelling-with-r.netlify.app/airbnb_prices/</link>
       <pubDate>Mon, 20 Sep 2021 00:00:00 +0000</pubDate>
       
@@ -68,7 +88,7 @@ My approach: In the data exploration I transform the ratings and plot them again
     </item>
     
     <item>
-      <title>Sliced 2021 Overview</title>
+      <title>Sliced 2021 Episode Overview</title>
       <link>https://modelling-with-r.netlify.app/sliced-2021-overview/</link>
       <pubDate>Tue, 07 Sep 2021 00:00:00 +0000</pubDate>
       
