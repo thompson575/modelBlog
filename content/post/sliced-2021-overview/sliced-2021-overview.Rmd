@@ -289,3 +289,31 @@ This is a rather routine problem, so to create some interest I decided to try mu
 
 `xgboost` is a natural choice of algorithm for modelling these data. Boosting will create a range of trees such that some will be good at capturing one cluster while others will identify another. Tree-based boosting works well with these data and creates a model with prediction accuracy similar to the models near the top of the leaderboard. 
 
+
+## Episode 8: Spotify popularity
+
+### Keywords
+
+hexagonal scatter plots; merging files; feature extraction from text; random forest models
+
+### Packages
+
+tidyverse; randomForest;  
+
+### The data 
+
+The data for this episode can be downloaded from www.kaggle.com/c/sliced-s01e08-KJSEks  
+
+## The problem
+
+The data describe 21,000 tracks available through *Spotify* and include measures such as speechiness and tempo as well as data on the artists. *Spotify* gives each track a numerical popularity score between 0 and 100 and the objective is to predict that popularity from the track and artist data. Model evaluation is by RMSE.
+
+
+## My Analysis
+
+I merged the track and artist data to create a single file of training data. A visualization of the data using hexagonal scatter plots showed that the continuous measures relating to the tracks are quite predictive, but the relationships are not linear. The popularity score over the training data is strongly bimodal. Together these feature suggest that standard regression models would not perform well.
+
+I used standard text handling methods to identify musical genres that are predictive of popularity and ended with a large number (over 150) of indicator variables.  
+
+I decided to use these data to investigate the use of random forests, however the large number of potential features combined with the large number of tracks meant that random forests were very slow to fit. As a result, detailed modelling was impractical. Despite this, a default random forest model would have come fourth on the leaderboard.
+
