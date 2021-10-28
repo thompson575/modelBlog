@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="generator" content="Hugo 0.82.0" />
+  
+  <meta name="description" content="SummaryBackground: In episode 8 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on tracks available on Spotify. The aim was to predict the track popularity.
+My approach: I merged the data on the tracks with data on the artists and then identified genres that were associated with the track popularity. Using all available information, I fitted a random forest model using default values of the hyperparameters.">
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/normalize.css">
+  <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
+  
+  
+  
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/cayman.ea0e967413f3851071cc8ace3621bc4205fe8fa79b2abe3d7bf94ff2841f0d47.css">
+  
+  
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.css" integrity="sha384-yFRtMMDnQtDRO8rLpMIKrtPCD5jdktao2TV19YiZYWMDkUR5GQZR/NOVTdquEx1j" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.js" integrity="sha384-9Nhn55MVVN0/4OFx7EE5kpFBPsEMZxKTCnA+4fqDmg12eCTqGi6+BB2LjY8brQxJ" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/contrib/auto-render.min.js" integrity="sha384-kWPLUVMOks5AQFrykwIup5lo0m3iMkkHrD0uJ4H5cjeGihAutqP0yW0J6dpFiVkI" crossorigin="anonymous" onload="renderMathInElement(document.body);"></script>
+
+  <title>Sliced Episode 8: Spotify Popularity | Modelling with R</title>
+</head>
+
+<body>
+  <section class="page-header">
+  <h1 class="project-name">
+    Modelling with R
+  </h1>
+  <h2 class="project-tagline">
+    contrasting statistical and machine learning approaches
+  </h2>
+  <nav>
+    
+    
+      
+      
+      
+      
+      <a href="/post/" class="btn">Blog</a>
+    
+      
+      
+      
+      
+      <a href="/tags/" class="btn">Tags</a>
+    
+      
+      
+      
+      
+      <a href="/about/" class="btn">About</a>
+    
+  </nav>
+</section>
+
+  <section class="main-content">
+    
+  <h1>Sliced Episode 8: Spotify Popularity</h1>
+  <div>
+    
+    <strong>Publish date: </strong>2021-10-18
+  </div>
+  
+  
+    <div>
+      <strong>Tags: </strong>
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+      <a href="https://modelling-with-r.netlify.app/tags/sliced/">Sliced</a>, <a href="https://modelling-with-r.netlify.app/tags/hexagonal-scatter-plots/">hexagonal scatter plots</a>, <a href="https://modelling-with-r.netlify.app/tags/random-forests/">random forests</a>
+    </div>
+  
+  
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+
+
+<div id="summary" class="section level1">
+<h1>Summary</h1>
+<p><strong>Background:</strong> In episode 8 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on tracks available on <em>Spotify</em>. The aim was to predict the track popularity.<br />
+<strong>My approach:</strong> I merged the data on the tracks with data on the artists and then identified genres that were associated with the track popularity. Using all available information, I fitted a random forest model using default values of the hyperparameters.<br />
+<strong>Result:</strong> The RMSE of the model on the test data was 10.56, which placed the model in 4th place on the leaderboard.<br />
+<strong>Conclusion:</strong> The main problem was the time taken to fit the model, which effectively makes it impractical to tune the hyperparameters.</p>
+</div>
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>The data for the eight episode of <code>Sliced 2021</code> relate to tracks available on Spotify and can be downloaded from www.kaggle.com/c/sliced-s01e08-KJSEks. The data appear to be closely related to a much larger kaggle datset that is available from www.kaggle.com/yamaerenay/spotify-dataset-19212020-160k-tracks. The task for the contestants was to build a model that predicts the popularity of a track.</p>
+<p>Popularity is a number between 0 and 100 that is based on a track’s recent plays. <em>Spotify</em> uses the popularity when it recommends tracks or creates playlists. The algorithm used to measure popularity has not been made public, nor is it clear how often the popularity score is updated. As popularity depends on recent plays, it can decrease if a track is played less often than it used to be, and because popularity is not updated in real time, there may be a lag before new tracks get a popularity score that truly reflects the number of times that they are being played.</p>
+<p>I thought that <strong>these data would be a good vehicle for investigating random forests</strong>, although first there will be a good deal of feature extraction.</p>
+</div>
+<div id="reading-the-data" class="section level1">
+<h1>Reading the Data</h1>
+<p>It is my practice to read the data asis and to immediately save it in rds format within a directory called data/rData. For details of the way that I organise my analyses you should read my post called <code>Sliced Methods Overview</code>.</p>
+<p>For this episode there was a second file of data on artists that includes a short description of their genre and a measure of the artists popularity. Not every artist with a track in the training set is present in the artist file, but most are.</p>
+<pre class="r"><code># --- setup the libraries etc. ---------------------------------
+library(tidyverse)
+
+theme_set( theme_light())
+
+# --- the project folder ---------------------------------------
+home  &lt;- &quot;C:/Projects/kaggle/sliced/s01-e08&quot;
+
+# --- read the training data -----------------------------------
+trainRawDF &lt;- readRDS( file.path(home, &quot;data/rData/train.rds&quot;))
+
+# --- read the data on the artists -----------------------------
+artistRawDF &lt;- readRDS( file.path(home, &quot;data/rData/artists.rds&quot;))
+
+# --- read the test data ---------------------------------------
+testRawDF &lt;- readRDS( file.path(home, &quot;data/rData/test.rds&quot;))</code></pre>
+<p>As usual I start by running <code>skim()</code> to look at the structure of the data, but I hide the output because it is long and would interrupt the flow.</p>
+<pre class="r"><code># --- summarise training data with skimr -----------------------
+skimr::skim(trainRawDF)
+
+skimr::skim(artistRawDF)</code></pre>
+<p><code>skim()</code> shows that there are 21,000 tracks in the training data. There is no missing data problem apart from release month/day that is missing for about a quarter of the tracks.</p>
+<p>The artists file has information on 17,718 artists including the popularity of the artist (as opposed to the popularity of a track) and text on the genre of the artist.</p>
+</div>
+<div id="the-response" class="section level1">
+<h1>The response</h1>
+<p>The response is track <code>popularity</code>; it has an average of 27.6 and as the histogram shows it has a bimodal distribution with one mode at zero and another around 35.</p>
+<pre class="r"><code># --- histogram of track popularity ---------------------------
+trainRawDF %&gt;%
+  ggplot(aes(x=popularity) ) +
+  geom_histogram( binwidth=1, fill=&quot;steelblue&quot;) +
+  labs(title=&quot;Track popularity on Spotify&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-3-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>A regression model would have two problems; one due to the bimodality and the other due to the limits on the range, especially the boundary at a zero. So, it is a good thing that I decided to try random forests.</p>
+<p>The “proper” way to handle bimodality is with a mixture model that assigns tracks to one or other of the distributions and has separate prediction equations for each distribution. The data would be a good vehicle for showing how <code>stan</code> can be used to fit a Bayesian mixture model.</p>
+</div>
+<div id="predictors" class="section level1">
+<h1>Predictors</h1>
+<div id="track-variables" class="section level2">
+<h2>track variables</h2>
+<p>The code needed for looking at the various continuous predictors in very repetitive, so I’ve turned it into a function. Since there are so many potential data points, I’ve chosen to use <code>geom_hex</code> to show the count within a given hexagonal regions of the plot.</p>
+<pre class="r"><code>plot_hexes &lt;- function(thisDF, col) {
+  thisDF %&gt;%
+  ggplot( aes(x=.data[[col]], y=popularity)) +
+  geom_hex( bins=50) +
+  geom_smooth( colour=&quot;red&quot;, fill=&quot;darkorange&quot;) +
+  lims( y=c(0,100)) +
+  labs( title=paste(&quot;Popularity by track&quot;, col)) +
+  scale_fill_viridis_c(trans=&quot;log10&quot;)
+}</code></pre>
+<p>Duration is measured in milliseconds and has a large range that argues for a log transformation. The other predictors have been left on their original scales.</p>
+<p>Very short and very long tracks are least popular.</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  mutate( duration = log10(duration_ms / 1000)) %&gt;%
+  plot_hexes(&quot;duration&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-5-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>I give the other plots and then summarise what they show</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  plot_hexes(&quot;danceability&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-6-1.png" width="528" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>trainRawDF %&gt;%
+  plot_hexes(&quot;energy&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-6-2.png" width="528" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>trainRawDF %&gt;%
+  plot_hexes(&quot;loudness&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-6-3.png" width="528" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>trainRawDF %&gt;%
+  plot_hexes(&quot;speechiness&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-6-4.png" width="528" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>trainRawDF %&gt;%
+  plot_hexes(&quot;acousticness&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-6-5.png" width="528" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>trainRawDF %&gt;%
+  plot_hexes(&quot;liveness&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-6-6.png" width="528" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>trainRawDF %&gt;%
+  plot_hexes(&quot;instrumentalness&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-6-7.png" width="528" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>trainRawDF %&gt;%
+  plot_hexes(&quot;valence&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-6-8.png" width="528" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>trainRawDF %&gt;%
+  plot_hexes(&quot;tempo&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-6-9.png" width="528" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>trainRawDF %&gt;%
+  plot_hexes(&quot;release_year&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-6-10.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Here is my summary of what the plots show</p>
+<ul>
+<li>danceability, energy, loudness … the higher the better</li>
+<li>speechiness, acousticness, liveness, instrumentalness … the lower the better</li>
+<li>valence, tempo … no clear relationship with popularity</li>
+<li>release_year … very strong preference for recent years</li>
+</ul>
+</div>
+<div id="artists" class="section level2">
+<h2>Artists</h2>
+<p>Much like the track popularity, the artist popularity is a bimodal distribution, but with one mode at zero and another around 45.</p>
+<pre class="r"><code># --- artist popularity ---------------------------------------
+artistRawDF %&gt;%
+  ggplot(aes(x=popularity) ) +
+  geom_histogram( binwidth=1, fill=&quot;steelblue&quot;) +
+  labs(title=&quot;Artist popularity on Spotify&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-7-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Followers are users of <em>Spotify</em> who click to say that they follow a particular artist. Building up the number of followers is important for artists because it helps get their tracks onto playlists.</p>
+<p>Naturally enough, the number of followers is related to an artists popularity (plays).</p>
+<pre class="r"><code>artistRawDF %&gt;%
+  ggplot( aes(x=log10(followers+1), y=popularity )) +
+  geom_hex( bins=50) +
+  geom_smooth( colour=&quot;red&quot;, fill=&quot;darkorange&quot;) +
+  lims( y=c(0,100)) +
+  labs( title=&quot;Artist&#39;s popularity by followers&quot;) +
+  scale_fill_viridis_c(trans=&quot;log10&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-8-1.png" width="528" style="display: block; margin: auto;" /></p>
+<div id="artists-genres" class="section level3">
+<h3>Artist’s genres</h3>
+<p>The artists are classified by the genre of their music. Here are some examples,</p>
+<pre class="r"><code>artistRawDF %&gt;%
+  select( genres) %&gt;%
+  print()</code></pre>
+<pre><code>## # A tibble: 17,718 x 1
+##    genres                                                                       
+##    &lt;chr&gt;                                                                        
+##  1 [&#39;country blues&#39;, &#39;country rock&#39;, &#39;piedmont blues&#39;]                          
+##  2 [&#39;turkish pop&#39;]                                                              
+##  3 [&#39;celtic&#39;, &#39;irish folk&#39;]                                                     
+##  4 [&#39;kindermusik&#39;, &#39;kleine hoerspiel&#39;]                                          
+##  5 [&#39;opm&#39;, &#39;vispop&#39;]                                                            
+##  6 [&#39;classic mandopop&#39;]                                                         
+##  7 [&#39;album rock&#39;, &#39;alternative rock&#39;, &#39;blues rock&#39;, &#39;classic rock&#39;, &#39;country ro~
+##  8 [&#39;country&#39;, &#39;country rock&#39;, &#39;oklahoma country&#39;]                              
+##  9 [&#39;trondersk musikk&#39;]                                                         
+## 10 [&#39;alternative rock&#39;, &#39;anti-folk&#39;, &#39;indie rock&#39;, &#39;modern rock&#39;, &#39;permanent wa~
+## # ... with 17,708 more rows</code></pre>
+</div>
+<div id="merging-artists-and-tracks" class="section level3">
+<h3>Merging artists and tracks</h3>
+<p>I want to associate the genres of the artist with their tracks. This does not guarantee that the genre will refer to that track. It just means that the artist who produced the track usually works in that genre.</p>
+<p>There is one extra problem, some tracks have multiple artists. I only take the first two artists for any track and I take the average popularity and average number of followers of the artists plus their combined list of genres. This means that third and fourth artists will be ignored.</p>
+<pre class="r"><code># --- merge artist data into the track file --------------------------
+trainRawDF %&gt;%
+  # --- remove extra characters from id_artists -------------------
+  mutate( id_artists = str_replace_all(id_artists, &quot;\\&#39;&quot;, &quot;&quot;)) %&gt;%
+  mutate( id_artists = str_replace_all(id_artists, &quot;\\[&quot;, &quot;&quot;)) %&gt;%
+  mutate( id_artists = str_replace_all(id_artists, &quot;\\]&quot;, &quot;&quot;)) %&gt;%
+  # --- extract first two artists --------------------------------
+  separate(id_artists, into=c(&quot;artistId1&quot;, &quot;artistId2&quot;), 
+           sep=&quot;,&quot;, extra=&quot;drop&quot;) %&gt;%
+  # --- merge first artist ---------------------------------------
+  mutate( id_artists = artistId1 ) %&gt;% 
+     left_join(artistRawDF %&gt;%
+                  rename( id_artists = id,
+                          follow1    = followers,
+                          popArtist1 = popularity) %&gt;%
+                  select(id_artists, genres, popArtist1, follow1),
+               by = &quot;id_artists&quot;)  %&gt;% 
+  rename( genre1 = genres ) %&gt;%
+  mutate( genre1 = ifelse( is.na(genre1), &quot;&quot;, genre1 )) %&gt;%
+  # --- merge second artist --------------------------------------
+  mutate( id_artists = artistId2 ) %&gt;%
+  left_join(artistRawDF %&gt;%
+               rename( id_artists = id,
+                       follow2    = followers,
+                       popArtist2 = popularity) %&gt;%
+               select(id_artists, genres, popArtist2, follow2),
+            by = &quot;id_artists&quot;) %&gt;%
+  rename( genre2 = genres ) %&gt;%
+  mutate( genre2 = ifelse( is.na(genre2), &quot;&quot;, genre2 )) %&gt;%
+  # --- combine the genres ---------------------------------------
+  unite( genre, genre1, genre2,  sep=&quot;,&quot; ) %&gt;%
+  # --- average popularity &amp; followers ---------------------------
+  rowwise() %&gt;%
+  mutate( avgArtistPop = mean( c(popArtist1, popArtist2),
+                              na.rm=TRUE),
+          avgFollowers = mean( c(follow1, follow2),
+                              na.rm=TRUE) ) %&gt;%
+  mutate( avgArtistPop = ifelse( is.nan(avgArtistPop), 
+                                 NA, avgArtistPop),
+          avgFollowers = ifelse( is.nan(avgFollowers), 
+                                 NA, avgFollowers)) %&gt;%
+  # --- drop working variables -----------------------------------
+  ungroup() %&gt;%
+  select( -artistId1, -artistId2, -popArtist1, -popArtist2,
+          -follow1, -follow2, -id_artists)  -&gt; prep1DF</code></pre>
+</div>
+</div>
+<div id="popular-genres" class="section level2">
+<h2>Popular genres</h2>
+<p>Now that genres are associated with tracks we can look for commonly occurring terms that are associated with track popularity. I have done something similar for several of the <em>Sliced</em> datasets using code that I gave in episode 1. I’ll use the same function, <code>select_indicators()</code>, for these data.</p>
+<p>I’ll start by removing the square brackets from genre and then I’ll split using the commas.</p>
+<pre class="r"><code>library(myText)
+
+prep1DF %&gt;%
+  mutate( genre = str_replace_all(genre, &quot;\\[&quot;, &quot;&quot;),
+          genre = str_replace_all(genre, &quot;\\]&quot;, &quot;&quot;),
+          genre = ifelse( is.na(genre), &quot;&quot;, genre )) %&gt;%
+  select_indicators(col=genre, response=popularity, 
+                    nTerms=12, minCount=100, sep=&quot;,&quot;) %&gt;%
+  filter( p_value &lt; 0.001 ) %&gt;%
+  print(n=10) -&gt; wordsDF</code></pre>
+<pre><code>## # A tibble: 130 x 5
+##    term                    count   p_value mWithout mWith
+##    &lt;chr&gt;                   &lt;int&gt;     &lt;dbl&gt;    &lt;dbl&gt; &lt;dbl&gt;
+##  1 &#39;classical&#39;               656 4.84e-151     28.2  9.75
+##  2 &#39;rock&#39;                   1143 4.16e-108     27.0 37.6 
+##  3 &#39;pop&#39;                     378 3.87e- 93     27.1 54.6 
+##  4 &#39;dance pop&#39;               389 8.19e- 89     27.2 50.4 
+##  5 &#39;vintage tango&#39;           109 4.48e- 78     27.7  1.05
+##  6 &#39;classic bollywood&#39;       380 6.24e- 69     27.8 13.3 
+##  7 &#39;classic icelandic pop&#39;   144 2.04e- 68     27.7  8.63
+##  8 &#39;tango&#39;                   115 2.19e- 68     27.7  1.84
+##  9 &#39;rap&#39;                     175 4.87e- 64     27.3 55.2 
+## 10 &#39;hip hop&#39;                 177 1.74e- 63     27.4 53.1 
+## # ... with 120 more rows</code></pre>
+<p>‘classical’ tracks are not popular but ‘rock’ tracks are. Notice however, that ‘rock’ is different from ‘classic rock’ or ‘soft rock’ and countless other types of rock.</p>
+<p>I make indicator variables for the 130 chosen words and at the same time I create an indicator variables for the key, which ranges from 1 to 11</p>
+<pre class="r"><code># --- indicators for the top genres -------------------------------
+prep1DF &lt;- add_indicators(prep1DF, &quot;genre&quot;, wordsDF$term, &quot;X&quot;)
+
+# --- indicators for the keys -------------------------------------
+prep1DF &lt;- add_indicators(prep1DF, &quot;key&quot;, as.character(1:11), &quot;K&quot;)</code></pre>
+</div>
+</div>
+<div id="zeros-missing-values" class="section level1">
+<h1>Zeros &amp; missing values</h1>
+<p>Many of the continuous measures contain a few zeros that are well separated from the bulk of the scores. Let’s take <code>speechiness</code> as an example</p>
+<pre class="r"><code>prep1DF %&gt;%
+  filter( speechiness == 0 ) %&gt;%
+  select(popularity, avgArtistPop, name) %&gt;%
+  print( n=10 )</code></pre>
+<pre><code>## # A tibble: 18 x 3
+##    popularity avgArtistPop name                                                 
+##         &lt;int&gt;        &lt;dbl&gt; &lt;chr&gt;                                                
+##  1         52           NA &quot;White Noise Car Sound for Baby Sleep (Loopable)&quot;    
+##  2          7           59 &quot;Wus Geven Ist Geven&quot;                                
+##  3         64           NA &quot;Big Fan Dulled&quot;                                     
+##  4         27           76 &quot;Kapitel 37 - als BÃ¼rgermeister (Folge 057)&quot;        
+##  5         53           NA &quot;Staubsauger (Sanft)&quot;                                
+##  6         65           NA &quot;White Noise for Baby 432 Hz (Loopable with No Fade)&quot;
+##  7         32           NA &quot;Rain Sounds &amp; White Noise (Loopable, No Fade Sleep ~
+##  8          0           47 &quot;El amor brujo \&quot;Ballet-pantomime\&quot;: 4. El Aparecido&quot;
+##  9         32           NA &quot;Heavier Rain Fall with Thunder&quot;                     
+## 10         28           31 &quot;Sleeping Baby One Hour of Pink Noise&quot;               
+## # ... with 8 more rows</code></pre>
+<p>Some are white noise tracks that are amazingly popular. Staubsauger is the German for vacuum cleaner, so the lack of speechiness seems real, even if the popularity is a mystery. These zeros look genuine to me and I’ll leave them asis.</p>
+<p>We do have some cases where the artists in trainRawDF are not in the artistRawDF. Presumably, these are recordings by lesser known artists or unidentified artists. When this happens there will not be any genre information.</p>
+<p>A sensible policy would be to impute the popularity of the missing artists from the popularity of their tracks, but of course we would not be able to do that for the test data because the track popularity is missing. Instead, I decided to impute using the median popularity of the tracks of unknown artists</p>
+<pre class="r"><code># --- median track popularity when there is no data on the artist ---
+prep1DF %&gt;%
+  filter( is.na(avgArtistPop) ) %&gt;%
+  summarise( mPop = median(popularity))</code></pre>
+<pre><code>## # A tibble: 1 x 1
+##    mPop
+##   &lt;int&gt;
+## 1     6</code></pre>
+<p>So the typical track popularity when the artist is missing from the artists file is 6.</p>
+<p>I will also introduce an extra indicator, artistNA, to denote missing artists in case that is predictive.</p>
+<pre class="r"><code># --- impute missing values -----------------------------------------
+prep1DF %&gt;%
+  mutate( artistNA = as.numeric( is.na(avgArtistPop)),
+          avgArtistPop = ifelse(is.na(avgArtistPop), 6, avgArtistPop ),
+          avgFollowers = ifelse(is.na(avgFollowers), 0, avgFollowers ))  -&gt; prep1DF</code></pre>
+<p>The names of the tracks are unlikely to contain much useful information. Here are some examples,</p>
+<pre class="r"><code>prep1DF %&gt;%
+  select(name)</code></pre>
+<pre><code>## # A tibble: 21,000 x 1
+##    name                                  
+##    &lt;chr&gt;                                 
+##  1 blun7 a swishland                     
+##  2 Que Me Perdone Tu SeÃ±ora             
+##  3 æ„›å”„~since 2007~                    
+##  4 Let me be your uncle tonight          
+##  5 Never Going Back Again - 2004 Remaster
+##  6 Lilla snigel                          
+##  7 Meu Lugar                             
+##  8 Khalifa                               
+##  9 From Four Until Late                  
+## 10 Riders On the Storm                   
+## # ... with 20,990 more rows</code></pre>
+<p>It would be interesting to identify the language, but that would involve far too much work. So, let’s just look for informative words. I start by converting to lower cases and dropping anything that is not alphabetic. Then I only keep words with more than 2 characters.</p>
+<pre class="r"><code>prep1DF %&gt;%
+  mutate( name = tolower(name),
+          name = str_replace_all(name, &quot;[^a-z]&quot;, &quot; &quot;) ) %&gt;%     
+  select_indicators(col=name, response=popularity, 
+                    nTerms=12, minCount=100, sep=&quot; &quot;) %&gt;%
+  filter( p_value &lt; 0.001 ) %&gt;%
+  filter( str_length(term) &gt; 2 ) %&gt;%
+  print(n=20) -&gt; wordsNameDF</code></pre>
+<pre><code>## # A tibble: 19 x 5
+##    term          count  p_value mWithout mWith
+##    &lt;chr&gt;         &lt;int&gt;    &lt;dbl&gt;    &lt;dbl&gt; &lt;dbl&gt;
+##  1 feat            270 3.84e-47     27.3 46.9 
+##  2 chapter          80 1.70e-42     27.7  1.98
+##  3 remasterizado   123 1.20e-33     27.7  5.56
+##  4 act             169 9.99e-33     27.7 10.2 
+##  5 major           134 1.21e-30     27.7  9.51
+##  6 folge           179 6.32e-28     27.5 31.6 
+##  7 blues           125 1.83e-27     27.7 11.1 
+##  8 vivo            133 1.88e-22     27.5 42.6 
+##  9 remaster        931 1.39e-13     27.8 23.2 
+## 10 mix             425 2.93e-12     27.7 20.4 
+## 11 all             667 4.52e- 6     27.7 24.2 
+## 12 original        119 6.30e- 6     27.6 19.0 
+## 13 and             846 3.26e- 5     27.7 24.8 
+## 14 amor            194 4.96e- 5     27.5 32.8 
+## 15 die             269 5.94e- 5     27.6 23.5 
+## 16 kapitel         265 7.62e- 5     27.6 24.4 
+## 17 live            426 1.45e- 4     27.6 24.7 
+## 18 take            136 6.60e- 4     27.6 22.4 
+## 19 del             215 9.47e- 4     27.6 23.9</code></pre>
+<p>Only 19 words look informative.</p>
+<p><code>remaster</code> and <code>remasterizado</code> seem to identify the same type of track. <code>mix</code> and <code>original</code> are also generic terms. <code>chapter</code> picks out audio books. <code>act</code> and <code>major</code> probably identify classical tracks. Google tells me that <code>feat</code> refers to featuring, as in “artist A featuring artist B” (something tells me that I am one of the few people in the world who didn’t already know that). <code>folge</code> seems to pick out German tracks, I think that it means episode. <code>folge</code> is often found together with <code>kapitel</code>, the German for chapter.</p>
+<p>My selection is very subjective. I assumed that the classical terms would be picked by by the genre.</p>
+<pre class="r"><code># --- my selection of important words ------------------------
+myWords &lt;- c(&quot;remaster&quot;, &quot;mix&quot;, &quot;original&quot;, &quot;chapter&quot;, &quot;feat&quot;)
+
+# --- remove missing values from name ------------------------
+prep1DF$name &lt;- ifelse( is.na(prep1DF$name), &quot;&quot;, prep1DF$name)
+
+# --- add indicator variables --------------------------------
+prep1DF &lt;- add_indicators(prep1DF, &quot;name&quot;, myWords, &quot;N&quot;)</code></pre>
+<p>Finally I’ll rescale duration_ms and add indicators for the last 4 months before the end of the period of data collection. I do this in base R because my add_indicators() function was not written for pairs of conditions</p>
+<pre class="r"><code># --- rescale duration ---------------------------------------
+prep1DF$duration &lt;- log10(prep1DF$duration_ms/1000)
+
+# --- replace missing months with zero -----------------------
+prep1DF$release_month &lt;- ifelse( is.na(prep1DF$release_month), 0, prep1DF$release_month)
+
+# make indicators for the last 4 months ----------------------
+for( i in 1:4) {
+  prep1DF[ paste(&quot;M&quot;, i, sep=&quot;&quot;) ] &lt;- as.numeric(prep1DF$release_month == i &amp; prep1DF$release_year == 2021 )
+}
+
+# --- save the pre-processed data ----------------------------
+saveRDS( prep1DF, file.path(home, &quot;data/rData/processed_train.rds&quot;))</code></pre>
+</div>
+<div id="predictive-models" class="section level1">
+<h1>Predictive models</h1>
+<p>I decided to use these data to illustrate random forests.</p>
+<p>There is a small problem with these data; we have 12 continuous predictors and 151 indicators (130 from genre, 11 from key, artistNA, M1 to M4 and 5 from name), plus there are 21,000 tracks. It is going to be slow.</p>
+<p>The randomForest package likes the data in matrices, so I’ll start by splitting the data into an estimation (n=13000) and a validation (n=8000) set and then I’ll extract the necessary matrices.</p>
+<pre class="r"><code>library(randomForest)
+
+# --- read the processed training data ------------------------------
+trainDF &lt;- readRDS(file.path(home, &quot;data/rData/processed_train.rds&quot;))
+
+# --- split into estimation and validation --------------------------
+set.seed(6671)
+split &lt;- sample(1:21000, size=8000, replace=FALSE)
+
+# --- response for the estimation set -------------------------------
+trainDF %&gt;%
+  slice(-split) %&gt;%
+  pull(popularity) -&gt; Y
+
+# --- predictors for the estimation set -----------------------------  
+trainDF %&gt;%
+  slice(-split) %&gt;%
+  select( duration, danceability, energy, loudness, speechiness,
+  acousticness, liveness, valence, tempo, instrumentalness,
+  avgArtistPop, avgFollowers, release_year, artistNA, M1, M2, M3, M4,
+  starts_with(&quot;X&quot;, ignore.case=FALSE),
+  starts_with(&quot;N&quot;, ignore.case=FALSE),
+  starts_with(&quot;K&quot;, ignore.case=FALSE))  %&gt;%
+  as.matrix() -&gt; X
+
+
+# --- predictors for the validation set ----------------------------
+trainDF %&gt;%
+  slice(split) %&gt;%
+  select( duration, danceability, energy, loudness, speechiness,
+  acousticness, liveness, valence, tempo, instrumentalness,
+  avgArtistPop, avgFollowers, release_year, artistNA, M1, M2, M3, M4,
+  starts_with(&quot;X&quot;, ignore.case=FALSE),
+  starts_with(&quot;N&quot;, ignore.case=FALSE),
+  starts_with(&quot;K&quot;, ignore.case=FALSE))  %&gt;%
+  as.matrix() -&gt; XV</code></pre>
+<p>Now we can fit a random forest using the package defaults. It takes a while (about 10minutes on my, rather old, desktop). I save the results in a folder called <code>dataStore</code>, which is my place for saving all results.</p>
+<pre class="r"><code># --- fit a random forest --------------------------------
+set.seed(6720)
+randomForest(x=X, y=Y) %&gt;%
+  saveRDS(file.path(home, &quot;data/dataStore/rf_default_model.rds&quot;))</code></pre>
+<p>The key default values determine that 500 trees are built and at each split in each tree the number of variables that are tried, mtry, is 54 (1/3 of the available predictors). The trees are very deep and only stop when the number of <em>Spotify</em> tracks in a terminal node reaches 5.</p>
+<p>The idea of random forests is to fit large, complex individual trees that have little bias but a large variance. Averaging over 500 such trees reduces the variance while keeping the bias low.</p>
+<p>The package estimates the MSE at 110.10, so the RMSE would be 10.49, which would put us in 4th place on the leaderboard.</p>
+<pre class="r"><code>print(rfmod)</code></pre>
+<pre><code>## 
+## Call:
+##  randomForest(x = X, y = Y) 
+##                Type of random forest: regression
+##                      Number of trees: 500
+## No. of variables tried at each split: 54
+## 
+##           Mean of squared residuals: 110.1043
+##                     % Var explained: 67.81</code></pre>
+<p>The MSE can be plotted using the function provided by the package</p>
+<pre class="r"><code>plot(rfmod)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-24-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>or the values can be extracted from rfmod and plotyed using ggplot.</p>
+<pre class="r"><code>tibble( trees = 1:500,
+        rmse  = sqrt(rfmod$mse)) %&gt;%
+  ggplot( aes(x=trees, y=rmse)) +
+  geom_line() +
+  labs(X=&quot;Number of trees&quot;, title=&quot;Default random forest&quot;)</code></pre>
+<p><img src="/post/spotify_tracks/spotify_files/figure-html/unnamed-chunk-25-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The plot shows that the RMSE drops just below 10.5</p>
+<p>For completeness we can look at performance of the model on the validation data</p>
+<pre class="r"><code>trainDF %&gt;%
+   slice(split) %&gt;%
+   mutate( yhat = predict(rfmod, newdata=XV)  ) %&gt;%
+   summarise( rmse = sqrt( mean( (popularity-yhat)^2 )))</code></pre>
+<pre><code>## # A tibble: 1 x 1
+##    rmse
+##   &lt;dbl&gt;
+## 1  10.7</code></pre>
+<p>A RMSE of 10.7 is not quite as good and would only just put us in the top ten on the leaderboard.</p>
+<p>It is interesting to see which predictors are most important for the model and again we can either use the provided function <code>importance()</code> or we can extract the data and list it for ourselves</p>
+<pre class="r"><code># --- extract importance ----------------------------------
+tibble( term = attr(rfmod$importance, &quot;dimnames&quot;)[[1]],
+        purity = as.numeric(rfmod$importance) ) %&gt;%
+  mutate( pct = round(100*purity/sum(purity),1) ) %&gt;%
+  arrange( desc(purity) ) %&gt;% 
+  print( n=20)</code></pre>
+<pre><code>## # A tibble: 164 x 3
+##    term               purity   pct
+##    &lt;chr&gt;               &lt;dbl&gt; &lt;dbl&gt;
+##  1 release_year     1249184.  28.7
+##  2 avgArtistPop      765214.  17.6
+##  3 avgFollowers      445780.  10.2
+##  4 acousticness      269354.   6.2
+##  5 loudness          195299.   4.5
+##  6 duration          128152.   2.9
+##  7 energy            123587.   2.8
+##  8 danceability      109795.   2.5
+##  9 instrumentalness  102694.   2.4
+## 10 valence           102378.   2.4
+## 11 liveness           99038.   2.3
+## 12 speechiness        96683.   2.2
+## 13 tempo              88127.   2  
+## 14 M4                 34505.   0.8
+## 15 X1                 34069.   0.8
+## 16 X36                30866.   0.7
+## 17 X31                29086.   0.7
+## 18 X3                 19503.   0.4
+## 19 X2                 14045.   0.3
+## 20 X63                13407.   0.3
+## # ... with 144 more rows</code></pre>
+<p>I add the percentage of the total purity in order to make it easier to compare the relate importances.</p>
+<p>Clearly the release year and the artists popularity are key, followed by the continuous predictors, M4 is the final month of data collection when the popularity had not yet stabilised and the X’s are the key genres.</p>
+<pre class="r"><code># --- most important genres -------------------------------
+wordsDF %&gt;%
+  slice( 1, 36, 31, 3, 2, 63)</code></pre>
+<pre><code>## # A tibble: 6 x 5
+##   term                count   p_value mWithout mWith
+##   &lt;chr&gt;               &lt;int&gt;     &lt;dbl&gt;    &lt;dbl&gt; &lt;dbl&gt;
+## 1 &#39;classical&#39;           656 4.84e-151     28.2  9.75
+## 2 &#39;progressive house&#39;   155 1.37e- 38     27.7  9.22
+## 3 &#39;trance&#39;              152 9.09e- 41     27.7  8.98
+## 4 &#39;pop&#39;                 378 3.87e- 93     27.1 54.6 
+## 5 &#39;rock&#39;               1143 4.16e-108     27.0 37.6 
+## 6 &#39;adult standards&#39;     985 1.83e- 23     27.8 22.4</code></pre>
+<p>I now have the tricky problem of whether or not to try an tune this model. Would different hyperparameters improve performance significantly? The plot of RMSE vs number of trees suggests that the line has plateaued. There is no suggestion that more trees would cause the RMSE to reduce. <code>nodesize</code> is already small, making it larger would only increase the bias. The only option would be to try other values of <code>mtry</code>. Currently, <code>mtry</code>=54, I could perhaps try 44 and 64, but at 10 minutes per run I do not think that this makes much sense.</p>
+<p>I am going to settle for this model.</p>
+</div>
+<div id="submission" class="section level1">
+<h1>Submission</h1>
+<p>First the test data have to be preprocessed</p>
+<pre class="r"><code>testRawDF %&gt;%
+  # --- remove extra characters from artist id -------------------
+  mutate( id_artists = str_replace_all(id_artists, &quot;\\&#39;&quot;, &quot;&quot;)) %&gt;%
+  mutate( id_artists = str_replace_all(id_artists, &quot;\\[&quot;, &quot;&quot;)) %&gt;%
+  mutate( id_artists = str_replace_all(id_artists, &quot;\\]&quot;, &quot;&quot;)) %&gt;%
+  # --- extract first two artists --------------------------------
+  separate(id_artists, into=c(&quot;artistId1&quot;, &quot;artistId2&quot;), sep=&quot;,&quot;,
+           extra=&quot;drop&quot;) %&gt;%
+  # --- merge first artist ---------------------------------------
+  mutate( id_artists = artistId1 ) %&gt;% 
+     left_join(artistRawDF %&gt;%
+                  rename( id_artists = id,
+                          follow1    = followers,
+                          popArtist1 = popularity) %&gt;%
+                  select(id_artists, genres, popArtist1, follow1),
+               by = &quot;id_artists&quot;)  %&gt;% 
+  rename( genre1 = genres ) %&gt;%
+  mutate( genre1 = ifelse( is.na(genre1), &quot;&quot;, genre1 )) %&gt;%
+  # --- merge second artist --------------------------------------
+  mutate( id_artists = artistId2 ) %&gt;%
+  left_join(artistRawDF %&gt;%
+               rename( id_artists = id,
+                       follow2    = followers,
+                       popArtist2 = popularity) %&gt;%
+               select(id_artists, genres, popArtist2, follow2),
+            by = &quot;id_artists&quot;) %&gt;%
+  rename( genre2 = genres ) %&gt;%
+  mutate( genre2 = ifelse( is.na(genre2), &quot;&quot;, genre2 )) %&gt;%
+  # --- combine the genres ---------------------------------------
+  unite( genre, genre1, genre2,  sep=&quot;,&quot; ) %&gt;%
+  # --- average popularity &amp; followers ---------------------------
+  rowwise() %&gt;%
+  mutate( avgArtistPop = mean(c(popArtist1, popArtist2),
+                              na.rm=TRUE) ) %&gt;%
+  mutate( avgFollowers = mean(c(follow1, follow2),
+                              na.rm=TRUE) ) %&gt;%
+  mutate( avgArtistPop = ifelse( is.nan(avgArtistPop), 
+                                 NA, avgArtistPop),
+          avgFollowers = ifelse( is.nan(avgFollowers), 
+                                 NA, avgFollowers)) %&gt;%
+  # --- drop working variables -----------------------------------
+  ungroup() %&gt;%
+  select( -artistId1, -artistId2, -popArtist1, -popArtist2,
+          -follow1, -follow2, -id_artists)  -&gt; prep1DF
+
+# --- indicators for the top genres -------------------------------
+prep1DF &lt;- add_indicators(prep1DF, &quot;genre&quot;, wordsDF$term, &quot;X&quot;)
+
+# --- indicators for the keys -------------------------------------
+prep1DF &lt;- add_indicators(prep1DF, &quot;key&quot;, as.character(1:11), &quot;K&quot;)
+
+prep1DF %&gt;%
+  mutate( artistNA = as.numeric( is.na(avgArtistPop)),
+          avgArtistPop = ifelse(is.na(avgArtistPop), 6, avgArtistPop ),
+          avgFollowers = ifelse(is.na(avgFollowers), 0, avgFollowers ))  -&gt; prep1DF
+
+prep1DF$name &lt;- ifelse( is.na(prep1DF$name), &quot;&quot;, prep1DF$name)
+prep1DF &lt;- add_indicators(prep1DF, &quot;name&quot;, myWords, &quot;N&quot;)
+ 
+prep1DF$duration &lt;- log10(prep1DF$duration_ms/1000)
+prep1DF$release_month &lt;- ifelse( is.na(prep1DF$release_month), 0, prep1DF$release_month)
+for( i in 1:4) {
+  prep1DF[ paste(&quot;M&quot;, i, sep=&quot;&quot;) ] &lt;- as.numeric(prep1DF$release_month == i &amp; prep1DF$release_year == 2021 )
+}
+saveRDS(prep1DF, file.path(home, &quot;data/rData/processed_test.rds&quot;))</code></pre>
+<p>Now we can fit the model to the entire training set and create a submission</p>
+<pre class="r"><code>trainDF %&gt;%
+  pull(popularity) -&gt; Y
+  
+trainDF %&gt;%
+  select( duration, danceability, energy, loudness, speechiness,
+  acousticness, liveness, valence, tempo, instrumentalness,
+  avgArtistPop, avgFollowers, release_year, artistNA, M1, M2, M3, M4,
+  starts_with(&quot;X&quot;, ignore.case=FALSE), 
+  starts_with(&quot;N&quot;, ignore.case=FALSE), 
+  starts_with(&quot;K&quot;, ignore.case=FALSE))  %&gt;%
+  as.matrix() -&gt; X
+  
+set.seed(1123)
+randomForest(x=X, y=Y) %&gt;%
+   saveRDS(file.path(home, &quot;data/dataStore/rf_submission1.rds&quot;))</code></pre>
+<p>I use this model to create the submission</p>
+<pre class="r"><code># --- test sample predictors -----------------------------------
+readRDS(file.path(home, &quot;data/rData/processed_test.rds&quot;)) %&gt;%
+  select( duration, danceability, energy, loudness, speechiness,
+  acousticness, liveness, valence, tempo, instrumentalness,
+  avgArtistPop, avgFollowers, release_year, artistNA, M1, M2, M3, M4,
+  starts_with(&quot;X&quot;, ignore.case=FALSE), 
+  starts_with(&quot;N&quot;, ignore.case=FALSE), 
+  starts_with(&quot;K&quot;, ignore.case=FALSE))  %&gt;%
+  as.matrix() -&gt; XT
+
+# --- prepare submission --------------------------------------
+readRDS(file.path(home, &quot;data/rData/processed_test.rds&quot;)) %&gt;%
+  mutate( popularity = predict(rfmod, newdata=XT) ) %&gt;%
+  select( id, popularity) %&gt;%
+  write_csv( file.path(home, &quot;temp/submission1.csv&quot;))</code></pre>
+<p>The RMSE of the submission is 10.57712, which would place the model in 4th place on the leaderboard. I think that this is quite a good result, given that random forests are generally inferior to boosted trees and I have not tuned the hyperparameters of the random forest.</p>
+</div>
+<div id="what-we-learn-from-this-analaysis" class="section level1">
+<h1>What we learn from this analaysis</h1>
+<p>The novelty, as far as <em>Sliced</em> is concerned, lies in the secondary file of information on the artists. This increases the burden of feature selection and data cleaning but eventually leaves a fairly standard regression problem. I chose random forests because I wanted to try them and not because they are especially suited to this problem, which on reflection was not a good idea.</p>
+<p>Random forests work reasonably well for these data; with such a large dataset it is not surprising that large regression trees make good predictions. However, they are very slow to compute and I suspect that they offer no real benefits over quicker algorithms such as boosted trees or even flexible regression models.</p>
+<p>I think that it would have been better to have included a feature selection step before building the random forest; many of the keywords extracted from the genres were never likely to be important.</p>
+<p>My plan is to re-analyse these data in a later post using a Bayesian mixture model and when I do that, I’ll add feature selection. Bayesian models are also slow to fit and Bayesian mixture models are notoriously tricky.</p>
+</div>
+
+  
+
+  
+    <div id="disqus_thread"></div>
+<script type="application/javascript">
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "John" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+  
+
+
+
+    <footer class="site-footer">
+  <span class="site-footer-credits">
+    Made with <a href="https://gohugo.io/">Hugo</a>. Themed by <a href="https://github.com/zwbetz-gh/cayman-hugo-theme">Cayman</a>. Deployed to <a href="https://www.netlify.com/">Netlify</a>.
+  </span>
+</footer>
+
+  </section>
+  
+  
+  <script>
+  window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+  ga('create', 'UA-123456789-1', 'auto');
+  ga('send', 'pageview');
+  </script>
+  <script async src='https://www.google-analytics.com/analytics.js'></script>
+  
+
+</body>
+</html>

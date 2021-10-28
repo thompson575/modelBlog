@@ -317,3 +317,31 @@ I used standard text handling methods to identify musical genres that are predic
 
 I decided to use these data to investigate the use of random forests, however the large number of potential features combined with the large number of tracks meant that random forests were very slow to fit. As a result, detailed modelling was impractical. Despite this, a default random forest model would have come fourth on the leaderboard.
 
+
+## Episode 9: Baseball home runs
+
+### Keywords
+
+hexagonal scatter plots; xgboost; cross-validation; hyperparameter selection;
+
+### Packages
+
+tidyverse; xgboost;  
+
+### The data 
+
+The data for this episode can be downloaded from https://www.kaggle.com/c/sliced-s01e09-playoffs-1.  
+
+## The problem
+
+The data describe the 46244 hits made during the playoffs for the 2020 baseball season. The objective is to predict whether or not a hit resulted in a home run based on information about the hit, the pitch and the ball park. Evaluation was by logloss.
+
+## My Analysis
+
+I performed a fairly lengthy exploratory analysis looking at the impact of different predictors on the probability of a home run. Based on this exploration I made a subjective selection of what I though would be the important predictors.  
+
+I fed my selected predictors into xgboost and use cross-validation to select a suitable number of iterations. With default values for the other hyperparameters the resulting model would have finished second on the leaderboard.  
+
+Based on my experience of using xgboost in earlier episodes of *Sliced*, I subjective choose what I though would be a better set of hyperparameters and I created a model that would have topped the leaderboard.  
+
+The top five models on the leaderboard all had similar performance and the difference between my model and anyone of these is meaningless. I argue that one should not take the position on the leaderboard too seriously.  

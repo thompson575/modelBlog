@@ -1,7 +1,7 @@
 ---
 title: "Sliced Episode 8: Spotify Popularity"
 author: "John Thompson"
-date: "18-10-2021"
+date: "2021-10-18"
 layout: post
 tags:
 - Sliced
@@ -597,7 +597,7 @@ readRDS(file.path(home, "data/rData/processed_test.rds")) %>%
 
 The RMSE of the submission is 10.57712, which would place the model in 4th place on the leaderboard. I think that this is quite a good result, given that random forests are generally inferior to boosted trees and I have not tuned the hyperparameters of the random forest.
 
-# What we learn from this analaysis
+# What we learn from this analysis
 
 The novelty, as far as *Sliced* is concerned, lies in the secondary file of information on the artists. This increases the burden of feature selection and data cleaning but eventually leaves a fairly standard regression problem. I chose random forests because I wanted to try them and not because they are especially suited to this problem, which on reflection was not a good idea.  
 

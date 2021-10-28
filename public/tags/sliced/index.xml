@@ -6,7 +6,17 @@
     <description>Recent content in Sliced on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Tue, 05 Oct 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/sliced/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Mon, 18 Oct 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/sliced/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Sliced Episode 8: Spotify Popularity</title>
+      <link>https://modelling-with-r.netlify.app/spotify/</link>
+      <pubDate>Mon, 18 Oct 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/spotify/</guid>
+      <description>SummaryBackground: In episode 8 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on tracks available on Spotify. The aim was to predict the track popularity.
+My approach: I merged the data on the tracks with data on the artists and then identified genres that were associated with the track popularity. Using all available information, I fitted a random forest model using default values of the hyperparameters.</description>
+    </item>
+    
     <item>
       <title>Sliced Episode 7: Customer Churn</title>
       <link>https://modelling-with-r.netlify.app/customer_churn/</link>

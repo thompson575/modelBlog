@@ -264,4 +264,55 @@ editor_options:
 <p>This is a rather routine problem, so to create some interest I decided to try multivariate data exploration using distance-based methods that highlight clusters of customers with similar characteristics. These analyses support by suspicion that customers churn for different reasons and that the model will need to identify groups of customers with different characteristics but the same outcome.</p>
 <p><code>xgboost</code> is a natural choice of algorithm for modelling these data. Boosting will create a range of trees such that some will be good at capturing one cluster while others will identify another. Tree-based boosting works well with these data and creates a model with prediction accuracy similar to the models near the top of the leaderboard.</p>
 </div>
+<div id="episode-8-spotify-popularity" class="section level2">
+<h2>Episode 8: Spotify popularity</h2>
+<div id="keywords-7" class="section level3">
+<h3>Keywords</h3>
+<p>hexagonal scatter plots; merging files; feature extraction from text; random forest models</p>
+</div>
+<div id="packages-7" class="section level3">
+<h3>Packages</h3>
+<p>tidyverse; randomForest;</p>
+</div>
+<div id="the-data-7" class="section level3">
+<h3>The data</h3>
+<p>The data for this episode can be downloaded from www.kaggle.com/c/sliced-s01e08-KJSEks</p>
+</div>
+</div>
+<div id="the-problem-7" class="section level2">
+<h2>The problem</h2>
+<p>The data describe 21,000 tracks available through <em>Spotify</em> and include measures such as speechiness and tempo as well as data on the artists. <em>Spotify</em> gives each track a numerical popularity score between 0 and 100 and the objective is to predict that popularity from the track and artist data. Model evaluation is by RMSE.</p>
+</div>
+<div id="my-analysis-7" class="section level2">
+<h2>My Analysis</h2>
+<p>I merged the track and artist data to create a single file of training data. A visualization of the data using hexagonal scatter plots showed that the continuous measures relating to the tracks are quite predictive, but the relationships are not linear. The popularity score over the training data is strongly bimodal. Together these feature suggest that standard regression models would not perform well.</p>
+<p>I used standard text handling methods to identify musical genres that are predictive of popularity and ended with a large number (over 150) of indicator variables.</p>
+<p>I decided to use these data to investigate the use of random forests, however the large number of potential features combined with the large number of tracks meant that random forests were very slow to fit. As a result, detailed modelling was impractical. Despite this, a default random forest model would have come fourth on the leaderboard.</p>
+</div>
+<div id="episode-9-baseball-home-runs" class="section level2">
+<h2>Episode 9: Baseball home runs</h2>
+<div id="keywords-8" class="section level3">
+<h3>Keywords</h3>
+<p>hexagonal scatter plots; xgboost; cross-validation; hyperparameter selection;</p>
+</div>
+<div id="packages-8" class="section level3">
+<h3>Packages</h3>
+<p>tidyverse; xgboost;</p>
+</div>
+<div id="the-data-8" class="section level3">
+<h3>The data</h3>
+<p>The data for this episode can be downloaded from <a href="https://www.kaggle.com/c/sliced-s01e09-playoffs-1" class="uri">https://www.kaggle.com/c/sliced-s01e09-playoffs-1</a>.</p>
+</div>
+</div>
+<div id="the-problem-8" class="section level2">
+<h2>The problem</h2>
+<p>The data describe the 46244 hits made during the playoffs for the 2020 baseball season. The objective is to predict whether or not a hit resulted in a home run based on information about the hit, the pitch and the ball park. Evaluation was by logloss.</p>
+</div>
+<div id="my-analysis-8" class="section level2">
+<h2>My Analysis</h2>
+<p>I performed a fairly lengthy exploratory analysis looking at the impact of different predictors on the probability of a home run. Based on this exploration I made a subjective selection of what I though would be the important predictors.</p>
+<p>I fed my selected predictors into xgboost and use cross-validation to select a suitable number of iterations. With default values for the other hyperparameters the resulting model would have finished second on the leaderboard.</p>
+<p>Based on my experience of using xgboost in earlier episodes of <em>Sliced</em>, I subjective choose what I though would be a better set of hyperparameters and I created a model that would have topped the leaderboard.</p>
+<p>The top five models on the leaderboard all had similar performance and the difference between my model and anyone of these is meaningless. I argue that one should not take the position on the leaderboard too seriously.</p>
+</div>
 </div>
