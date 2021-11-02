@@ -6,7 +6,17 @@
     <description>Recent content in Posts on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Mon, 18 Oct 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Thu, 28 Oct 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Sliced Episode 9: Baseball home runs</title>
+      <link>https://modelling-with-r.netlify.app/baseball/</link>
+      <pubDate>Thu, 28 Oct 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/baseball/</guid>
+      <description>SummaryBackground: In episode 9 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on baseball. The aim was to predict whether or not a hit went for a home run.
+My approach: I ran an extensive exploratory analysis relating the percentage of home runs to each of the exploratory factors. The type of hit is extremely predictive; for instance, you cannot hit a home run off a ground ball.</description>
+    </item>
+    
     <item>
       <title>Sliced Episode 8: Spotify Popularity</title>
       <link>https://modelling-with-r.netlify.app/spotify/</link>

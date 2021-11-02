@@ -1,0 +1,468 @@
+---
+title: "Methods: Introduction to mlr3"
+author: "John Thompson"
+date: "`r Sys.time()`"
+layout: post
+tags:
+- Sliced
+- Object orientated programming (OOP)
+- R6 package
+- mlr3
+- hyperparameter tuning
+- pipelines
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE, fig.align = 'center', fig.width=5.5, fig.height=4)
+```
+
+
+# Introduction
+
+This post introduces the ecosystem of packages known as `mlr3`. It is an alternative to `tidymodels` and one of my reasons for trying `mlr3` was to compare the two.  
+
+`mlr3` is built on `R6`. a package that enables Object Oriented Programming (OOP) in R. To understand the way that `mlr3` works, it is helpful to know a little about OOP and `R6`, so that is where I will start.  
+
+If you want more detail than I provide, follow the links on the project's website at https://mlr3.mlr-org.com/; the YouTube videos give a good flavour of what `mlr3` can do and the developers' `mlr3 book` is very comprehensive (https://mlr3book.mlr-org.com/).  
+
+# Object Orientated programming
+
+`mlr3` is written using Object Orientated Programming (OOP), this makes it somewhat different to use than base R or the `tidyverse`, which primarily use functional programming (FP).
+
+The idea behind OOP is that the fundamental building block is an `object`. Objects not only contain data, but they also have their own, built-in functions. Typically, those functions control access to the object's data, or they perform operations on the object's data.
+
+Good terminology is helpful in avoiding confusion, so I will refer to the data stored in an object as its `fields` and the built-in functions as `methods`.
+
+`fields` (and sometimes `methods`) may be kept `private`, that is the user is not able to access them directly. The alternative is to have `fields` and `methods` that are  `public`, usually objects contain a mix of private and public fields and methods. The most common practice is to make the fields private, but to provide public methods that enable the user to set or change the data. In that way, the methods can check the requested operations and ensure that the data are not corrupted.
+
+It is possible that a method will return a value that has been calculated and was not itself stored in a field. Such returned data are referred to as `active fields`.
+
+An example of a object used by `mlr3` is a `Task`. A Task is an object for holding a set of data that is to be used in a machine learning project. The object has space for a data table, but it also contains metadata such as the name of the response variable and the names of the features that are to be used as predictors. When an analysis is started, the first job will be to define an object of class Task and to fill it with the data.
+
+From the point of view of the programmer, a key feature of OOP is `inheritance`. As an example, suppose that we have created a class of object called a Task, we might also require more specialised objects, such as a classification Task or a regression Task. In a classification Task the response would have to be a factor and in a regression Task the response would have to be numeric, but otherwise they would be similar. Rather than creating these new classes from scratch, the programmer can make them both special cases of a general Task, in which case they will inherit a general Task's fields and methods and the programmer will only need to add the extras.
+
+# R6
+
+`R6` package that enables full OOP in R. It is basic to everything in `mlr3`. There is a very informative chapter on `R6` in Hadley Wickham's Advance R book (https://adv-r.hadley.nz/r6.html). `R6` creates classes of object with the fields and methods saved in an R list. Consequently, the code for using an `R6` object looks very similar to the base R code that would be used to access a list.
+
+Suppose that we have a class of `R6` object called a `job` and that amongst the methods associated with this class is `new`, which is a function used to create a new instance of `job`. Then a typical piece of code might read
+```{r eval=FALSE}
+myJob <- job$new( data = myDF, model = "xgboost")
+```
+
+This code uses the method new() from the class job with two arguments and creates an instance called `myJob`. myJob is an object of class job with the specified data and model fields.
+
+If the model field is public then the user will be able to access it directly. For instance, this code would print the contents of the model field.
+```{r eval=FALSE}
+print(myJob$model)
+```
+
+Internally, myJob is an R list that contains fields (data) and methods (functions) so we access the fields as `myJob$fieldName` and the methods as `myJob$methodName()`
+
+In my example, I have supposed that model field stores a string, but more likely a model will itself be an R6 object and as well as the name of the analysis, it might store the default parameters. The nature of those parameters would depend on the model, so there will be a general class of models and special cases, such as xgboost models and linear regression models.
+
+The code
+```{r eval=FALSE}
+print(myJob$model$params)
+```
+
+Says that `myJob` which is a my instance of class `job` contains an object of class `model` and from within that class, I want to know the values in the `params` field.
+
+To investigate the structure of an object we could ask for its class using `class(myJob)`, or the names of its contents using `names(myJob`).
+
+# mlr3
+
+### Reading the data
+
+We will use the animal adoption data from episode 10 of *Sliced* as our example. I'll start with some standard tidyverse code that reads the data and selects some columns for the analysis.
+```{r}
+library(mlr3verse)
+library(tidyverse)
+library(lubridate)
+
+home <- "C:/Projects/kaggle/sliced/s01-e10"
+
+# --- read data and select variable --------------------------
+readRDS( file.path(home, "data/rData/train.rds")) %>%
+        mutate( outcome_type = factor(outcome_type),
+                animal_type  = factor(animal_type),
+                date         = as.numeric(date(datetime)) ) %>%
+        select( outcome_type, animal_type, date) %>%
+        print()  -> rawDF
+```
+
+Loading `mlr3verse` is similar to loading the `tidyverse`, it brings in the key packages from the `mlr3` ecosystem.
+
+### Creating a Task
+
+The first job is to create an object of class `TaskClassif`, this is a special type of `Task` that is designed for classification problems. The object will store the data and metadata for our training set. I'll call the instance, `myTask`.
+
+An object of class `TaskClassif` can have an id (just a title), a backend (the data frame) and metadata on the target (response). The instance is created using a method called `new`. It is conventional to use the name `new` for the method that creates a new instance of an object.
+
+```{r}
+myTask <- TaskClassif$new( id      = "animal_adoption",
+                           backend = rawDF,
+                           target  = "outcome_type")
+```
+
+Let's see what I have created
+```{r}
+class(myTask)
+```
+
+`myTask` has an inheritance trail. It started as a very general `R6` object, a special case of which is a `Task`, a special case of which is  `TaskSupervised`, a special case of which is `TaskClassif`.
+
+What fields and methods are provided?
+```{r}
+names(myTask)
+```
+Unfortunately, all we have is the contents of a list so we cannot tell which are fields and which are methods, though we can make intelligent guesses. Usually the fields come first, so my guess is that everything up to `id` is a field and everything after `clone` is a method.
+
+Let's try look at the field `nrow`
+```{r}
+myTask$nrow
+```
+
+If I try to print a method, I will just get reference to the function
+```{r}
+myTask$head
+```
+
+and when I run the function, not surprisingly it prints the first 6 lines of the data frame.
+```{r}
+myTask$head()
+```
+
+What about the field `col_roles`?
+
+```{r}
+myTask$col_roles
+```
+
+You can see col_roles is not a value but is itself another R6 object that looks like a list when we print it. So it makes sense to ask for its names.
+
+```{r}
+names(myTask$col_roles)
+```
+ 
+or to refer to specific items in the list
+```{r}
+myTask$col_roles$target
+```
+ 
+or, since we are dealing with R lists, we can also request by position
+```{r}
+myTask$col_roles[[1]]
+```
+
+
+### Selecting a Learner
+
+Next we will define a classifier. In `mlr3` the model used for an analysis, in this case classification, is called a `learner`. The options available are stored in a `dictionary` called `mlr_learners` and as usual in R, the contents can be displayed by typing the name of the object
+
+```{r}
+mlr_learners
+```
+
+We have a 3 class classification problem so a tree created by `classif.rpart` would be a sensible option. We can create an empty learner of that type by using `get` on the dictionary, (`get` is another conventional name) but mlr3 provides a helper function `lrn()` that does exactly the same job.
+```{r}
+# --- set a learner using get -----------------------------
+myLearner <- mlr_learners$get("classif.rpart")
+
+# --- set a learner using the helper function -------------
+myLearner <- lrn("classif.rpart")
+
+# --- print the learner -----------------------------------
+myLearner
+```
+
+What are the fields and methods of an object of this class?
+```{r}
+names(myLearner)
+```
+
+### Training the Learner
+
+The names of `myLearner` show us that there is a method called `train`; this enables us to train the model using a set of data
+```{r}
+myLearner$train(task = myTask)
+```
+
+Once trained, I can look at the field, `model`, to see the result
+```{r}
+myLearner$model
+```
+
+This is a decision tree fitted using the `rpart()` function from the `rpart` package. `model` gives us exactly the same list structure that is returned when we use rpart() directly. We can look at its structure with str()
+
+```{r}
+str(myLearner$model)
+```
+
+So, I can access it as I would if I had run rpart() for myself. For example, I could code
+```{r}
+myLearner$model$cptable %>%
+  as_tibble()
+```
+
+Here is the parameter set of the model
+```{r}
+myLearner$param_set
+```
+
+param_set has its own print method that creates this layout. The model has been fitted using default parameters, for instance the complexity parameter, cp, was set to 0.01. Let's change cp.
+
+```{r eval=FALSE}
+myLearner$param_set$cp <- 0.001
+```
+
+No good! I cannot "cannot add bindings to a locked environment", or in English, I cannot change it directly. The logic is that cp has to be a number between 0 and 1, if I could change it directly I might make it equal to -5 or 52 or "rabbit".
+
+param_set is itself an object so we can look to see what it contains
+```{r}
+names(myLearner$param_set)
+```
+
+There is a field called `values`, which contains parameter values set by the user. Remembering that everything is stored in lists, the code that we need is
+
+```{r}
+myLearner$param_set$values <- list(cp = 0.001)
+
+myLearner$param_set$print()
+```
+
+`myLearner$param_set$print()` calls the built-in print method directly, but I would have got the same output had I called it indirectly with `myLearner$param_set` or via the R print function, `print(myLearner$param_set)`.
+
+Unfortunately, the developers have chosen to print the contents of the object `values` in a column with the label `value`, which is slightly confusing.
+
+What has happened to the model?
+```{r}
+myLearner$model$cptable %>%
+  as_tibble()
+```
+
+Nothing, we still have the model as it was when it was fitted. I can discover what value of cp that was used for the current model
+```{r}
+myLearner$model$control$cp
+```
+
+but we do need to be careful as this value is different from
+```{r}
+myLearner$param_set$values$cp
+```
+
+This is somewhat dangerous. Anyway, I can now retrain the model with my specified complexity parameter.
+```{r}
+myLearner$train(task = myTask)
+
+myLearner$model$cptable %>%
+  as_tibble()
+```
+
+The old model is over-written and lost.
+
+### Making predictions
+
+I might want to make some predictions based on our model. I'll start with in-sample predictions for the training data, using the method `predict` 
+
+```{r}
+myPredictions <- myLearner$predict(task = myTask)
+
+myPredictions$print()
+```
+
+What have I created? `myPredictions` is an object of class `PredictionClassif`, so it too will have its own methods
+
+```{r}
+names(myPredictions)
+```
+
+There is a field called `confusion`, which contains the confusion matrix
+ 
+```{r}
+myPredictions$confusion
+```
+
+What is the class of this object?
+```{r}
+class(myPredictions$confusion)
+```
+
+It is just a simple R table, so we can do anything with it that we can do with any other table in R
+
+```{r}
+myTab <- myPredictions$confusion
+
+prop.table(myTab)
+```
+
+### Selecting a Measure
+
+We can see from the table of proportions that about 68% were correctly classified and 32% we misclassified. Rather than calculate this for ourselves, `mlr3` offers a range of performance measures. They, of course, are stored in a dictionary, so we can list them
+
+```{r}
+mlr_measures
+```
+
+Let's try classification accuracy. We can either use `get` to extract it from the dictionary or use the helper function `msr()`
+```{r}
+myMeasure <- mlr_measures$get("classif.acc")
+
+myMeasure <- msr("classif.acc")
+
+myMeasure
+```
+
+To use this measure, I note that `myPredictions` has a method called `score`, that does the calculation
+```{r}
+myPredictions$score(myMeasure)
+```
+
+### Resampling
+
+The measure confirms that 68% are correctly classified, but this is probably an optimistic estimate of performance because of overfitting. I'll create a cross-validated estimate.
+
+There are many ways to resample in `mlr3`. Let's look at the dictionary
+```{r}
+mlr_resamplings
+```
+
+I will use a basic cross-validation, `cv`. I create a resampling object, either with `get` or with the helper function `rsmp()`
+```{r}
+myCV <- mlr_resamplings$get("cv")
+
+myCV <- rsmp("cv")
+
+myCV
+```
+
+I get 10 folds, which is the default, but I only want 5 folds. I can set the folds with `rsmp()`
+
+```{r}
+myCV <- rsmp("cv", folds=5)
+
+myCV
+```
+
+At present, the resampling object is not associated with any data so it cannot actually create the folds. The method for creating real folds has the ugly name `instantiate`
+
+```{r}
+myCV$instantiate(task = myTask)
+```
+
+I can run the cross-validation with a helper function called `resample()`
+```{r}
+rsFit <- resample( task       = myTask,
+                   learner    = myLearner,
+                   resampling = myCV)
+```
+
+What is the cross-validated accuracy? Here are the 5 cross-validated values
+
+```{r}
+rsFit$score(myMeasure)
+```
+
+and here is the aggregated measure (mean)
+```{r}
+rsFit$aggregate(myMeasure)
+```
+
+Not such an overfit as I was expecting.
+
+### Tuning the hyperparameters
+
+Let's try tuning the model's hyperparameters. I will try a random search algorithm with `cp` between 0.001 and 0.1 and `minsplit` between 1 and 10. 
+
+I will be trying 10 random sets of parameters each with 5 fold cross-validation. So, to speed things up, the calculations will be run in multiple R sessions. I'll use the logloss as my performance measure, this requires that the learner predicts probabilities rather than a category of response.  
+
+The tuning is set up using `to_tune()` and executed using `tune()`  
+```{r}
+# --- use the future package to create the sessions ---------------------
+future::plan("multisession")
+
+# --- set the hyperparameters to be tuned -------------------------------
+myLearner$param_set$values$cp = to_tune(0.001, 0.1)
+myLearner$param_set$values$minsplit = to_tune(1, 10)
+myLearner$predict_type = "prob"
+
+# --- choose the performance measure ------------------------------------
+myMeasure <- mlr_measures$get("classif.logloss")
+
+# --- pick 10 random combinations ---------------------------------------
+set.seed(9830)
+myTuner <-  tune(
+  method = "random_search",
+  task = myTask,
+  learner = myLearner,
+  resampling = myCV,
+  measure = myMeasure,
+  term_evals = 10,
+  batch_size = 5 
+)
+
+myTuner
+```
+
+So the best cross-validated logloss corresponds to cp=0.0036 and minsplit=3. Notice that there are several other combinations that give an almost identical performance.
+
+### Pipelines
+
+The final step is to create a complete pipeline including both preprocessing and model fitting. To this end, `mlr3` offers a large range of `pipe_ops`. As usual their names are stored in a dictionary.
+
+```{r}
+mlr_pipeops
+```
+
+Some, such as `learner`, have already been used, but there are others such as `pca`, `scale`, `imputemedian` and `removeconstants` that can be used in preprocessing. The idea is to string these together into a complete pipeline.
+
+To create a single pipe_op ready to go into the pipeline, there is a helper function `po()` that I can use in place of `mlr_pipeops$get`.
+
+Once the individual pipe_ops have been defined, they are combined in an ordered chain using `mlr3`'s own pipe operator, `%>>%`. The resulting pipeline can be saved and even plotted as a graph with the individual pipe_ops as the nodes and edges that show the flow of data between them.
+
+The big question is why? what advantage is there in using pipe operators over running the preprocessing with dplyr?
+
+If the preprocessing is completed before the analysis, then there is no real advantage, indeed dplyr is more flexible and would probably be a simpler option. The advantage comes when the preprocessing itself needs to be tuned. Suppose for example, that preprocessing includes variable selection. Should I use the top 10 features or the top 15 features in the decision tree? By building the variable selection step into the pipeline, it is possible to tune the number of features alongside the other hyperparameters.  
+
+A secondary advantage is that the pipe_ops will automatically save the state of the operation. Imagine that I were to run median imputation on the training data. The pipe_op would save those medians. Later, I might want to impute on the test data and those same medians can be recalled and used again.  
+
+# Extensions
+
+A important feature of `mlr3` is that the user is able to add their own extensions, perhaps a learner, or a measure, or a tuner, or a pipe_op.
+
+This can be done by writing a new `R6` class that inherits from the corresponding `mlr3` class.
+
+To help create a new learner, there is a helper function called `create_learner()` that does most of the work for you. Once it is done, you can add the learner to the mlr_learners dictionary and use it just like any other learner.
+
+# Is mlr3 better than tidymodels?
+
+Of course, the answer is, it depends. For me, `mlr3`'s main advantages over `tidymodels` are  
+
+* what it does is transparent  
+* the user remains in control  
+* all intermediate results can be accessed  
+* it is extendible  
+* there is a clear and coherent design  
+
+The main disadvantage compared with tidymodels is  
+
+* it is much more difficult to use  
+
+You need to have a grasp of OOP and R6 before you can make sensible use of `mlr3`.  
+
+In my opinion, `mlr3` is better than tidymodels, but I accept that the learning curve will be too steep for many people.  
+
+For me, a more important choice is between `mlr3` and R code written specifically for a given analysis. In their videos and posts, the authors of `mlr3` make much of pipelines and the flexibility with which pipe_ops can be combined. I am yet to be convinced that I would make much use of this feature. I suspect that for the vast majority of my work, I would find it easier to run the preprocessing in dplyr, or in purpose written R code.
+
+
+
+
+
+
+
+

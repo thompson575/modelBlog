@@ -1,0 +1,742 @@
+---
+title: "Methods: Introduction to mlr3"
+author: "John Thompson"
+date: "2021-11-01"
+layout: post
+tags:
+- Sliced
+- Object orientated programming (OOP)
+- R6 package
+- mlr3
+- hyperparameter tuning
+- pipelines
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>This post introduces the ecosystem of packages known as <code>mlr3</code>. It is an alternative to <code>tidymodels</code> and one of my reasons for trying <code>mlr3</code> was to compare the two.</p>
+<p><code>mlr3</code> is built on <code>R6</code>. a package that enables Object Oriented Programming (OOP) in R. To understand the way that <code>mlr3</code> works, it is helpful to know a little about OOP and <code>R6</code>, so that is where I will start.</p>
+<p>If you want more detail than I provide, follow the links on the project’s website at <a href="https://mlr3.mlr-org.com/" class="uri">https://mlr3.mlr-org.com/</a>; the YouTube videos give a good flavour of what <code>mlr3</code> can do and the developers’ <code>mlr3 book</code> is very comprehensive (<a href="https://mlr3book.mlr-org.com/" class="uri">https://mlr3book.mlr-org.com/</a>).</p>
+</div>
+<div id="object-orientated-programming" class="section level1">
+<h1>Object Orientated programming</h1>
+<p><code>mlr3</code> is written using Object Orientated Programming (OOP), this makes it somewhat different to use than base R or the <code>tidyverse</code>, which primarily use functional programming (FP).</p>
+<p>The idea behind OOP is that the fundamental building block is an <code>object</code>. Objects not only contain data, but they also have their own, built-in functions. Typically, those functions control access to the object’s data, or they perform operations on the object’s data.</p>
+<p>Good terminology is helpful in avoiding confusion, so I will refer to the data stored in an object as its <code>fields</code> and the built-in functions as <code>methods</code>.</p>
+<p><code>fields</code> (and sometimes <code>methods</code>) may be kept <code>private</code>, that is the user is not able to access them directly. The alternative is to have <code>fields</code> and <code>methods</code> that are <code>public</code>, usually objects contain a mix of private and public fields and methods. The most common practice is to make the fields private, but to provide public methods that enable the user to set or change the data. In that way, the methods can check the requested operations and ensure that the data are not corrupted.</p>
+<p>It is possible that a method will return a value that has been calculated and was not itself stored in a field. Such returned data are referred to as <code>active fields</code>.</p>
+<p>An example of a object used by <code>mlr3</code> is a <code>Task</code>. A Task is an object for holding a set of data that is to be used in a machine learning project. The object has space for a data table, but it also contains metadata such as the name of the response variable and the names of the features that are to be used as predictors. When an analysis is started, the first job will be to define an object of class Task and to fill it with the data.</p>
+<p>From the point of view of the programmer, a key feature of OOP is <code>inheritance</code>. As an example, suppose that we have created a class of object called a Task, we might also require more specialised objects, such as a classification Task or a regression Task. In a classification Task the response would have to be a factor and in a regression Task the response would have to be numeric, but otherwise they would be similar. Rather than creating these new classes from scratch, the programmer can make them both special cases of a general Task, in which case they will inherit a general Task’s fields and methods and the programmer will only need to add the extras.</p>
+</div>
+<div id="r6" class="section level1">
+<h1>R6</h1>
+<p><code>R6</code> package that enables full OOP in R. It is basic to everything in <code>mlr3</code>. There is a very informative chapter on <code>R6</code> in Hadley Wickham’s Advance R book (<a href="https://adv-r.hadley.nz/r6.html" class="uri">https://adv-r.hadley.nz/r6.html</a>). <code>R6</code> creates classes of object with the fields and methods saved in an R list. Consequently, the code for using an <code>R6</code> object looks very similar to the base R code that would be used to access a list.</p>
+<p>Suppose that we have a class of <code>R6</code> object called a <code>job</code> and that amongst the methods associated with this class is <code>new</code>, which is a function used to create a new instance of <code>job</code>. Then a typical piece of code might read</p>
+<pre class="r"><code>myJob &lt;- job$new( data = myDF, model = &quot;xgboost&quot;)</code></pre>
+<p>This code uses the method new() from the class job with two arguments and creates an instance called <code>myJob</code>. myJob is an object of class job with the specified data and model fields.</p>
+<p>If the model field is public then the user will be able to access it directly. For instance, this code would print the contents of the model field.</p>
+<pre class="r"><code>print(myJob$model)</code></pre>
+<p>Internally, myJob is an R list that contains fields (data) and methods (functions) so we access the fields as <code>myJob$fieldName</code> and the methods as <code>myJob$methodName()</code></p>
+<p>In my example, I have supposed that model field stores a string, but more likely a model will itself be an R6 object and as well as the name of the analysis, it might store the default parameters. The nature of those parameters would depend on the model, so there will be a general class of models and special cases, such as xgboost models and linear regression models.</p>
+<p>The code</p>
+<pre class="r"><code>print(myJob$model$params)</code></pre>
+<p>Says that <code>myJob</code> which is a my instance of class <code>job</code> contains an object of class <code>model</code> and from within that class, I want to know the values in the <code>params</code> field.</p>
+<p>To investigate the structure of an object we could ask for its class using <code>class(myJob)</code>, or the names of its contents using <code>names(myJob</code>).</p>
+</div>
+<div id="mlr3" class="section level1">
+<h1>mlr3</h1>
+<div id="reading-the-data" class="section level3">
+<h3>Reading the data</h3>
+<p>We will use the animal adoption data from episode 10 of <em>Sliced</em> as our example. I’ll start with some standard tidyverse code that reads the data and selects some columns for the analysis.</p>
+<pre class="r"><code>library(mlr3verse)
+library(tidyverse)
+library(lubridate)
+
+home &lt;- &quot;C:/Projects/kaggle/sliced/s01-e10&quot;
+
+# --- read data and select variable --------------------------
+readRDS( file.path(home, &quot;data/rData/train.rds&quot;)) %&gt;%
+        mutate( outcome_type = factor(outcome_type),
+                animal_type  = factor(animal_type),
+                date         = as.numeric(date(datetime)) ) %&gt;%
+        select( outcome_type, animal_type, date) %&gt;%
+        print()  -&gt; rawDF</code></pre>
+<pre><code>## # A tibble: 54,408 x 3
+##    outcome_type animal_type  date
+##    &lt;fct&gt;        &lt;fct&gt;       &lt;dbl&gt;
+##  1 adoption     Cat         17018
+##  2 no outcome   Other       17464
+##  3 transfer     Dog         16137
+##  4 transfer     Cat         16408
+##  5 transfer     Dog         16816
+##  6 adoption     Dog         16318
+##  7 adoption     Cat         16214
+##  8 adoption     Dog         16490
+##  9 adoption     Dog         17150
+## 10 adoption     Dog         16452
+## # ... with 54,398 more rows</code></pre>
+<p>Loading <code>mlr3verse</code> is similar to loading the <code>tidyverse</code>, it brings in the key packages from the <code>mlr3</code> ecosystem.</p>
+</div>
+<div id="creating-a-task" class="section level3">
+<h3>Creating a Task</h3>
+<p>The first job is to create an object of class <code>TaskClassif</code>, this is a special type of <code>Task</code> that is designed for classification problems. The object will store the data and metadata for our training set. I’ll call the instance, <code>myTask</code>.</p>
+<p>An object of class <code>TaskClassif</code> can have an id (just a title), a backend (the data frame) and metadata on the target (response). The instance is created using a method called <code>new</code>. It is conventional to use the name <code>new</code> for the method that creates a new instance of an object.</p>
+<pre class="r"><code>myTask &lt;- TaskClassif$new( id      = &quot;animal_adoption&quot;,
+                           backend = rawDF,
+                           target  = &quot;outcome_type&quot;)</code></pre>
+<p>Let’s see what I have created</p>
+<pre class="r"><code>class(myTask)</code></pre>
+<pre><code>## [1] &quot;TaskClassif&quot;    &quot;TaskSupervised&quot; &quot;Task&quot;           &quot;R6&quot;</code></pre>
+<p><code>myTask</code> has an inheritance trail. It started as a very general <code>R6</code> object, a special case of which is a <code>Task</code>, a special case of which is <code>TaskSupervised</code>, a special case of which is <code>TaskClassif</code>.</p>
+<p>What fields and methods are provided?</p>
+<pre class="r"><code>names(myTask)</code></pre>
+<pre><code>##  [1] &quot;.__enclos_env__&quot; &quot;negative&quot;        &quot;positive&quot;        &quot;class_names&quot;    
+##  [5] &quot;labels&quot;          &quot;weights&quot;         &quot;order&quot;           &quot;groups&quot;         
+##  [9] &quot;strata&quot;          &quot;data_formats&quot;    &quot;feature_types&quot;   &quot;ncol&quot;           
+## [13] &quot;nrow&quot;            &quot;col_roles&quot;       &quot;row_roles&quot;       &quot;properties&quot;     
+## [17] &quot;target_names&quot;    &quot;feature_names&quot;   &quot;row_names&quot;       &quot;row_ids&quot;        
+## [21] &quot;hash&quot;            &quot;extra_args&quot;      &quot;man&quot;             &quot;col_info&quot;       
+## [25] &quot;backend&quot;         &quot;task_type&quot;       &quot;id&quot;              &quot;clone&quot;          
+## [29] &quot;droplevels&quot;      &quot;truth&quot;           &quot;data&quot;            &quot;initialize&quot;     
+## [33] &quot;add_strata&quot;      &quot;set_col_roles&quot;   &quot;set_row_roles&quot;   &quot;rename&quot;         
+## [37] &quot;cbind&quot;           &quot;rbind&quot;           &quot;select&quot;          &quot;filter&quot;         
+## [41] &quot;missings&quot;        &quot;levels&quot;          &quot;head&quot;            &quot;formula&quot;        
+## [45] &quot;print&quot;           &quot;format&quot;          &quot;help&quot;</code></pre>
+<p>Unfortunately, all we have is the contents of a list so we cannot tell which are fields and which are methods, though we can make intelligent guesses. Usually the fields come first, so my guess is that everything up to <code>id</code> is a field and everything after <code>clone</code> is a method.</p>
+<p>Let’s try look at the field <code>nrow</code></p>
+<pre class="r"><code>myTask$nrow</code></pre>
+<pre><code>## [1] 54408</code></pre>
+<p>If I try to print a method, I will just get reference to the function</p>
+<pre class="r"><code>myTask$head</code></pre>
+<pre><code>## function (n = 6L) 
+## .__Task__head(self = self, private = private, super = super, 
+##     n = n)
+## &lt;environment: 0x0000000027fdc740&gt;</code></pre>
+<p>and when I run the function, not surprisingly it prints the first 6 lines of the data frame.</p>
+<pre class="r"><code>myTask$head()</code></pre>
+<pre><code>##    outcome_type animal_type  date
+## 1:     adoption         Cat 17018
+## 2:   no outcome       Other 17464
+## 3:     transfer         Dog 16137
+## 4:     transfer         Cat 16408
+## 5:     transfer         Dog 16816
+## 6:     adoption         Dog 16318</code></pre>
+<p>What about the field <code>col_roles</code>?</p>
+<pre class="r"><code>myTask$col_roles</code></pre>
+<pre><code>## $feature
+## [1] &quot;animal_type&quot; &quot;date&quot;       
+## 
+## $target
+## [1] &quot;outcome_type&quot;
+## 
+## $name
+## character(0)
+## 
+## $order
+## character(0)
+## 
+## $stratum
+## character(0)
+## 
+## $group
+## character(0)
+## 
+## $weight
+## character(0)</code></pre>
+<p>You can see col_roles is not a value but is itself another R6 object that looks like a list when we print it. So it makes sense to ask for its names.</p>
+<pre class="r"><code>names(myTask$col_roles)</code></pre>
+<pre><code>## [1] &quot;feature&quot; &quot;target&quot;  &quot;name&quot;    &quot;order&quot;   &quot;stratum&quot; &quot;group&quot;   &quot;weight&quot;</code></pre>
+<p>or to refer to specific items in the list</p>
+<pre class="r"><code>myTask$col_roles$target</code></pre>
+<pre><code>## [1] &quot;outcome_type&quot;</code></pre>
+<p>or, since we are dealing with R lists, we can also request by position</p>
+<pre class="r"><code>myTask$col_roles[[1]]</code></pre>
+<pre><code>## [1] &quot;animal_type&quot; &quot;date&quot;</code></pre>
+</div>
+<div id="selecting-a-learner" class="section level3">
+<h3>Selecting a Learner</h3>
+<p>Next we will define a classifier. In <code>mlr3</code> the model used for an analysis, in this case classification, is called a <code>learner</code>. The options available are stored in a <code>dictionary</code> called <code>mlr_learners</code> and as usual in R, the contents can be displayed by typing the name of the object</p>
+<pre class="r"><code>mlr_learners</code></pre>
+<pre><code>## &lt;DictionaryLearner&gt; with 130 stored values
+## Keys: classif.AdaBoostM1, classif.bart, classif.C50, classif.catboost,
+##   classif.cforest, classif.ctree, classif.cv_glmnet, classif.debug,
+##   classif.earth, classif.extratrees, classif.featureless, classif.fnn,
+##   classif.gam, classif.gamboost, classif.gbm, classif.glmboost,
+##   classif.glmnet, classif.IBk, classif.J48, classif.JRip, classif.kknn,
+##   classif.ksvm, classif.lda, classif.liblinear, classif.lightgbm,
+##   classif.LMT, classif.log_reg, classif.mob, classif.multinom,
+##   classif.naive_bayes, classif.nnet, classif.OneR, classif.PART,
+##   classif.qda, classif.randomForest, classif.ranger, classif.rfsrc,
+##   classif.rpart, classif.svm, classif.xgboost, clust.agnes, clust.ap,
+##   clust.cmeans, clust.cobweb, clust.dbscan, clust.diana, clust.em,
+##   clust.fanny, clust.featureless, clust.ff, clust.kkmeans,
+##   clust.kmeans, clust.MBatchKMeans, clust.meanshift, clust.pam,
+##   clust.SimpleKMeans, clust.xmeans, dens.hist, dens.kde, dens.kde_kd,
+##   dens.kde_ks, dens.locfit, dens.logspline, dens.mixed, dens.nonpar,
+##   dens.pen, dens.plug, dens.spline, regr.bart, regr.catboost,
+##   regr.cforest, regr.ctree, regr.cubist, regr.cv_glmnet, regr.earth,
+##   regr.extratrees, regr.featureless, regr.fnn, regr.gam, regr.gamboost,
+##   regr.gbm, regr.glm, regr.glmboost, regr.glmnet, regr.IBk, regr.kknn,
+##   regr.km, regr.ksvm, regr.liblinear, regr.lightgbm, regr.lm,
+##   regr.M5Rules, regr.mars, regr.mob, regr.randomForest, regr.ranger,
+##   regr.rfsrc, regr.rpart, regr.svm, regr.xgboost, surv.akritas,
+##   surv.blackboost, surv.cforest, surv.coxboost, surv.coxph,
+##   surv.coxtime, surv.ctree, surv.cv_coxboost, surv.cv_glmnet,
+##   surv.deephit, surv.deepsurv, surv.dnnsurv, surv.flexible,
+##   surv.gamboost, surv.gbm, surv.glmboost, surv.glmnet, surv.kaplan,
+##   surv.loghaz, surv.mboost, surv.nelson, surv.obliqueRSF,
+##   surv.parametric, surv.pchazard, surv.penalized, surv.ranger,
+##   surv.rfsrc, surv.rpart, surv.svm, surv.xgboost</code></pre>
+<p>We have a 3 class classification problem so a tree created by <code>classif.rpart</code> would be a sensible option. We can create an empty learner of that type by using <code>get</code> on the dictionary, (<code>get</code> is another conventional name) but mlr3 provides a helper function <code>lrn()</code> that does exactly the same job.</p>
+<pre class="r"><code># --- set a learner using get -----------------------------
+myLearner &lt;- mlr_learners$get(&quot;classif.rpart&quot;)
+
+# --- set a learner using the helper function -------------
+myLearner &lt;- lrn(&quot;classif.rpart&quot;)
+
+# --- print the learner -----------------------------------
+myLearner</code></pre>
+<pre><code>## &lt;LearnerClassifRpart:classif.rpart&gt;
+## * Model: -
+## * Parameters: xval=0
+## * Packages: rpart
+## * Predict Type: response
+## * Feature types: logical, integer, numeric, factor, ordered
+## * Properties: importance, missings, multiclass, selected_features,
+##   twoclass, weights</code></pre>
+<p>What are the fields and methods of an object of this class?</p>
+<pre class="r"><code>names(myLearner)</code></pre>
+<pre><code>##  [1] &quot;.__enclos_env__&quot;   &quot;encapsulate&quot;       &quot;param_set&quot;        
+##  [4] &quot;predict_type&quot;      &quot;phash&quot;             &quot;hash&quot;             
+##  [7] &quot;errors&quot;            &quot;warnings&quot;          &quot;log&quot;              
+## [10] &quot;timings&quot;           &quot;model&quot;             &quot;man&quot;              
+## [13] &quot;fallback&quot;          &quot;timeout&quot;           &quot;parallel_predict&quot; 
+## [16] &quot;predict_sets&quot;      &quot;packages&quot;          &quot;data_formats&quot;     
+## [19] &quot;properties&quot;        &quot;feature_types&quot;     &quot;predict_types&quot;    
+## [22] &quot;task_type&quot;         &quot;state&quot;             &quot;id&quot;               
+## [25] &quot;clone&quot;             &quot;selected_features&quot; &quot;importance&quot;       
+## [28] &quot;initialize&quot;        &quot;base_learner&quot;      &quot;reset&quot;            
+## [31] &quot;predict_newdata&quot;   &quot;predict&quot;           &quot;train&quot;            
+## [34] &quot;help&quot;              &quot;print&quot;             &quot;format&quot;</code></pre>
+</div>
+<div id="training-the-learner" class="section level3">
+<h3>Training the Learner</h3>
+<p>The names of <code>myLearner</code> show us that there is a method called <code>train</code>; this enables us to train the model using a set of data</p>
+<pre class="r"><code>myLearner$train(task = myTask)</code></pre>
+<p>Once trained, I can look at the field, <code>model</code>, to see the result</p>
+<pre class="r"><code>myLearner$model</code></pre>
+<pre><code>## n= 54408 
+## 
+## node), split, n, loss, yval, (yprob)
+##       * denotes terminal node
+## 
+##  1) root 54408 21133 adoption (0.61158286 0.08702764 0.30138950)  
+##    2) animal_type=Bird,Cat,Dog,Livestock 51608 18500 adoption (0.64152845 0.04861649 0.30985506)  
+##      4) animal_type=Dog 30830  7785 adoption (0.74748621 0.03707428 0.21543951) *
+##      5) animal_type=Bird,Cat,Livestock 20778 10715 adoption (0.48431033 0.06574261 0.44994706)  
+##       10) date&gt;=16744.5 10321  4688 adoption (0.54578045 0.05483965 0.39937991) *
+##       11) date&lt; 16744.5 10457  5230 transfer (0.42363967 0.07650378 0.49985656) *
+##    3) animal_type=Other 2800   574 no outcome (0.05964286 0.79500000 0.14535714) *</code></pre>
+<p>This is a decision tree fitted using the <code>rpart()</code> function from the <code>rpart</code> package. <code>model</code> gives us exactly the same list structure that is returned when we use rpart() directly. We can look at its structure with str()</p>
+<pre class="r"><code>str(myLearner$model)</code></pre>
+<pre><code>## List of 15
+##  $ frame              :&#39;data.frame&#39;: 7 obs. of  9 variables:
+##   ..$ var       : chr [1:7] &quot;animal_type&quot; &quot;animal_type&quot; &quot;&lt;leaf&gt;&quot; &quot;date&quot; ...
+##   ..$ n         : int [1:7] 54408 51608 30830 20778 10321 10457 2800
+##   ..$ wt        : num [1:7] 54408 51608 30830 20778 10321 ...
+##   ..$ dev       : num [1:7] 21133 18500 7785 10715 4688 ...
+##   ..$ yval      : num [1:7] 1 1 1 1 1 3 2
+##   ..$ complexity: num [1:7] 0.0974 0.0189 0 0.0189 0 ...
+##   ..$ ncompete  : int [1:7] 1 1 0 1 0 0 0
+##   ..$ nsurrogate: int [1:7] 0 0 0 1 0 0 0
+##   ..$ yval2     : num [1:7, 1:8] 1 1 1 1 1 ...
+##   .. ..- attr(*, &quot;dimnames&quot;)=List of 2
+##   .. .. ..$ : NULL
+##   .. .. ..$ : chr [1:8] &quot;&quot; &quot;&quot; &quot;&quot; &quot;&quot; ...
+##  $ where              : Named int [1:54408] 5 7 3 6 3 3 6 3 3 3 ...
+##   ..- attr(*, &quot;names&quot;)= chr [1:54408] &quot;1&quot; &quot;2&quot; &quot;3&quot; &quot;4&quot; ...
+##  $ call               : language rpart::rpart(formula = task$formula(), data = task$data(), xval = 0L)
+##  $ terms              :Classes &#39;terms&#39;, &#39;formula&#39;  language outcome_type ~ animal_type + date
+##   .. ..- attr(*, &quot;variables&quot;)= language list(outcome_type, animal_type, date)
+##   .. ..- attr(*, &quot;factors&quot;)= int [1:3, 1:2] 0 1 0 0 0 1
+##   .. .. ..- attr(*, &quot;dimnames&quot;)=List of 2
+##   .. .. .. ..$ : chr [1:3] &quot;outcome_type&quot; &quot;animal_type&quot; &quot;date&quot;
+##   .. .. .. ..$ : chr [1:2] &quot;animal_type&quot; &quot;date&quot;
+##   .. ..- attr(*, &quot;term.labels&quot;)= chr [1:2] &quot;animal_type&quot; &quot;date&quot;
+##   .. ..- attr(*, &quot;order&quot;)= int [1:2] 1 1
+##   .. ..- attr(*, &quot;intercept&quot;)= int 1
+##   .. ..- attr(*, &quot;response&quot;)= int 1
+##   .. ..- attr(*, &quot;predvars&quot;)= language list(outcome_type, animal_type, date)
+##   .. ..- attr(*, &quot;dataClasses&quot;)= Named chr [1:3] &quot;factor&quot; &quot;factor&quot; &quot;numeric&quot;
+##   .. .. ..- attr(*, &quot;names&quot;)= chr [1:3] &quot;outcome_type&quot; &quot;animal_type&quot; &quot;date&quot;
+##  $ cptable            : num [1:3, 1:3] 0.0974 0.0189 0.01 0 1 ...
+##   ..- attr(*, &quot;dimnames&quot;)=List of 2
+##   .. ..$ : chr [1:3] &quot;1&quot; &quot;2&quot; &quot;3&quot;
+##   .. ..$ : chr [1:3] &quot;CP&quot; &quot;nsplit&quot; &quot;rel error&quot;
+##  $ method             : chr &quot;class&quot;
+##  $ parms              :List of 3
+##   ..$ prior: num [1:3(1d)] 0.612 0.087 0.301
+##   .. ..- attr(*, &quot;dimnames&quot;)=List of 1
+##   .. .. ..$ : chr [1:3] &quot;1&quot; &quot;2&quot; &quot;3&quot;
+##   ..$ loss : num [1:3, 1:3] 0 1 1 1 0 1 1 1 0
+##   ..$ split: num 1
+##  $ control            :List of 9
+##   ..$ minsplit      : int 20
+##   ..$ minbucket     : num 7
+##   ..$ cp            : num 0.01
+##   ..$ maxcompete    : int 4
+##   ..$ maxsurrogate  : int 5
+##   ..$ usesurrogate  : int 2
+##   ..$ surrogatestyle: int 0
+##   ..$ maxdepth      : int 30
+##   ..$ xval          : int 0
+##  $ functions          :List of 3
+##   ..$ summary:function (yval, dev, wt, ylevel, digits)  
+##   ..$ print  :function (yval, ylevel, digits)  
+##   ..$ text   :function (yval, dev, wt, ylevel, digits, n, use.n)  
+##  $ numresp            : int 5
+##  $ splits             : num [1:7, 1:5] 54408 54408 51608 51608 20778 ...
+##   ..- attr(*, &quot;dimnames&quot;)=List of 2
+##   .. ..$ : chr [1:7] &quot;animal_type&quot; &quot;date&quot; &quot;animal_type&quot; &quot;date&quot; ...
+##   .. ..$ : chr [1:5] &quot;count&quot; &quot;ncat&quot; &quot;improve&quot; &quot;index&quot; ...
+##  $ csplit             : int [1:4, 1:5] 1 3 1 1 1 3 3 3 1 1 ...
+##  $ variable.importance: Named num [1:2] 4004 132
+##   ..- attr(*, &quot;names&quot;)= chr [1:2] &quot;animal_type&quot; &quot;date&quot;
+##  $ y                  : int [1:54408] 1 2 3 3 3 1 1 1 1 1 ...
+##  $ ordered            : Named logi [1:2] FALSE FALSE
+##   ..- attr(*, &quot;names&quot;)= chr [1:2] &quot;animal_type&quot; &quot;date&quot;
+##  - attr(*, &quot;xlevels&quot;)=List of 1
+##   ..$ animal_type: chr [1:5] &quot;Bird&quot; &quot;Cat&quot; &quot;Dog&quot; &quot;Livestock&quot; ...
+##  - attr(*, &quot;ylevels&quot;)= chr [1:3] &quot;adoption&quot; &quot;no outcome&quot; &quot;transfer&quot;
+##  - attr(*, &quot;class&quot;)= chr &quot;rpart&quot;</code></pre>
+<p>So, I can access it as I would if I had run rpart() for myself. For example, I could code</p>
+<pre class="r"><code>myLearner$model$cptable %&gt;%
+  as_tibble()</code></pre>
+<pre><code>## # A tibble: 3 x 3
+##       CP nsplit `rel error`
+##    &lt;dbl&gt;  &lt;dbl&gt;       &lt;dbl&gt;
+## 1 0.0974      0       1    
+## 2 0.0189      1       0.903
+## 3 0.01        3       0.865</code></pre>
+<p>Here is the parameter set of the model</p>
+<pre class="r"><code>myLearner$param_set</code></pre>
+<pre><code>## &lt;ParamSet&gt;
+##                 id    class lower upper nlevels        default value
+##  1:             cp ParamDbl     0     1     Inf           0.01      
+##  2:     keep_model ParamLgl    NA    NA       2          FALSE      
+##  3:     maxcompete ParamInt     0   Inf     Inf              4      
+##  4:       maxdepth ParamInt     1    30      30             30      
+##  5:   maxsurrogate ParamInt     0   Inf     Inf              5      
+##  6:      minbucket ParamInt     1   Inf     Inf &lt;NoDefault[3]&gt;      
+##  7:       minsplit ParamInt     1   Inf     Inf             20      
+##  8: surrogatestyle ParamInt     0     1       2              0      
+##  9:   usesurrogate ParamInt     0     2       3              2      
+## 10:           xval ParamInt     0   Inf     Inf             10     0</code></pre>
+<p>param_set has its own print method that creates this layout. The model has been fitted using default parameters, for instance the complexity parameter, cp, was set to 0.01. Let’s change cp.</p>
+<pre class="r"><code>myLearner$param_set$cp &lt;- 0.001</code></pre>
+<p>No good! I cannot “cannot add bindings to a locked environment”, or in English, I cannot change it directly. The logic is that cp has to be a number between 0 and 1, if I could change it directly I might make it equal to -5 or 52 or “rabbit”.</p>
+<p>param_set is itself an object so we can look to see what it contains</p>
+<pre class="r"><code>names(myLearner$param_set)</code></pre>
+<pre><code>##  [1] &quot;.__enclos_env__&quot; &quot;has_deps&quot;        &quot;values&quot;          &quot;has_trafo&quot;      
+##  [5] &quot;trafo&quot;           &quot;all_categorical&quot; &quot;all_numeric&quot;     &quot;is_categ&quot;       
+##  [9] &quot;is_number&quot;       &quot;storage_type&quot;    &quot;tags&quot;            &quot;default&quot;        
+## [13] &quot;special_vals&quot;    &quot;is_bounded&quot;      &quot;nlevels&quot;         &quot;levels&quot;         
+## [17] &quot;upper&quot;           &quot;lower&quot;           &quot;class&quot;           &quot;is_empty&quot;       
+## [21] &quot;length&quot;          &quot;set_id&quot;          &quot;deps&quot;            &quot;params_unid&quot;    
+## [25] &quot;params&quot;          &quot;assert_values&quot;   &quot;clone&quot;           &quot;print&quot;          
+## [29] &quot;format&quot;          &quot;add_dep&quot;         &quot;assert_dt&quot;       &quot;test_dt&quot;        
+## [33] &quot;check_dt&quot;        &quot;assert&quot;          &quot;test&quot;            &quot;check&quot;          
+## [37] &quot;search_space&quot;    &quot;subset&quot;          &quot;get_values&quot;      &quot;ids&quot;            
+## [41] &quot;add&quot;             &quot;initialize&quot;</code></pre>
+<p>There is a field called <code>values</code>, which contains parameter values set by the user. Remembering that everything is stored in lists, the code that we need is</p>
+<pre class="r"><code>myLearner$param_set$values &lt;- list(cp = 0.001)
+
+myLearner$param_set$print()</code></pre>
+<pre><code>## &lt;ParamSet&gt;
+##                 id    class lower upper nlevels        default value
+##  1:             cp ParamDbl     0     1     Inf           0.01 0.001
+##  2:     keep_model ParamLgl    NA    NA       2          FALSE      
+##  3:     maxcompete ParamInt     0   Inf     Inf              4      
+##  4:       maxdepth ParamInt     1    30      30             30      
+##  5:   maxsurrogate ParamInt     0   Inf     Inf              5      
+##  6:      minbucket ParamInt     1   Inf     Inf &lt;NoDefault[3]&gt;      
+##  7:       minsplit ParamInt     1   Inf     Inf             20      
+##  8: surrogatestyle ParamInt     0     1       2              0      
+##  9:   usesurrogate ParamInt     0     2       3              2      
+## 10:           xval ParamInt     0   Inf     Inf             10</code></pre>
+<p><code>myLearner$param_set$print()</code> calls the built-in print method directly, but I would have got the same output had I called it indirectly with <code>myLearner$param_set</code> or via the R print function, <code>print(myLearner$param_set)</code>.</p>
+<p>Unfortunately, the developers have chosen to print the contents of the object <code>values</code> in a column with the label <code>value</code>, which is slightly confusing.</p>
+<p>What has happened to the model?</p>
+<pre class="r"><code>myLearner$model$cptable %&gt;%
+  as_tibble()</code></pre>
+<pre><code>## # A tibble: 3 x 3
+##       CP nsplit `rel error`
+##    &lt;dbl&gt;  &lt;dbl&gt;       &lt;dbl&gt;
+## 1 0.0974      0       1    
+## 2 0.0189      1       0.903
+## 3 0.01        3       0.865</code></pre>
+<p>Nothing, we still have the model as it was when it was fitted. I can discover what value of cp that was used for the current model</p>
+<pre class="r"><code>myLearner$model$control$cp</code></pre>
+<pre><code>## [1] 0.01</code></pre>
+<p>but we do need to be careful as this value is different from</p>
+<pre class="r"><code>myLearner$param_set$values$cp</code></pre>
+<pre><code>## [1] 0.001</code></pre>
+<p>This is somewhat dangerous. Anyway, I can now retrain the model with my specified complexity parameter.</p>
+<pre class="r"><code>myLearner$train(task = myTask)
+
+myLearner$model$cptable %&gt;%
+  as_tibble()</code></pre>
+<pre><code>## # A tibble: 10 x 5
+##         CP nsplit `rel error` xerror    xstd
+##      &lt;dbl&gt;  &lt;dbl&gt;       &lt;dbl&gt;  &lt;dbl&gt;   &lt;dbl&gt;
+##  1 0.0974       0       1      1     0.00538
+##  2 0.0189       1       0.903  0.903 0.00527
+##  3 0.00658      3       0.865  0.867 0.00522
+##  4 0.00364      4       0.858  0.856 0.00520
+##  5 0.00249      7       0.847  0.850 0.00519
+##  6 0.00221     14       0.828  0.833 0.00516
+##  7 0.00189     18       0.819  0.826 0.00515
+##  8 0.00132     19       0.817  0.824 0.00515
+##  9 0.00109     20       0.816  0.823 0.00515
+## 10 0.001       22       0.814  0.822 0.00515</code></pre>
+<p>The old model is over-written and lost.</p>
+</div>
+<div id="making-predictions" class="section level3">
+<h3>Making predictions</h3>
+<p>I might want to make some predictions based on our model. I’ll start with in-sample predictions for the training data, using the method <code>predict</code></p>
+<pre class="r"><code>myPredictions &lt;- myLearner$predict(task = myTask)
+
+myPredictions$print()</code></pre>
+<pre><code>## &lt;PredictionClassif&gt; for 54408 observations:
+##     row_ids      truth   response
+##           1   adoption   adoption
+##           2 no outcome no outcome
+##           3   transfer   adoption
+## ---                              
+##       54406   transfer   transfer
+##       54407   adoption   adoption
+##       54408   transfer   transfer</code></pre>
+<p>What have I created? <code>myPredictions</code> is an object of class <code>PredictionClassif</code>, so it too will have its own methods</p>
+<pre class="r"><code>names(myPredictions)</code></pre>
+<pre><code>##  [1] &quot;.__enclos_env__&quot; &quot;confusion&quot;       &quot;prob&quot;            &quot;response&quot;       
+##  [5] &quot;missing&quot;         &quot;truth&quot;           &quot;row_ids&quot;         &quot;man&quot;            
+##  [9] &quot;predict_types&quot;   &quot;task_properties&quot; &quot;task_type&quot;       &quot;data&quot;           
+## [13] &quot;set_threshold&quot;   &quot;initialize&quot;      &quot;clone&quot;           &quot;score&quot;          
+## [17] &quot;help&quot;            &quot;print&quot;           &quot;format&quot;</code></pre>
+<p>There is a field called <code>confusion</code>, which contains the confusion matrix</p>
+<pre class="r"><code>myPredictions$confusion</code></pre>
+<pre><code>##             truth
+## response     adoption no outcome transfer
+##   adoption      29392       1769    10403
+##   no outcome      167       2226      407
+##   transfer       3716        740     5588</code></pre>
+<p>What is the class of this object?</p>
+<pre class="r"><code>class(myPredictions$confusion)</code></pre>
+<pre><code>## [1] &quot;table&quot;</code></pre>
+<p>It is just a simple R table, so we can do anything with it that we can do with any other table in R</p>
+<pre class="r"><code>myTab &lt;- myPredictions$confusion
+
+prop.table(myTab)</code></pre>
+<pre><code>##             truth
+## response        adoption  no outcome    transfer
+##   adoption   0.540214674 0.032513601 0.191203499
+##   no outcome 0.003069402 0.040913101 0.007480518
+##   transfer   0.068298780 0.013600941 0.102705484</code></pre>
+</div>
+<div id="selecting-a-measure" class="section level3">
+<h3>Selecting a Measure</h3>
+<p>We can see from the table of proportions that about 68% were correctly classified and 32% we misclassified. Rather than calculate this for ourselves, <code>mlr3</code> offers a range of performance measures. They, of course, are stored in a dictionary, so we can list them</p>
+<pre class="r"><code>mlr_measures</code></pre>
+<pre><code>## &lt;DictionaryMeasure&gt; with 84 stored values
+## Keys: aic, bic, classif.acc, classif.auc, classif.bacc, classif.bbrier,
+##   classif.ce, classif.costs, classif.dor, classif.fbeta, classif.fdr,
+##   classif.fn, classif.fnr, classif.fomr, classif.fp, classif.fpr,
+##   classif.logloss, classif.mbrier, classif.mcc, classif.npv,
+##   classif.ppv, classif.prauc, classif.precision, classif.recall,
+##   classif.sensitivity, classif.specificity, classif.tn, classif.tnr,
+##   classif.tp, classif.tpr, clust.ch, clust.db, clust.dunn,
+##   clust.silhouette, debug, dens.logloss, oob_error, regr.bias,
+##   regr.ktau, regr.mae, regr.mape, regr.maxae, regr.medae, regr.medse,
+##   regr.mse, regr.msle, regr.pbias, regr.rae, regr.rmse, regr.rmsle,
+##   regr.rrse, regr.rse, regr.rsq, regr.sae, regr.smape, regr.srho,
+##   regr.sse, selected_features, surv.brier, surv.calib_alpha,
+##   surv.calib_beta, surv.chambless_auc, surv.cindex, surv.dcalib,
+##   surv.graf, surv.hung_auc, surv.intlogloss, surv.logloss, surv.mae,
+##   surv.mse, surv.nagelk_r2, surv.oquigley_r2, surv.rmse, surv.schmid,
+##   surv.song_auc, surv.song_tnr, surv.song_tpr, surv.uno_auc,
+##   surv.uno_tnr, surv.uno_tpr, surv.xu_r2, time_both, time_predict,
+##   time_train</code></pre>
+<p>Let’s try classification accuracy. We can either use <code>get</code> to extract it from the dictionary or use the helper function <code>msr()</code></p>
+<pre class="r"><code>myMeasure &lt;- mlr_measures$get(&quot;classif.acc&quot;)
+
+myMeasure &lt;- msr(&quot;classif.acc&quot;)
+
+myMeasure</code></pre>
+<pre><code>## &lt;MeasureClassifSimple:classif.acc&gt;
+## * Packages: mlr3measures
+## * Range: [0, 1]
+## * Minimize: FALSE
+## * Parameters: list()
+## * Properties: -
+## * Predict type: response</code></pre>
+<p>To use this measure, I note that <code>myPredictions</code> has a method called <code>score</code>, that does the calculation</p>
+<pre class="r"><code>myPredictions$score(myMeasure)</code></pre>
+<pre><code>## classif.acc 
+##   0.6838333</code></pre>
+</div>
+<div id="resampling" class="section level3">
+<h3>Resampling</h3>
+<p>The measure confirms that 68% are correctly classified, but this is probably an optimistic estimate of performance because of overfitting. I’ll create a cross-validated estimate.</p>
+<p>There are many ways to resample in <code>mlr3</code>. Let’s look at the dictionary</p>
+<pre class="r"><code>mlr_resamplings</code></pre>
+<pre><code>## &lt;DictionaryResampling&gt; with 9 stored values
+## Keys: bootstrap, custom, custom_cv, cv, holdout, insample, loo,
+##   repeated_cv, subsampling</code></pre>
+<p>I will use a basic cross-validation, <code>cv</code>. I create a resampling object, either with <code>get</code> or with the helper function <code>rsmp()</code></p>
+<pre class="r"><code>myCV &lt;- mlr_resamplings$get(&quot;cv&quot;)
+
+myCV &lt;- rsmp(&quot;cv&quot;)
+
+myCV</code></pre>
+<pre><code>## &lt;ResamplingCV&gt; with 10 iterations
+## * Instantiated: FALSE
+## * Parameters: folds=10</code></pre>
+<p>I get 10 folds, which is the default, but I only want 5 folds. I can set the folds with <code>rsmp()</code></p>
+<pre class="r"><code>myCV &lt;- rsmp(&quot;cv&quot;, folds=5)
+
+myCV</code></pre>
+<pre><code>## &lt;ResamplingCV&gt; with 5 iterations
+## * Instantiated: FALSE
+## * Parameters: folds=5</code></pre>
+<p>At present, the resampling object is not associated with any data so it cannot actually create the folds. The method for creating real folds has the ugly name <code>instantiate</code></p>
+<pre class="r"><code>myCV$instantiate(task = myTask)</code></pre>
+<p>I can run the cross-validation with a helper function called <code>resample()</code></p>
+<pre class="r"><code>rsFit &lt;- resample( task       = myTask,
+                   learner    = myLearner,
+                   resampling = myCV)</code></pre>
+<pre><code>## INFO  [15:32:44.164] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 2/5) 
+## INFO  [15:32:44.638] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 4/5) 
+## INFO  [15:32:45.017] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 5/5) 
+## INFO  [15:32:45.391] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 1/5) 
+## INFO  [15:32:45.763] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 3/5)</code></pre>
+<p>What is the cross-validated accuracy? Here are the 5 cross-validated values</p>
+<pre class="r"><code>rsFit$score(myMeasure)</code></pre>
+<pre><code>##                 task         task_id                   learner    learner_id
+## 1: &lt;TaskClassif[47]&gt; animal_adoption &lt;LearnerClassifRpart[36]&gt; classif.rpart
+## 2: &lt;TaskClassif[47]&gt; animal_adoption &lt;LearnerClassifRpart[36]&gt; classif.rpart
+## 3: &lt;TaskClassif[47]&gt; animal_adoption &lt;LearnerClassifRpart[36]&gt; classif.rpart
+## 4: &lt;TaskClassif[47]&gt; animal_adoption &lt;LearnerClassifRpart[36]&gt; classif.rpart
+## 5: &lt;TaskClassif[47]&gt; animal_adoption &lt;LearnerClassifRpart[36]&gt; classif.rpart
+##            resampling resampling_id iteration              prediction
+## 1: &lt;ResamplingCV[19]&gt;            cv         1 &lt;PredictionClassif[19]&gt;
+## 2: &lt;ResamplingCV[19]&gt;            cv         2 &lt;PredictionClassif[19]&gt;
+## 3: &lt;ResamplingCV[19]&gt;            cv         3 &lt;PredictionClassif[19]&gt;
+## 4: &lt;ResamplingCV[19]&gt;            cv         4 &lt;PredictionClassif[19]&gt;
+## 5: &lt;ResamplingCV[19]&gt;            cv         5 &lt;PredictionClassif[19]&gt;
+##    classif.acc
+## 1:   0.6775409
+## 2:   0.6820437
+## 3:   0.6827789
+## 4:   0.6846797
+## 5:   0.6776032</code></pre>
+<p>and here is the aggregated measure (mean)</p>
+<pre class="r"><code>rsFit$aggregate(myMeasure)</code></pre>
+<pre><code>## classif.acc 
+##   0.6809293</code></pre>
+<p>Not such an overfit as I was expecting.</p>
+</div>
+<div id="tuning-the-hyperparameters" class="section level3">
+<h3>Tuning the hyperparameters</h3>
+<p>Let’s try tuning the model’s hyperparameters. I will try a random search algorithm with <code>cp</code> between 0.001 and 0.1 and <code>minsplit</code> between 1 and 10.</p>
+<p>I will be trying 10 random sets of parameters each with 5 fold cross-validation. So, to speed things up, the calculations will be run in multiple R sessions. I’ll use the logloss as my performance measure, this requires that the learner predicts probabilities rather than a category of response.</p>
+<p>The tuning is set up using <code>to_tune()</code> and executed using <code>tune()</code></p>
+<pre class="r"><code># --- use the future package to create the sessions ---------------------
+future::plan(&quot;multisession&quot;)
+
+# --- set the hyperparameters to be tuned -------------------------------
+myLearner$param_set$values$cp = to_tune(0.001, 0.1)
+myLearner$param_set$values$minsplit = to_tune(1, 10)
+myLearner$predict_type = &quot;prob&quot;
+
+# --- choose the performance measure ------------------------------------
+myMeasure &lt;- mlr_measures$get(&quot;classif.logloss&quot;)
+
+# --- pick 10 random combinations ---------------------------------------
+set.seed(9830)
+myTuner &lt;-  tune(
+  method = &quot;random_search&quot;,
+  task = myTask,
+  learner = myLearner,
+  resampling = myCV,
+  measure = myMeasure,
+  term_evals = 10,
+  batch_size = 5 
+)</code></pre>
+<pre><code>## INFO  [15:32:48.672] [bbotk] Starting to optimize 2 parameter(s) with &#39;&lt;OptimizerRandomSearch&gt;&#39; and &#39;&lt;TerminatorEvals&gt; [n_evals=10]&#39; 
+## INFO  [15:32:48.727] [bbotk] Evaluating 5 configuration(s) 
+## INFO  [15:32:48.825] [mlr3]  Running benchmark with 25 resampling iterations 
+## INFO  [15:32:49.465] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 1/5) 
+## INFO  [15:32:49.859] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 2/5) 
+## INFO  [15:32:50.186] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 2/5) 
+## INFO  [15:32:50.386] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 5/5) 
+## INFO  [15:32:50.774] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 1/5) 
+## INFO  [15:32:51.093] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 5/5) 
+## INFO  [15:32:50.767] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 3/5) 
+## INFO  [15:32:51.211] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 2/5) 
+## INFO  [15:32:51.405] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 5/5) 
+## INFO  [15:32:51.139] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 1/5) 
+## INFO  [15:32:51.492] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 2/5) 
+## INFO  [15:32:51.777] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 2/5) 
+## INFO  [15:32:52.005] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 4/5) 
+## INFO  [15:32:51.721] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 4/5) 
+## INFO  [15:32:52.146] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 5/5) 
+## INFO  [15:32:52.448] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 1/5) 
+## INFO  [15:32:52.090] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 1/5) 
+## INFO  [15:32:52.508] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 5/5) 
+## INFO  [15:32:52.698] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 4/5) 
+## INFO  [15:32:52.530] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 4/5) 
+## INFO  [15:32:52.813] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 3/5) 
+## INFO  [15:32:53.016] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 3/5) 
+## INFO  [15:32:53.145] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 3/5) 
+## INFO  [15:32:53.413] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 4/5) 
+## INFO  [15:32:53.679] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 3/5) 
+## INFO  [15:32:53.929] [mlr3]  Finished benchmark 
+## INFO  [15:32:54.351] [bbotk] Result of batch 1: 
+## INFO  [15:32:54.353] [bbotk]           cp minsplit classif.logloss                                uhash 
+## INFO  [15:32:54.353] [bbotk]  0.083748776        5       0.7864746 61e4ef11-5e35-4f72-a30b-932356917cb3 
+## INFO  [15:32:54.353] [bbotk]  0.011339234        5       0.7494300 957ecf8d-5617-4c0c-ab99-a50f432fc4fe 
+## INFO  [15:32:54.353] [bbotk]  0.009854275        7       0.7494300 8a6efce0-c6e0-44de-b64e-29e3a8930f82 
+## INFO  [15:32:54.353] [bbotk]  0.037606757        2       0.7864746 5b04f5ef-9906-440f-9562-97a65f5cc363 
+## INFO  [15:32:54.353] [bbotk]  0.066829580       10       0.7864746 86da6032-a1e6-4e98-bc88-aba44feb336f 
+## INFO  [15:32:54.356] [bbotk] Evaluating 5 configuration(s) 
+## INFO  [15:32:54.414] [mlr3]  Running benchmark with 25 resampling iterations 
+## INFO  [15:32:54.435] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 2/5) 
+## INFO  [15:32:55.008] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 1/5) 
+## INFO  [15:32:55.592] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 2/5) 
+## INFO  [15:32:54.450] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 1/5) 
+## INFO  [15:32:55.024] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 2/5) 
+## INFO  [15:32:55.609] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 3/5) 
+## INFO  [15:32:54.467] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 4/5) 
+## INFO  [15:32:55.530] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 4/5) 
+## INFO  [15:32:56.092] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 5/5) 
+## INFO  [15:32:54.489] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 1/5) 
+## INFO  [15:32:55.328] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 5/5) 
+## INFO  [15:32:55.957] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 4/5) 
+## INFO  [15:32:56.404] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 4/5) 
+## INFO  [15:32:54.512] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 4/5) 
+## INFO  [15:32:55.302] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 3/5) 
+## INFO  [15:32:56.332] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 3/5) 
+## INFO  [15:32:54.538] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 2/5) 
+## INFO  [15:32:55.188] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 1/5) 
+## INFO  [15:32:56.265] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 3/5) 
+## INFO  [15:32:54.566] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 5/5) 
+## INFO  [15:32:55.318] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 3/5) 
+## INFO  [15:32:56.064] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 2/5) 
+## INFO  [15:32:54.604] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 5/5) 
+## INFO  [15:32:55.686] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 5/5) 
+## INFO  [15:32:56.225] [mlr3]  Applying learner &#39;classif.rpart&#39; on task &#39;animal_adoption&#39; (iter 1/5) 
+## INFO  [15:32:56.831] [mlr3]  Finished benchmark 
+## INFO  [15:32:57.107] [bbotk] Result of batch 2: 
+## INFO  [15:32:57.112] [bbotk]           cp minsplit classif.logloss                                uhash 
+## INFO  [15:32:57.112] [bbotk]  0.056833792       10       0.7864746 7ab661db-b0ef-4d11-a4d5-370feaab4ac6 
+## INFO  [15:32:57.112] [bbotk]  0.027682699        2       0.7864746 ddc39800-e857-4b0c-bd27-06ab47d90f68 
+## INFO  [15:32:57.112] [bbotk]  0.092669535        7       0.7864746 c405cb41-c165-4411-a43a-da5b04f278ee 
+## INFO  [15:32:57.112] [bbotk]  0.069294124        7       0.7864746 a94dc5c1-7364-4079-a464-8fc8df224956 
+## INFO  [15:32:57.112] [bbotk]  0.003608916        3       0.7482130 5b335d08-b42f-48a1-8d4f-8f43513c65fe 
+## INFO  [15:32:57.124] [bbotk] Finished optimizing after 10 evaluation(s) 
+## INFO  [15:32:57.124] [bbotk] Result: 
+## INFO  [15:32:57.126] [bbotk]           cp minsplit learner_param_vals  x_domain classif.logloss 
+## INFO  [15:32:57.126] [bbotk]  0.003608916        3          &lt;list[2]&gt; &lt;list[2]&gt;        0.748213</code></pre>
+<pre class="r"><code>myTuner</code></pre>
+<pre><code>## &lt;TuningInstanceSingleCrit&gt;
+## * State:  Optimized
+## * Objective: &lt;ObjectiveTuning:classif.rpart_on_animal_adoption&gt;
+## * Search Space:
+## &lt;ParamSet&gt;
+##          id    class lower upper nlevels        default value
+## 1:       cp ParamDbl 0.001   0.1     Inf &lt;NoDefault[3]&gt;      
+## 2: minsplit ParamInt 1.000  10.0      10 &lt;NoDefault[3]&gt;      
+## * Terminator: &lt;TerminatorEvals&gt;
+## * Terminated: TRUE
+## * Result:
+##             cp minsplit learner_param_vals  x_domain classif.logloss
+## 1: 0.003608916        3          &lt;list[2]&gt; &lt;list[2]&gt;        0.748213
+## * Archive:
+## &lt;ArchiveTuning&gt;
+##         cp minsplit classif.logloss           timestamp batch_nr
+##  1: 0.0837        5            0.79 2021-11-02 15:32:54        1
+##  2: 0.0113        5            0.75 2021-11-02 15:32:54        1
+##  3: 0.0099        7            0.75 2021-11-02 15:32:54        1
+##  4: 0.0376        2            0.79 2021-11-02 15:32:54        1
+##  5: 0.0668       10            0.79 2021-11-02 15:32:54        1
+##  6: 0.0568       10            0.79 2021-11-02 15:32:57        2
+##  7: 0.0277        2            0.79 2021-11-02 15:32:57        2
+##  8: 0.0927        7            0.79 2021-11-02 15:32:57        2
+##  9: 0.0693        7            0.79 2021-11-02 15:32:57        2
+## 10: 0.0036        3            0.75 2021-11-02 15:32:57        2</code></pre>
+<p>So the best cross-validated logloss corresponds to cp=0.0036 and minsplit=3. Notice that there are several other combinations that give an almost identical performance.</p>
+</div>
+<div id="pipelines" class="section level3">
+<h3>Pipelines</h3>
+<p>The final step is to create a complete pipeline including both preprocessing and model fitting. To this end, <code>mlr3</code> offers a large range of <code>pipe_ops</code>. As usual their names are stored in a dictionary.</p>
+<pre class="r"><code>mlr_pipeops</code></pre>
+<pre><code>## &lt;DictionaryPipeOp&gt; with 74 stored values
+## Keys: boxcox, branch, chunk, classbalancing, classifavg, classweights,
+##   colapply, collapsefactors, colroles, compose_crank, compose_distr,
+##   compose_probregr, copy, crankcompose, datefeatures, distrcompose,
+##   encode, encodeimpact, encodelmer, featureunion, filter, fixfactors,
+##   histbin, ica, imputeconstant, imputehist, imputelearner, imputemean,
+##   imputemedian, imputemode, imputeoor, imputesample, kernelpca,
+##   learner, learner_cv, missind, modelmatrix, multiplicityexply,
+##   multiplicityimply, mutate, nmf, nop, ovrsplit, ovrunite, pca, proxy,
+##   quantilebin, randomprojection, randomresponse, regravg,
+##   removeconstants, renamecolumns, replicate, scale, scalemaxabs,
+##   scalerange, select, smote, spatialsign, subsample, survavg,
+##   targetinvert, targetmutate, targettrafoscalerange, textvectorizer,
+##   threshold, trafopred_regrsurv, trafopred_survregr,
+##   trafotask_regrsurv, trafotask_survregr, tunethreshold, unbranch,
+##   vtreat, yeojohnson</code></pre>
+<p>Some, such as <code>learner</code>, have already been used, but there are others such as <code>pca</code>, <code>scale</code>, <code>imputemedian</code> and <code>removeconstants</code> that can be used in preprocessing. The idea is to string these together into a complete pipeline.</p>
+<p>To create a single pipe_op ready to go into the pipeline, there is a helper function <code>po()</code> that I can use in place of <code>mlr_pipeops$get</code>.</p>
+<p>Once the individual pipe_ops have been defined, they are combined in an ordered chain using <code>mlr3</code>’s own pipe operator, <code>%&gt;&gt;%</code>. The resulting pipeline can be saved and even plotted as a graph with the individual pipe_ops as the nodes and edges that show the flow of data between them.</p>
+<p>The big question is why? what advantage is there in using pipe operators over running the preprocessing with dplyr?</p>
+<p>If the preprocessing is completed before the analysis, then there is no real advantage, indeed dplyr is more flexible and would probably be a simpler option. The advantage comes when the preprocessing itself needs to be tuned. Suppose for example, that preprocessing includes variable selection. Should I use the top 10 features or the top 15 features in the decision tree? By building the variable selection step into the pipeline, it is possible to tune the number of features alongside the other hyperparameters.</p>
+<p>A secondary advantage is that the pipe_ops will automatically save the state of the operation. Imagine that I were to run median imputation on the training data. The pipe_op would save those medians. Later, I might want to impute on the test data and those same medians can be recalled and used again.</p>
+</div>
+</div>
+<div id="extensions" class="section level1">
+<h1>Extensions</h1>
+<p>A important feature of <code>mlr3</code> is that the user is able to add their own extensions, perhaps a learner, or a measure, or a tuner, or a pipe_op.</p>
+<p>This can be done by writing a new <code>R6</code> class that inherits from the corresponding <code>mlr3</code> class.</p>
+<p>To help create a new learner, there is a helper function called <code>create_learner()</code> that does most of the work for you. Once it is done, you can add the learner to the mlr_learners dictionary and use it just like any other learner.</p>
+</div>
+<div id="is-mlr3-better-than-tidymodels" class="section level1">
+<h1>Is mlr3 better than tidymodels?</h1>
+<p>Of course, the answer is, it depends. For me, <code>mlr3</code>’s main advantages over <code>tidymodels</code> are</p>
+<ul>
+<li>what it does is transparent<br />
+</li>
+<li>the user remains in control<br />
+</li>
+<li>all intermediate results can be accessed<br />
+</li>
+<li>it is extendible<br />
+</li>
+<li>there is a clear and coherent design</li>
+</ul>
+<p>The main disadvantage compared with tidymodels is</p>
+<ul>
+<li>it is much more difficult to use</li>
+</ul>
+<p>You need to have a grasp of OOP and R6 before you can make sensible use of <code>mlr3</code>.</p>
+<p>In my opinion, <code>mlr3</code> is better than tidymodels, but I accept that the learning curve will be too steep for many people.</p>
+<p>For me, a more important choice is between <code>mlr3</code> and R code written specifically for a given analysis. In their videos and posts, the authors of <code>mlr3</code> make much of pipelines and the flexibility with which pipe_ops can be combined. I am yet to be convinced that I would make much use of this feature. I suspect that for the vast majority of my work, I would find it easier to run the preprocessing in dplyr, or in purpose written R code.</p>
+</div>

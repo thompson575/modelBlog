@@ -345,3 +345,33 @@ I fed my selected predictors into xgboost and use cross-validation to select a s
 Based on my experience of using xgboost in earlier episodes of *Sliced*, I subjective choose what I though would be a better set of hyperparameters and I created a model that would have topped the leaderboard.  
 
 The top five models on the leaderboard all had similar performance and the difference between my model and anyone of these is meaningless. I argue that one should not take the position on the leaderboard too seriously.  
+
+
+## Episode 10:Animal adoption
+
+### Keywords
+
+mlr3; xgboost; cross-validation; hyperparameter tuning;
+
+### Packages
+
+tidyverse; mlr3; mlr3verse; xgboost;  
+
+### The data 
+
+The data for this episode can be downloaded from https://www.kaggle.com/c/sliced-s01e10-playoffs-2/overview/description. 
+
+## The problem
+
+The data describe the fates of 54,408 animals abandoned or rescued between 7th Nov 2015 and 1 Feb 2018 in, I think, USA. The objective is to predict whether the animal was adopted, transferred to another facility or put down. Evaluation was by logloss.
+
+## My Analysis 
+
+I decided to use these data to illustrate the use of the `mlr3` ecosystem of packages. Although, `tidymodels` is well-known and much used, `mlr3`, which does much the same job, is hardly known at all outside of a small group of enthusiasts. This is a great shame because in many respects `mlr3` is better than `tidymodels`.  
+
+In my analysis I analyse cats, dogs and other animals separately since it seems to me that the predictors that are relevant to the adoption of cats will be very different to those that are important for bats or squirrels.  
+
+Within `mlr3` I use `xgboost` to model each animal type and I run cross-validations to estimate the likely performance of each model. I also demonstrate how `mlr3` can be used to tune the hyperparameters of `xgboost`, even though I am not convinced that this is a sensible thing to do.  
+
+The model produced by my analysis does moderately well in comparison to the model on the leaderboard, but this is not the primary aim of the analysis. More important for me, is to illustrate the use of `mlr3` and to make its potential better-known. At the end, I give my opinion on the relative merits of `mlr3` and `tidymodels`. The fact that I have not used `tidymodels` for any of my analyses will give you a good clue as to which I prefer. 
+

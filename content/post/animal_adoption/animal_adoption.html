@@ -1,0 +1,845 @@
+---
+title: "Sliced Episode 10: Animal adoption"
+author: "John Thompson"
+date: "2021-11-02"
+layout: post
+tags:
+- Sliced
+- mlr3
+- xgboost
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>The data for episode 10 of <em>Sliced</em>, the second round of the play-offs, relates to the adoption of abandoned or unwanted pets. Given information about the animal, such as its breed and age, the competitors had to predict a three class outcome, either, adoption, transfer or what is euphemistically called ‘no outcome’, which in reality means that the animal was put down (another euphemism).</p>
+<p>The data can be downloaded from <a href="https://www.kaggle.com/c/sliced-s01e10-playoffs-2/overview/description" class="uri">https://www.kaggle.com/c/sliced-s01e10-playoffs-2/overview/description</a>.</p>
+<p>In truth this is not a particularly interesting dataset. There are few features and apart from the three class outcome, it is a very standard problem.</p>
+<p>In an attempt to make it more interesting, I decided to experiment with the <code>mlr3</code> package. This is a competitor to <code>tidymodels</code> in the sense that it offers another way of organising machine learning workflows. I do not like <code>tidymodels</code> because I feel that it encourages a black box mentality, so I was interested to see if I have the same reaction to <code>mlr3</code>.</p>
+<p>In this post, I will concentrate of the application of <code>mlr3</code> to the animal adoption data without giving a detailed explanation of the syntax. If you have never seen <code>mlr3</code> before, you might find it helpful to start by reading my methods post entitled <code>Methods: Introduction to mlr3</code>. In that post I explain how the structure of <code>mlr3</code> is dependent on object orientated programming and in particular, the <code>R6</code> package.</p>
+</div>
+<div id="reading-the-data" class="section level1">
+<h1>Reading the data:</h1>
+<p>It is my practice to read the data asis and to immediately save it in rds format within a directory called data/rData. For details of the way that I organise my analyses you should read my post called <code>Sliced Methods Overview</code>.</p>
+<pre class="r"><code># --- setup: libraries &amp; options ------------------------
+library(tidyverse)
+
+theme_set( theme_light())
+
+# --- set home directory -------------------------------
+home &lt;- &quot;C:/Projects/kaggle/sliced/s01-e10&quot;
+
+# --- read downloaded data -----------------------------
+trainRawDF &lt;- readRDS( file.path(home, &quot;data/rData/train.rds&quot;) )
+
+testRawDF &lt;- readRDS( file.path(home, &quot;data/rData/test.rds&quot;) )</code></pre>
+</div>
+<div id="data-exploration" class="section level1">
+<h1>Data Exploration:</h1>
+<p>I usually start by summarising the training data with the <code>skimr</code> package.</p>
+<pre class="r"><code># --- summarise the training set -----------------------
+skimr::skim(trainRawDF)</code></pre>
+<p>I’ve hidden the output but in brief it shows that there are 54,408 animals in the training data and their outcomes cover the period 7th Nov 2015 to 1 Feb 2018. There are only a few missing values, except for the animal’s name, which is missing for about 30% of the animals.</p>
+<div id="response" class="section level2">
+<h2>Response</h2>
+<p>The majority of the animals are adopted</p>
+<pre class="r"><code># --- outcomes ----------------------------------------
+trainRawDF %&gt;%
+  count( outcome_type ) %&gt;%
+  mutate( pct = 100*n/sum(n))</code></pre>
+<pre><code>## # A tibble: 3 x 3
+##   outcome_type     n   pct
+##   &lt;chr&gt;        &lt;int&gt; &lt;dbl&gt;
+## 1 adoption     33275 61.2 
+## 2 no outcome    4735  8.70
+## 3 transfer     16398 30.1</code></pre>
+</div>
+<div id="predictors" class="section level2">
+<h2>Predictors</h2>
+<p>As I have often done in previous episodes of <em>Spliced</em>, I have written a function for plotting the predictors; this time the function is called <code>plot_animals()</code>. The code is given in as a appendix at the end of this post.</p>
+<p>Here is the pattern of outcomes for the 4 major animal types.</p>
+<pre class="r"><code># --- categories of animal type ---------------------------
+trainRawDF %&gt;%
+  plot_animals(animal_type)</code></pre>
+<p><img src="/post/animal_adoption/animal_adoption_files/figure-html/unnamed-chunk-5-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Two thoughts come to mind.</p>
+<ul>
+<li>the features relevant to prediction for cats, dogs and birds will be very different<br />
+</li>
+<li>the bird &amp; livestock categories are very small</li>
+</ul>
+<p>I will split the data into three parts; cat, dog &amp; (other+bird+livestock) and I will predict separately within each of the three.</p>
+</div>
+<div id="data-cleaning" class="section level2">
+<h2>Data cleaning</h2>
+<p>In preparation for the analysis, I need to process the date on which the outcome occurred, which I’ll convert to a month and a year, and I need to clean the ages, which are variously recorded in days or months or years. I will not use the data_of_birth.</p>
+<p>There are a handful of missing ages that I replace using the median age for that type of animal.</p>
+<pre class="r"><code># --- clean the training data --------------------------------
+library(lubridate)
+
+trainRawDF %&gt;%
+   mutate( outcome_type = factor(outcome_type),
+           # --- date to month, year and time of day ---------
+           month         = as.numeric(month(datetime)),
+           year          = as.numeric(year(datetime)),
+           hour          = as.numeric(hour(datetime)),
+           # --- numerical part of the age field -------------
+           age_number    = as.numeric(str_extract(
+             age_upon_outcome, &quot;[:digit:]+&quot;)),
+           # --- test part of the age field ------------------
+           age_unit      = str_extract(
+             age_upon_outcome, &quot;[a-z]+&quot;),
+           unit          = substr(age_unit, 1, 1)) %&gt;%
+  # --- calculate age in years -------------------------------
+  mutate(   age = age_number*(unit == &quot;y&quot;) +
+                  age_number*(unit == &quot;m&quot;)/12 +
+                  age_number*(unit == &quot;w&quot;)/52 +
+                  age_number*(unit == &quot;d&quot;)/365 ) %&gt;%
+  select(-age_upon_outcome, -age_number, -age_unit, -unit,
+         -datetime, -date_of_birth, -name) -&gt; prepDF
+
+# median impute the missing ages ------------------------------
+# --- median = 2 for dogs -------------------------------------
+mDog &lt;- median(prepDF$age[prepDF$animal_type==&quot;Dog&quot;], na.rm=TRUE)
+
+prepDF$age[is.na(prepDF$age) &amp; prepDF$animal_type==&quot;Dog&quot;] &lt;- mDog
+
+# --- median = 1 for bats -------------------------------------
+mBat &lt;- median(prepDF$age[prepDF$breed==&quot;Bat Mix&quot;], na.rm=TRUE)
+
+prepDF$age[is.na(prepDF$age) &amp; prepDF$breed==&quot;Bat Mix&quot;] &lt;- mBat</code></pre>
+</div>
+<div id="cats" class="section level2">
+<h2>Cats</h2>
+<p>Skimming the data on cats shows that there are 20,561 rows, 70 breeds and 201 colours.</p>
+<pre class="r"><code>skimr::skim(prepDF %&gt;% filter(animal_type == &quot;Cat&quot;))</code></pre>
+<p>Here are the common cat breeds</p>
+<pre class="r"><code># --- categories of cat breed ---------------------------
+prepDF %&gt;%
+  filter( animal_type == &quot;Cat&quot;) %&gt;%
+  mutate( breed = fct_lump(breed, prop=0.005)) %&gt;%
+  plot_animals(breed)</code></pre>
+<p><img src="/post/animal_adoption/animal_adoption_files/figure-html/unnamed-chunk-8-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The common colours are not obviously related to outcome.</p>
+<pre class="r"><code># --- categories of cat breed ---------------------------
+prepDF %&gt;%
+  filter( animal_type == &quot;Cat&quot;) %&gt;%
+  mutate( colour = fct_lump(color, prop=0.01)) %&gt;%
+  plot_animals(colour)</code></pre>
+<p><img src="/post/animal_adoption/animal_adoption_files/figure-html/unnamed-chunk-9-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Neutered cats are more likely to get adopted</p>
+<pre class="r"><code># --- neutering in cats ---------------------------------
+prepDF %&gt;%
+  filter( animal_type == &quot;Cat&quot;) %&gt;%
+  plot_animals(spay_neuter)</code></pre>
+<p><img src="/post/animal_adoption/animal_adoption_files/figure-html/unnamed-chunk-10-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The cat’s sex is not particularly predictive, but when the sex is unknown it is unlikely that the cat was adopted.</p>
+<pre class="r"><code>prepDF %&gt;%
+  filter( animal_type == &quot;Cat&quot;) %&gt;%
+  plot_animals(sex)</code></pre>
+<p><img src="/post/animal_adoption/animal_adoption_files/figure-html/unnamed-chunk-11-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Age is recorded is days, weeks, months or years but has been records as fractions of a year.</p>
+<pre class="r"><code>prepDF %&gt;%
+  filter( animal_type == &quot;Cat&quot;) %&gt;%
+  mutate( ageGp = cut(age, breaks=c(0, 1, 2, 15))) %&gt;%
+  plot_animals(ageGp)</code></pre>
+<p><img src="/post/animal_adoption/animal_adoption_files/figure-html/unnamed-chunk-12-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The outcomes vary considerably across the year with a larger proportion of transfers in April and May.</p>
+<pre class="r"><code>prepDF %&gt;%
+  filter( animal_type == &quot;Cat&quot;) %&gt;%
+  mutate( month = factor(month, levels=1:12, labels=month.abb)) %&gt;%
+  plot_animals(month)</code></pre>
+<p><img src="/post/animal_adoption/animal_adoption_files/figure-html/unnamed-chunk-13-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Transfers are less common in recent years</p>
+<pre class="r"><code>prepDF %&gt;%
+  filter( animal_type == &quot;Cat&quot;) %&gt;%
+  mutate( year = factor(year)) %&gt;%
+  plot_animals(year)</code></pre>
+<p><img src="/post/animal_adoption/animal_adoption_files/figure-html/unnamed-chunk-14-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>It seems like cheating, but work patterns clearly help predict outcome. Transfers occur at 9am, but people call after work to collect their adopted cat.</p>
+<pre class="r"><code>prepDF %&gt;%
+  filter( animal_type == &quot;Cat&quot;) %&gt;%
+  mutate( hour = factor(hour)) %&gt;%
+  plot_animals(hour)</code></pre>
+<p><img src="/post/animal_adoption/animal_adoption_files/figure-html/unnamed-chunk-15-1.png" width="528" style="display: block; margin: auto;" /></p>
+</div>
+<div id="preprocessing-cats" class="section level2">
+<h2>Preprocessing cats</h2>
+<p>I’ll add some indicator variables for the common colours and breeds and prepare a data set for training the cat model.</p>
+<pre class="r"><code># --- function to add indicators ----------------------------
+add_indicators &lt;- function(thisDF, col, keywords, prefix) {
+  for( j in seq_along(keywords) ) {
+     thisDF[[ paste(prefix, j, sep=&quot;&quot;)]] &lt;- 
+       as.numeric( str_detect(tolower(thisDF[[col]]), keywords[j]))
+  }
+  return(thisDF)
+}
+# --- select the cats ---------------------------------------
+prepDF %&gt;% 
+  filter(animal_type == &quot;Cat&quot;) %&gt;%
+  select( -animal_type ) -&gt; prepCatDF
+
+# --- indicators for key words in breed ---------------------
+add_indicators(prepCatDF, 
+               col = &quot;breed&quot;, 
+               keywords = c(&quot;domestic&quot;, &quot;mix&quot;, &quot;short&quot;, 
+                           &quot;medium&quot;, &quot;long&quot;),
+               prefix = &quot;B&quot;) -&gt; prepCatDF
+
+# --- indicators for key words in colour ---------------------
+add_indicators(prepCatDF, 
+               col = &quot;color&quot;, 
+               keywords = c(&quot;tabby&quot;, &quot;black&quot;, &quot;white&quot;, 
+                            &quot;brown&quot;, &quot;blue&quot;),
+               prefix = &quot;C&quot;) -&gt; prepCatDF
+
+# --- indicators for sex -------------------------------------
+add_indicators(prepCatDF, 
+               col = &quot;sex&quot;, 
+               keywords = sort(unique(tolower(prepCatDF$sex))),
+               prefix = &quot;S&quot;) -&gt; prepCatDF
+
+# --- indicators for neuter ---------------------------------
+add_indicators(prepCatDF, 
+               col = &quot;spay_neuter&quot;, 
+               keywords = sort(unique(tolower(prepCatDF$spay_neuter))),
+               prefix = &quot;N&quot;) -&gt; prepCatDF
+
+# --- keep predictors ---------------------------------------
+prepCatDF %&gt;%
+  select( -breed, -color, -sex, -spay_neuter,  -id) -&gt; trainCatDF</code></pre>
+</div>
+</div>
+<div id="mlr3" class="section level1">
+<h1>mlr3</h1>
+<p>Now I will use <code>mlr3</code> to model the cat data. For an explanation of how <code>mlr3</code> works, you should read my post entitled <code>Methods: Introduction to mlr3</code>. Briefly, the terminology is<br />
+* task … the data<br />
+* learner … the method of model building<br />
+* measure … the performance metric</p>
+<p>Rather like loading the <code>tidyverse</code>, loading <code>mlr3verse</code> makes available all of the essential packages in the ecosystem.</p>
+<p>I want to do something simple, so that I do not have to explain the method at the same time as introducing <code>mlr3</code>, so I’ll use <code>xgboost</code></p>
+<p>In the following code, I define the data, select a learner, train the model, look at the results, makes predictions and inspect the confusion matrix; I end by choosing the logloss as my performance metric and I evaluate the logloss on the training data.</p>
+<p>Once you understand the syntax, the code is concise and logical.</p>
+<pre class="r"><code># --- load the important mlr3 packages -----------------------
+library(mlr3verse)
+
+# --- define the task ----------------------------------------
+myTask &lt;- TaskClassif$new( id      = &quot;cat_adoption&quot;,
+                           backend = trainCatDF,
+                           target  = &quot;outcome_type&quot;)
+
+# --- select the learner -------------------------------------
+myLearner &lt;- lrn(&quot;classif.xgboost&quot;, 
+                 nrounds     = 100,
+                 objective   = &quot;multi:softprob&quot;,
+                 eval_metric = &quot;mlogloss&quot;)
+
+# --- train the model ----------------------------------------
+myLearner$train(task = myTask)
+
+# --- look at the result -------------------------------------
+myLearner$model</code></pre>
+<pre><code>## ##### xgb.Booster
+## raw: 967.8 Kb 
+## call:
+##   xgboost::xgb.train(data = data, nrounds = 100L, watchlist = list(
+##     train = &lt;pointer: 0x0000000018664570&gt;), verbose = 0L, nthread = 1L, 
+##     objective = &quot;multi:softprob&quot;, eval_metric = &quot;mlogloss&quot;, num_class = 3L)
+## params (as set within xgb.train):
+##   nthread = &quot;1&quot;, objective = &quot;multi:softprob&quot;, eval_metric = &quot;mlogloss&quot;, num_class = &quot;3&quot;, validate_parameters = &quot;TRUE&quot;
+## xgb.attributes:
+##   niter
+## callbacks:
+##   cb.evaluation.log()
+## # of features: 20 
+## niter: 100
+## nfeatures : 20 
+## evaluation_log:
+##     iter train_mlogloss
+##        1       0.862690
+##        2       0.727069
+## ---                    
+##       99       0.301958
+##      100       0.300915</code></pre>
+<pre class="r"><code># --- predict and show the confusion matrix ------------------
+myPredictions &lt;- myLearner$predict(myTask)
+myPredictions$confusion</code></pre>
+<pre><code>##             truth
+## response     adoption no outcome transfer
+##   adoption       9370        166     1119
+##   no outcome       13        630       37
+##   transfer        593        505     8128</code></pre>
+<pre class="r"><code># --- logloss requires probability predictions ---------------
+myMeasure              &lt;- msr(&quot;classif.logloss&quot;)
+myLearner$predict_type &lt;- &quot;prob&quot;
+myPredictions          &lt;- myLearner$predict(myTask)
+myPredictions$score(myMeasure)</code></pre>
+<pre><code>## classif.logloss 
+##       0.3009133</code></pre>
+<p>The in-sample logloss is 0.30. It only relates to cats, but for comparison, the leading model in the competition scored a test sample logloss of 0.36 over all animals.</p>
+<p>I can access the results in the normal way since <code>myLearner$model</code> contains the usual structure returned by xgboost.</p>
+<pre class="r"><code>myLearner$model$evaluation_log %&gt;%
+    ggplot( aes(x=iter, y=train_mlogloss)) +
+    geom_line(colour=&quot;blue&quot;) +
+    scale_y_continuous( limits = c(0, 1), breaks=seq(0, 1, by=.05)) +
+    labs(x=&quot;Iteration&quot;, y=&quot;mean log loss&quot;, 
+         title=&quot;In-sample multiclass log loss&quot;)</code></pre>
+<p><img src="/post/animal_adoption/animal_adoption_files/figure-html/unnamed-chunk-18-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>I need to check if the in-sample logloss has overfitted, so I’ll use cross-validation with 5 folds and I’ll speed things up by running the folds in multiple sessions using the <code>future</code> package. When you use multiple sessions each one runs independently and has its own copy of the data. <code>mlr3</code> also allows multiple cores, when the cores access the same data, but this is not available in Windows.</p>
+<pre class="r"><code>future::plan(&quot;multisession&quot;)
+
+# --- define CV and apply to the data -----------------------
+set.seed(9766)
+myCV &lt;- rsmp(&quot;cv&quot;, folds=5)
+myCV$instantiate(task = myTask)
+
+# --- run the cross validation ------------------------------
+rsFit &lt;- resample( task       = myTask,
+                   learner    = myLearner,
+                   resampling = myCV)</code></pre>
+<pre><code>## INFO  [15:33:54.386] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;cat_adoption&#39; (iter 5/5) 
+## INFO  [15:33:55.715] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;cat_adoption&#39; (iter 2/5) 
+## INFO  [15:33:57.044] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;cat_adoption&#39; (iter 4/5) 
+## INFO  [15:33:58.735] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;cat_adoption&#39; (iter 3/5) 
+## INFO  [15:34:00.383] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;cat_adoption&#39; (iter 1/5)</code></pre>
+<pre class="r"><code># --- show individual and aggregate logloss -----------------
+rsFit$score(myMeasure)</code></pre>
+<pre><code>##                 task      task_id                     learner      learner_id
+## 1: &lt;TaskClassif[47]&gt; cat_adoption &lt;LearnerClassifXgboost[35]&gt; classif.xgboost
+## 2: &lt;TaskClassif[47]&gt; cat_adoption &lt;LearnerClassifXgboost[35]&gt; classif.xgboost
+## 3: &lt;TaskClassif[47]&gt; cat_adoption &lt;LearnerClassifXgboost[35]&gt; classif.xgboost
+## 4: &lt;TaskClassif[47]&gt; cat_adoption &lt;LearnerClassifXgboost[35]&gt; classif.xgboost
+## 5: &lt;TaskClassif[47]&gt; cat_adoption &lt;LearnerClassifXgboost[35]&gt; classif.xgboost
+##            resampling resampling_id iteration              prediction
+## 1: &lt;ResamplingCV[19]&gt;            cv         1 &lt;PredictionClassif[19]&gt;
+## 2: &lt;ResamplingCV[19]&gt;            cv         2 &lt;PredictionClassif[19]&gt;
+## 3: &lt;ResamplingCV[19]&gt;            cv         3 &lt;PredictionClassif[19]&gt;
+## 4: &lt;ResamplingCV[19]&gt;            cv         4 &lt;PredictionClassif[19]&gt;
+## 5: &lt;ResamplingCV[19]&gt;            cv         5 &lt;PredictionClassif[19]&gt;
+##    classif.logloss
+## 1:       0.4467382
+## 2:       0.4358017
+## 3:       0.4627691
+## 4:       0.4434847
+## 5:       0.4586902</code></pre>
+<pre class="r"><code>rsFit$aggregate(myMeasure)</code></pre>
+<pre><code>## classif.logloss 
+##       0.4494968</code></pre>
+<p>The cross-validated logloss is 0.45, so the in-sample result was very optimistic and the model is actually quite some way from the top of the leaderboard.</p>
+<p>I will try some classic machine learning hyperparameter tuning, even though I don’t really approve, because it serves to demonstrate more features of <code>mlr3</code>. <code>myLearner$param_set</code> contains the values of the parameters that were used to fit the model.</p>
+<pre class="r"><code>myLearner$param_set </code></pre>
+<pre><code>## &lt;ParamSet&gt;
+##                          id    class lower upper nlevels         default
+##  1:                   alpha ParamDbl     0   Inf     Inf               0
+##  2:           approxcontrib ParamLgl    NA    NA       2           FALSE
+##  3:              base_score ParamDbl  -Inf   Inf     Inf             0.5
+##  4:                 booster ParamFct    NA    NA       3          gbtree
+##  5:               callbacks ParamUty    NA    NA     Inf       &lt;list[0]&gt;
+##  6:       colsample_bylevel ParamDbl     0     1     Inf               1
+##  7:        colsample_bynode ParamDbl     0     1     Inf               1
+##  8:        colsample_bytree ParamDbl     0     1     Inf               1
+##  9:   early_stopping_rounds ParamInt     1   Inf     Inf                
+## 10:                     eta ParamDbl     0     1     Inf             0.3
+## 11:             eval_metric ParamUty    NA    NA     Inf           error
+## 12:        feature_selector ParamFct    NA    NA       5          cyclic
+## 13:                   feval ParamUty    NA    NA     Inf                
+## 14:                   gamma ParamDbl     0   Inf     Inf               0
+## 15:             grow_policy ParamFct    NA    NA       2       depthwise
+## 16: interaction_constraints ParamUty    NA    NA     Inf  &lt;NoDefault[3]&gt;
+## 17:                  lambda ParamDbl     0   Inf     Inf               1
+## 18:             lambda_bias ParamDbl     0   Inf     Inf               0
+## 19:                 max_bin ParamInt     2   Inf     Inf             256
+## 20:          max_delta_step ParamDbl     0   Inf     Inf               0
+## 21:               max_depth ParamInt     0   Inf     Inf               6
+## 22:              max_leaves ParamInt     0   Inf     Inf               0
+## 23:                maximize ParamLgl    NA    NA       2                
+## 24:        min_child_weight ParamDbl     0   Inf     Inf               1
+## 25:                 missing ParamDbl  -Inf   Inf     Inf              NA
+## 26:    monotone_constraints ParamUty    NA    NA     Inf               0
+## 27:          normalize_type ParamFct    NA    NA       2            tree
+## 28:                 nrounds ParamInt     1   Inf     Inf               1
+## 29:                 nthread ParamInt     1   Inf     Inf               1
+## 30:              ntreelimit ParamInt     1   Inf     Inf                
+## 31:       num_parallel_tree ParamInt     1   Inf     Inf               1
+## 32:               objective ParamUty    NA    NA     Inf binary:logistic
+## 33:                one_drop ParamLgl    NA    NA       2           FALSE
+## 34:            outputmargin ParamLgl    NA    NA       2           FALSE
+## 35:             predcontrib ParamLgl    NA    NA       2           FALSE
+## 36:               predictor ParamFct    NA    NA       2   cpu_predictor
+## 37:         predinteraction ParamLgl    NA    NA       2           FALSE
+## 38:                predleaf ParamLgl    NA    NA       2           FALSE
+## 39:           print_every_n ParamInt     1   Inf     Inf               1
+## 40:               rate_drop ParamDbl     0     1     Inf               0
+## 41:            refresh_leaf ParamLgl    NA    NA       2            TRUE
+## 42:                 reshape ParamLgl    NA    NA       2           FALSE
+## 43:             sample_type ParamFct    NA    NA       2         uniform
+## 44:               save_name ParamUty    NA    NA     Inf                
+## 45:             save_period ParamInt     0   Inf     Inf                
+## 46:        scale_pos_weight ParamDbl  -Inf   Inf     Inf               1
+## 47:              sketch_eps ParamDbl     0     1     Inf            0.03
+## 48:               skip_drop ParamDbl     0     1     Inf               0
+## 49:               subsample ParamDbl     0     1     Inf               1
+## 50:                   top_k ParamInt     0   Inf     Inf               0
+## 51:                training ParamLgl    NA    NA       2           FALSE
+## 52:             tree_method ParamFct    NA    NA       5            auto
+## 53:  tweedie_variance_power ParamDbl     1     2     Inf             1.5
+## 54:                 updater ParamUty    NA    NA     Inf  &lt;NoDefault[3]&gt;
+## 55:                 verbose ParamInt     0     2       3               1
+## 56:               watchlist ParamUty    NA    NA     Inf                
+## 57:               xgb_model ParamUty    NA    NA     Inf                
+##                          id    class lower upper nlevels         default
+##                      parents          value
+##  1:                                        
+##  2:                                        
+##  3:                                        
+##  4:                                        
+##  5:                                        
+##  6:                                        
+##  7:                                        
+##  8:                                        
+##  9:                                        
+## 10:                                        
+## 11:                                mlogloss
+## 12:                  booster               
+## 13:                                        
+## 14:                                        
+## 15:              tree_method               
+## 16:                                        
+## 17:                                        
+## 18:                                        
+## 19:              tree_method               
+## 20:                                        
+## 21:                                        
+## 22:              grow_policy               
+## 23:                                        
+## 24:                                        
+## 25:                                        
+## 26:                                        
+## 27:                  booster               
+## 28:                                     100
+## 29:                                       1
+## 30:                                        
+## 31:                                        
+## 32:                          multi:softprob
+## 33:                  booster               
+## 34:                                        
+## 35:                                        
+## 36:                                        
+## 37:                                        
+## 38:                                        
+## 39:                  verbose               
+## 40:                  booster               
+## 41:                                        
+## 42:                                        
+## 43:                  booster               
+## 44:                                        
+## 45:                                        
+## 46:                                        
+## 47:              tree_method               
+## 48:                  booster               
+## 49:                                        
+## 50: booster,feature_selector               
+## 51:                                        
+## 52:                  booster               
+## 53:                objective               
+## 54:                                        
+## 55:                                       0
+## 56:                                        
+## 57:                                        
+##                      parents          value</code></pre>
+<p>I will reduce the learning rate from 0.3 to 0.1 and simultaneously try tuning the number of iterations (rounds) and the max_depth parameter. The method that I’ve chosen takes 10 random pairs of parameter values within my specified ranges.</p>
+<pre class="r"><code>myLearner$predict_type &lt;- &quot;prob&quot;
+
+# --- set hyperparameters -----------------------------------
+myLearner$param_set$values           &lt;- list(eta=0.1)
+myLearner$param_set$values$nrounds   &lt;- to_tune(50, 500)
+myLearner$param_set$values$max_depth &lt;- to_tune(3, 6)
+
+# --- run tuning --------------------------------------------
+set.seed(9830)
+
+myTuner &lt;-  tune(
+  method     = &quot;random_search&quot;,
+  task       = myTask,
+  learner    = myLearner,
+  resampling = myCV,
+  measure    = myMeasure,
+  term_evals = 10,
+  batch_size = 5 
+)</code></pre>
+<p>I’ve suppressed the output for each iteration as it is long and boring, but here is the final result.</p>
+<pre class="r"><code># --- inspect result ----------------------------------------
+myTuner</code></pre>
+<pre><code>## &lt;TuningInstanceSingleCrit&gt;
+## * State:  Optimized
+## * Objective: &lt;ObjectiveTuning:classif.xgboost_on_cat_adoption&gt;
+## * Search Space:
+## &lt;ParamSet&gt;
+##           id    class lower upper nlevels        default value
+## 1:   nrounds ParamInt    50   500     451 &lt;NoDefault[3]&gt;      
+## 2: max_depth ParamInt     3     6       4 &lt;NoDefault[3]&gt;      
+## * Terminator: &lt;TerminatorEvals&gt;
+## * Terminated: TRUE
+## * Result:
+##    nrounds max_depth learner_param_vals  x_domain classif.logloss
+## 1:     361         5          &lt;list[3]&gt; &lt;list[2]&gt;       0.4466408
+## * Archive:
+## &lt;ArchiveTuning&gt;
+##     nrounds max_depth classif.logloss           timestamp batch_nr
+##  1:     426         4            0.45 2021-11-02 15:35:03        1
+##  2:      97         4            0.46 2021-11-02 15:35:03        1
+##  3:      90         5            0.45 2021-11-02 15:35:03        1
+##  4:     216         3            0.45 2021-11-02 15:35:03        1
+##  5:     349         6            0.45 2021-11-02 15:35:03        1
+##  6:     304         6            0.45 2021-11-02 15:36:14        2
+##  7:     171         3            0.46 2021-11-02 15:36:14        2
+##  8:     467         5            0.45 2021-11-02 15:36:14        2
+##  9:     361         5            0.45 2021-11-02 15:36:14        2
+## 10:      61         3            0.48 2021-11-02 15:36:14        2</code></pre>
+<p>The best of these random combinations has a cross-validated logloss of 0.447, slightly worse than the default model. The other point to note is that changing these hyperparameters makes little difference. I’ll stick with the defaults.</p>
+</div>
+<div id="dogs" class="section level1">
+<h1>Dogs</h1>
+<p>I explored and preprocessed the dogs with very similar code to that used for cats so I have hidden the output. I ended with a dataset called <code>trainDogDF</code>.</p>
+<p>Now I will run an analysis that mirrors that for cats</p>
+<pre class="r"><code># --- define the task ----------------------------------------
+myTask &lt;- TaskClassif$new( id = &quot;dog_adoption&quot;,
+                 backend = trainDogDF,
+                 target  = &quot;outcome_type&quot;)
+
+# --- select the learner -------------------------------------
+myLearner &lt;- lrn(&quot;classif.xgboost&quot;, nrounds = 100,
+                 objective=&quot;multi:softprob&quot;,
+                 eval_metric=&quot;mlogloss&quot;)
+
+# --- train the model ----------------------------------------
+myLearner$train(task = myTask)
+
+# --- look at the result -------------------------------------
+myLearner$model</code></pre>
+<pre><code>## ##### xgb.Booster
+## raw: 956.8 Kb 
+## call:
+##   xgboost::xgb.train(data = data, nrounds = 100L, watchlist = list(
+##     train = &lt;pointer: 0x0000000018664930&gt;), verbose = 0L, nthread = 1L, 
+##     objective = &quot;multi:softprob&quot;, eval_metric = &quot;mlogloss&quot;, num_class = 3L)
+## params (as set within xgb.train):
+##   nthread = &quot;1&quot;, objective = &quot;multi:softprob&quot;, eval_metric = &quot;mlogloss&quot;, num_class = &quot;3&quot;, validate_parameters = &quot;TRUE&quot;
+## xgb.attributes:
+##   niter
+## callbacks:
+##   cb.evaluation.log()
+## # of features: 21 
+## niter: 100
+## nfeatures : 21 
+## evaluation_log:
+##     iter train_mlogloss
+##        1       0.877068
+##        2       0.749589
+## ---                    
+##       99       0.400619
+##      100       0.400271</code></pre>
+<pre class="r"><code># --- predict and show the confusion matrix ------------------
+myPredictions &lt;- myLearner$predict(myTask)
+myPredictions$confusion</code></pre>
+<pre><code>##             truth
+## response     adoption no outcome transfer
+##   adoption      22503        588     3634
+##   no outcome       48        408       26
+##   transfer        494        147     2982</code></pre>
+<pre class="r"><code># --- logloss requires probability predictions ---------------
+myMeasure              &lt;- msr(&quot;classif.logloss&quot;)
+myLearner$predict_type &lt;- &quot;prob&quot;
+myPredictions          &lt;- myLearner$predict(myTask)
+myPredictions$score(myMeasure)</code></pre>
+<pre><code>## classif.logloss 
+##       0.4002699</code></pre>
+<pre class="r"><code># --- define CV and apply to the data -----------------------
+set.seed(9126)
+myCV &lt;- rsmp(&quot;cv&quot;, folds=5)
+myCV$instantiate(task = myTask)
+
+# --- run the cross validation ------------------------------
+rsFit &lt;- resample( task       = myTask,
+                   learner    = myLearner,
+                   resampling = myCV)</code></pre>
+<pre><code>## INFO  [15:36:25.044] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;dog_adoption&#39; (iter 1/5) 
+## INFO  [15:36:25.083] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;dog_adoption&#39; (iter 3/5) 
+## INFO  [15:36:25.124] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;dog_adoption&#39; (iter 5/5) 
+## INFO  [15:36:25.481] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;dog_adoption&#39; (iter 4/5) 
+## INFO  [15:36:25.524] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;dog_adoption&#39; (iter 2/5)</code></pre>
+<pre class="r"><code># --- show individual and aggregate logloss -----------------
+rsFit$score(myMeasure)</code></pre>
+<pre><code>##                 task      task_id                     learner      learner_id
+## 1: &lt;TaskClassif[47]&gt; dog_adoption &lt;LearnerClassifXgboost[35]&gt; classif.xgboost
+## 2: &lt;TaskClassif[47]&gt; dog_adoption &lt;LearnerClassifXgboost[35]&gt; classif.xgboost
+## 3: &lt;TaskClassif[47]&gt; dog_adoption &lt;LearnerClassifXgboost[35]&gt; classif.xgboost
+## 4: &lt;TaskClassif[47]&gt; dog_adoption &lt;LearnerClassifXgboost[35]&gt; classif.xgboost
+## 5: &lt;TaskClassif[47]&gt; dog_adoption &lt;LearnerClassifXgboost[35]&gt; classif.xgboost
+##            resampling resampling_id iteration              prediction
+## 1: &lt;ResamplingCV[19]&gt;            cv         1 &lt;PredictionClassif[19]&gt;
+## 2: &lt;ResamplingCV[19]&gt;            cv         2 &lt;PredictionClassif[19]&gt;
+## 3: &lt;ResamplingCV[19]&gt;            cv         3 &lt;PredictionClassif[19]&gt;
+## 4: &lt;ResamplingCV[19]&gt;            cv         4 &lt;PredictionClassif[19]&gt;
+## 5: &lt;ResamplingCV[19]&gt;            cv         5 &lt;PredictionClassif[19]&gt;
+##    classif.logloss
+## 1:       0.5142654
+## 2:       0.5061514
+## 3:       0.5052791
+## 4:       0.5274591
+## 5:       0.5069654</code></pre>
+<pre class="r"><code>rsFit$aggregate(myMeasure)</code></pre>
+<pre><code>## classif.logloss 
+##       0.5120241</code></pre>
+<p>An in-sample logloss of 0.40 and a cross-validated logloss of 0.51. Slightly worse than the result for cats.</p>
+<p>I’ll not bother with hyperparameter tuning but move on to the remaining animals, i.e. everything that is not a cat or a dog. I called the data frame <code>trainRestDF</code>.</p>
+<pre class="r"><code># --- define the task ----------------------------------------
+myTask &lt;- TaskClassif$new( id = &quot;remainder_adoption&quot;,
+                 backend = trainRestDF,
+                 target  = &quot;outcome_type&quot;)
+
+# --- select the learner -------------------------------------
+myLearner &lt;- lrn(&quot;classif.xgboost&quot;, nrounds = 100,
+                 objective=&quot;multi:softprob&quot;,
+                 eval_metric=&quot;mlogloss&quot;)
+
+# --- train the model ----------------------------------------
+myLearner$train(task = myTask)
+
+# --- look at the result -------------------------------------
+myLearner$model</code></pre>
+<pre><code>## ##### xgb.Booster
+## raw: 541.4 Kb 
+## call:
+##   xgboost::xgb.train(data = data, nrounds = 100L, watchlist = list(
+##     train = &lt;pointer: 0x0000000018665530&gt;), verbose = 0L, nthread = 1L, 
+##     objective = &quot;multi:softprob&quot;, eval_metric = &quot;mlogloss&quot;, num_class = 3L)
+## params (as set within xgb.train):
+##   nthread = &quot;1&quot;, objective = &quot;multi:softprob&quot;, eval_metric = &quot;mlogloss&quot;, num_class = &quot;3&quot;, validate_parameters = &quot;TRUE&quot;
+## xgb.attributes:
+##   niter
+## callbacks:
+##   cb.evaluation.log()
+## # of features: 21 
+## niter: 100
+## nfeatures : 21 
+## evaluation_log:
+##     iter train_mlogloss
+##        1       0.787281
+##        2       0.608884
+## ---                    
+##       99       0.030240
+##      100       0.029763</code></pre>
+<pre class="r"><code># --- predict and show the confusion matrix ------------------
+myPredictions &lt;- myLearner$predict(myTask)
+myPredictions$confusion</code></pre>
+<pre><code>##             truth
+## response     adoption no outcome transfer
+##   adoption        254          1        0
+##   no outcome        0       2287        3
+##   transfer          0          3      469</code></pre>
+<pre class="r"><code># --- logloss requires probability predictions ---------------
+myMeasure              &lt;- msr(&quot;classif.logloss&quot;)
+myLearner$predict_type &lt;- &quot;prob&quot;
+myPredictions          &lt;- myLearner$predict(myTask)
+myPredictions$score(myMeasure)</code></pre>
+<pre><code>## classif.logloss 
+##      0.02976308</code></pre>
+<pre class="r"><code># --- define CV and apply to the data -----------------------
+set.seed(9126)
+myCV &lt;- rsmp(&quot;cv&quot;, folds=5)
+myCV$instantiate(task = myTask)
+
+# --- run the cross validation ------------------------------
+rsFit &lt;- resample( task       = myTask,
+                   learner    = myLearner,
+                   resampling = myCV)</code></pre>
+<pre><code>## INFO  [15:36:36.257] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;remainder_adoption&#39; (iter 3/5) 
+## INFO  [15:36:36.281] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;remainder_adoption&#39; (iter 5/5) 
+## INFO  [15:36:36.617] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;remainder_adoption&#39; (iter 1/5) 
+## INFO  [15:36:36.643] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;remainder_adoption&#39; (iter 2/5) 
+## INFO  [15:36:36.671] [mlr3]  Applying learner &#39;classif.xgboost&#39; on task &#39;remainder_adoption&#39; (iter 4/5)</code></pre>
+<pre class="r"><code># --- show individual and aggregate logloss -----------------
+rsFit$score(myMeasure)</code></pre>
+<pre><code>##                 task            task_id                     learner
+## 1: &lt;TaskClassif[47]&gt; remainder_adoption &lt;LearnerClassifXgboost[35]&gt;
+## 2: &lt;TaskClassif[47]&gt; remainder_adoption &lt;LearnerClassifXgboost[35]&gt;
+## 3: &lt;TaskClassif[47]&gt; remainder_adoption &lt;LearnerClassifXgboost[35]&gt;
+## 4: &lt;TaskClassif[47]&gt; remainder_adoption &lt;LearnerClassifXgboost[35]&gt;
+## 5: &lt;TaskClassif[47]&gt; remainder_adoption &lt;LearnerClassifXgboost[35]&gt;
+##         learner_id         resampling resampling_id iteration
+## 1: classif.xgboost &lt;ResamplingCV[19]&gt;            cv         1
+## 2: classif.xgboost &lt;ResamplingCV[19]&gt;            cv         2
+## 3: classif.xgboost &lt;ResamplingCV[19]&gt;            cv         3
+## 4: classif.xgboost &lt;ResamplingCV[19]&gt;            cv         4
+## 5: classif.xgboost &lt;ResamplingCV[19]&gt;            cv         5
+##                 prediction classif.logloss
+## 1: &lt;PredictionClassif[19]&gt;       0.2818141
+## 2: &lt;PredictionClassif[19]&gt;       0.2621664
+## 3: &lt;PredictionClassif[19]&gt;       0.2059938
+## 4: &lt;PredictionClassif[19]&gt;       0.2714324
+## 5: &lt;PredictionClassif[19]&gt;       0.2710777</code></pre>
+<pre class="r"><code>rsFit$aggregate(myMeasure)</code></pre>
+<pre><code>## classif.logloss 
+##       0.2584969</code></pre>
+<p>The in-sample logloss is 0.03 and the cv logloss is 0.26. Much better performance than for cats or dogs.</p>
+</div>
+<div id="submission" class="section level1">
+<h1>Submission</h1>
+<p>I’ll make a submission based on the default models. This involves running identical preprocessing to create datasets <code>testCatDF</code>, <code>testDogDF</code> and <code>testRestDF</code>. I’ll hide the code as it really is very similar to what we have already seen.</p>
+<p>Now I will refit the default models and predict for the test data</p>
+<pre class="r"><code># --- define the task ----------------------------------------
+myTask &lt;- TaskClassif$new( id = &quot;cat_adoption&quot;,
+                 backend = trainCatDF,
+                 target  = &quot;outcome_type&quot;)
+
+# --- select the learner -------------------------------------
+myLearner &lt;- lrn(&quot;classif.xgboost&quot;, nrounds = 100,
+                 objective=&quot;multi:softprob&quot;,
+                 eval_metric=&quot;mlogloss&quot;)
+
+# --- train the model ----------------------------------------
+myLearner$train(task = myTask)
+
+# --- predict for test data ------------------
+myLearner$predict_type &lt;- &quot;prob&quot;
+myPredictions &lt;- myLearner$predict_newdata(testCatDF, myTask)
+
+myPredictions$print() %&gt;%
+  cbind( testCatDF %&gt;% select(id)) %&gt;%
+  as_tibble() %&gt;%
+  select( id, starts_with(&quot;prob&quot;)) %&gt;%
+  rename( adoption = prob.adoption,
+          `no outcome` = `prob.no outcome`,
+          transfer = prob.transfer) -&gt; catSubmissionDF</code></pre>
+<pre><code>## &lt;PredictionClassif&gt; for 8781 observations:
+##     row_ids truth   response prob.adoption prob.no outcome prob.transfer
+##           1  &lt;NA&gt; no outcome  2.294918e-01     0.401341915     0.3691662
+##           2  &lt;NA&gt;   transfer  2.702752e-01     0.201223448     0.5285013
+##           3  &lt;NA&gt;   transfer  7.491278e-05     0.009217708     0.9907074
+## ---                                                                     
+##        8779  &lt;NA&gt;   transfer  8.115178e-04     0.129620299     0.8695682
+##        8780  &lt;NA&gt;   transfer  3.984600e-01     0.051707774     0.5498323
+##        8781  &lt;NA&gt;   transfer  1.327512e-01     0.112438880     0.7548099</code></pre>
+<pre class="r"><code># --- define the task ----------------------------------------
+myTask &lt;- TaskClassif$new( id = &quot;dog_adoption&quot;,
+                 backend = trainDogDF,
+                 target  = &quot;outcome_type&quot;)
+
+# --- select the learner -------------------------------------
+myLearner &lt;- lrn(&quot;classif.xgboost&quot;, nrounds = 100,
+                 objective=&quot;multi:softprob&quot;,
+                 eval_metric=&quot;mlogloss&quot;)
+
+# --- train the model ----------------------------------------
+myLearner$train(task = myTask)
+
+# --- predict for test data ------------------
+myLearner$predict_type &lt;- &quot;prob&quot;
+myPredictions &lt;- myLearner$predict_newdata(testDogDF)
+
+myPredictions$print() %&gt;%
+  cbind( testDogDF %&gt;% select(id)) %&gt;%
+  as_tibble() %&gt;%
+  select( id, starts_with(&quot;prob&quot;)) %&gt;%
+  rename( adoption = prob.adoption,
+          `no outcome` = `prob.no outcome`,
+          transfer = prob.transfer) -&gt; dogSubmissionDF</code></pre>
+<pre><code>## &lt;PredictionClassif&gt; for 13257 observations:
+##     row_ids truth response prob.adoption prob.no outcome prob.transfer
+##           1  &lt;NA&gt; adoption     0.9210497     0.004308495    0.07464188
+##           2  &lt;NA&gt; adoption     0.6492763     0.014622116    0.33610165
+##           3  &lt;NA&gt; adoption     0.7464201     0.006007354    0.24757244
+## ---                                                                   
+##       13255  &lt;NA&gt; adoption     0.7975855     0.005738553    0.19667596
+##       13256  &lt;NA&gt; adoption     0.8822138     0.054838952    0.06294718
+##       13257  &lt;NA&gt; adoption     0.9611011     0.008979154    0.02991984</code></pre>
+<pre class="r"><code># --- define the task ----------------------------------------
+myTask &lt;- TaskClassif$new( id = &quot;remainder_adoption&quot;,
+                 backend = trainRestDF,
+                 target  = &quot;outcome_type&quot;)
+
+# --- select the learner -------------------------------------
+myLearner &lt;- lrn(&quot;classif.xgboost&quot;, nrounds = 100,
+                 objective=&quot;multi:softprob&quot;,
+                 eval_metric=&quot;mlogloss&quot;)
+
+# --- train the model ----------------------------------------
+myLearner$train(task = myTask)
+
+# --- predict for test data ------------------
+myLearner$predict_type &lt;- &quot;prob&quot;
+myPredictions &lt;- myLearner$predict_newdata(testRestDF)
+
+myPredictions$print() %&gt;%
+  cbind( testRestDF %&gt;% select(id)) %&gt;%
+  as_tibble() %&gt;%
+  select( id, starts_with(&quot;prob&quot;)) %&gt;%
+  rename( adoption = prob.adoption,
+          `no outcome` = `prob.no outcome`,
+          transfer = prob.transfer) -&gt; restSubmissionDF</code></pre>
+<pre><code>## &lt;PredictionClassif&gt; for 1279 observations:
+##     row_ids truth   response prob.adoption prob.no outcome prob.transfer
+##           1  &lt;NA&gt; no outcome  1.454673e-04       0.9998283  2.615419e-05
+##           2  &lt;NA&gt; no outcome  9.433312e-04       0.5383162  4.607404e-01
+##           3  &lt;NA&gt; no outcome  2.583423e-06       0.9999901  7.328915e-06
+## ---                                                                     
+##        1277  &lt;NA&gt;   adoption  7.561390e-01       0.1693181  7.454285e-02
+##        1278  &lt;NA&gt; no outcome  4.058437e-05       0.9999217  3.776888e-05
+##        1279  &lt;NA&gt; no outcome  8.606400e-06       0.9997879  2.035812e-04</code></pre>
+<pre class="r"><code>bind_rows(catSubmissionDF, dogSubmissionDF, restSubmissionDF) %&gt;%
+  write_csv( file.path(home, &quot;temp/submission1.csv&quot;))</code></pre>
+<p>I entered this file as a late submission and the score on the private leaderboard was 0.47718, which would have put the model in 7th place.</p>
+</div>
+<div id="what-we-have-learned-from-this-example" class="section level1">
+<h1>What we have learned from this example</h1>
+<p>The point of this analysis was to illustrate the basic use of <code>mlr3</code>. I have written an accompanying post, <code>Methods: Introduction to mlr3</code>, that gives more explanation of background to the code, including a brief discussion of object orientated programming (OOP) and the R6 package that are both fundamental to <code>mlr3</code>.</p>
+<p>I have never been a fan of <code>tidymodels</code>, so I did not expect to like to <code>mlr3</code>. I cannot say that I am a convert, but there were a number of features in <code>mlr3</code> that I quite like.</p>
+<p>There is nothing in this analysis that I could not have completed very easily with my own code and yet, I did find that using <code>mlr3</code> produced neat and concise code. In the accompanying methods post, I discuss a few ways in which I think that <code>mlr3</code> improves on <code>tidymodels</code>; in brief, they are</p>
+<ul>
+<li>what <code>mlr3</code> does is more transparent<br />
+</li>
+<li>the user remains in greater control of what is happening under the bonnet<br />
+</li>
+<li>intermediate results are easier to access<br />
+</li>
+<li><code>mlr3</code> is easier for the user to extend<br />
+</li>
+<li><code>mlr3</code> has a more coherent design</li>
+</ul>
+<p>The big disadvantage of <code>mlr3</code> is that, unlike <code>tidymodels</code>, it has a steep learning curve. It is hard to follow what is going on without some understanding of OOP and R6.</p>
+<p>In this analysis, I have kept the <code>mlr3</code> code very basic. The packages will do much more than I have shown, including the creation of very flexible pipelines that combine preprocessing and model fitting. I suspect that no package will be able to offer every option that I would want for preprocessing, so unless it is very easy to add your own pipe operations, I cannot see myself making much use of those facilities.</p>
+<p>I will try out the pipe operators of <code>mlr3</code> when analysing the data from the next episode of <em>Sliced</em>.</p>
+</div>
+<div id="appendix" class="section level1">
+<h1>Appendix</h1>
+<p>Here is the code for the plots that I created for the exploratory analysis of the cat predictors.</p>
+<pre class="r"><code># ============================================================
+# --- plot_churn() ------------------------------------------
+# function to plot a factor and show the percent churn
+#   thisDF ... the source of the data
+#   col    ... column within thisDF
+#
+plot_animals &lt;- function(thisDF, col) {
+  thisDF %&gt;%
+    # --- make a missing category ----------------
+    mutate( across({{col}}, fct_explicit_na)) %&gt;%
+    # --- calculate the percent churn ----------
+    group_by({{col}}, outcome_type) %&gt;%
+    summarise( n = n(), .groups=&quot;drop&quot; ) %&gt;%
+    group_by( {{col}} ) %&gt;%
+    ggplot( aes( x=n, y={{col}}, fill=outcome_type)) +
+    geom_bar( stat=&quot;identity&quot;) +
+    labs( y = deparse(substitute(col)), fill = NULL,
+          title=paste(&quot;Outcomes by&quot;,
+                      deparse(substitute(col))) ) +
+    theme( legend.position=c(0.9, 0.15))
+}</code></pre>
+</div>

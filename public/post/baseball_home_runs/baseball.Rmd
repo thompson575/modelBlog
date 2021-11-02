@@ -1,5 +1,5 @@
 ---
-title: "Sliced 2021 Episode 9: Baseball home runs"
+title: "Sliced Episode 9: Baseball home runs"
 author: "John Thompson"
 date: "2021-10-28"
 layout: post
@@ -51,7 +51,7 @@ parkRawDF <- readRDS( file.path(home, "data/rData/park_dimensions.rds") )
 testRawDF <- readRDS( file.path(home, "data/rData/test.rds") )
 ```
 
-# Data Exploration:
+# Data Exploration
 
 As usual, I start by summarising the training data with the `skimr` package and omitting the output from this post because of its length.
 

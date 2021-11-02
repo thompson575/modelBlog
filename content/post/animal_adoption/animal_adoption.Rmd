@@ -1,0 +1,838 @@
+---
+title: "Sliced Episode 10: Animal adoption"
+author: "John Thompson"
+date: "2021-11-02"
+layout: post
+tags:
+- Sliced
+- mlr3
+- xgboost
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE, fig.align = 'center', fig.width=5.5, fig.height=4)
+```
+
+
+# Introduction
+
+The data for episode 10 of *Sliced*, the second round of the play-offs, relates to the adoption of abandoned or unwanted pets. Given information about the animal, such as its breed and age, the competitors had to predict a three class outcome, either, adoption, transfer or what is euphemistically called 'no outcome', which in reality means that the animal was put down (another euphemism).  
+
+The data can be downloaded from https://www.kaggle.com/c/sliced-s01e10-playoffs-2/overview/description.
+
+In truth this is not a particularly interesting dataset. There are few features and apart from the three class outcome, it is a very standard problem.
+
+In an attempt to make it more interesting, I decided to experiment with the `mlr3` package. This is a competitor to `tidymodels` in the sense that it offers another way of organising machine learning workflows. I do not like `tidymodels` because I feel that it encourages a black box mentality, so I was interested to see if I have the same reaction to `mlr3`.
+ 
+In this post, I will concentrate of the application of `mlr3` to the animal adoption data without giving a detailed explanation of the syntax. If you have never seen `mlr3` before, you might find it helpful to start by reading my methods post entitled `Methods: Introduction to mlr3`. In that post I explain how the structure of `mlr3` is dependent on object orientated programming and in particular, the `R6` package. 
+
+# Reading the data:
+
+It is my practice to read the data asis and to immediately save it in rds format within a directory called data/rData. For details of the way that I organise my analyses you should read my post called `Sliced Methods Overview`.
+
+```{r}
+# --- setup: libraries & options ------------------------
+library(tidyverse)
+
+theme_set( theme_light())
+
+# --- set home directory -------------------------------
+home <- "C:/Projects/kaggle/sliced/s01-e10"
+
+# --- read downloaded data -----------------------------
+trainRawDF <- readRDS( file.path(home, "data/rData/train.rds") )
+
+testRawDF <- readRDS( file.path(home, "data/rData/test.rds") )
+```
+
+# Data Exploration:
+
+I usually start by summarising the training data with the `skimr` package.
+
+```{r eval=FALSE}
+# --- summarise the training set -----------------------
+skimr::skim(trainRawDF)
+```
+
+I've hidden the output but in brief it shows that there are 54,408 animals in the training data and their outcomes cover the period 7th Nov 2015 to 1 Feb 2018. There are only a few missing values, except for the animal's name, which is missing for about 30% of the animals.
+
+## Response
+
+The majority of the animals are adopted 
+```{r}
+# --- outcomes ----------------------------------------
+trainRawDF %>%
+  count( outcome_type ) %>%
+  mutate( pct = 100*n/sum(n))
+```
+
+## Predictors
+
+As I have often done in previous episodes of *Spliced*, I have written a function for plotting the predictors; this time the function is called `plot_animals()`. The code is given in as a appendix at the end of this post.
+
+Here is the pattern of outcomes for the 4 major animal types. 
+
+```{r echo=FALSE}
+plot_animals <- function(thisDF, col) {
+  thisDF %>%
+    # --- make a missing category ----------------
+    mutate( across({{col}}, fct_explicit_na)) %>%
+    # --- calculate the percent churn ----------
+    group_by({{col}}, outcome_type) %>%
+    summarise( n = n(), .groups="drop" ) %>%
+    group_by( {{col}} ) %>%
+    ggplot( aes( x=n, y={{col}}, fill=outcome_type)) +
+    geom_bar( stat="identity") +
+    labs( y = deparse(substitute(col)), fill = NULL,
+          title=paste("Outcomes by",
+                      deparse(substitute(col))) ) +
+    theme( legend.position=c(0.9, 0.15))
+}
+```
+
+```{r}
+# --- categories of animal type ---------------------------
+trainRawDF %>%
+  plot_animals(animal_type)
+```
+
+Two thoughts come to mind.  
+
+* the features relevant to prediction for cats, dogs and birds will be very different  
+* the bird & livestock categories are very small  
+
+I will split the data into three parts; cat, dog & (other+bird+livestock) and I will predict separately within each of the three.
+
+## Data cleaning
+
+In preparation for the analysis, I need to process the date on which the outcome occurred, which I'll convert to a month and a year, and I need to clean the ages, which are variously recorded in days or months or years. I will not use the data_of_birth.
+
+There are a handful of missing ages that I replace using the median age for that type of animal.
+```{r}
+# --- clean the training data --------------------------------
+library(lubridate)
+
+trainRawDF %>%
+   mutate( outcome_type = factor(outcome_type),
+           # --- date to month, year and time of day ---------
+           month         = as.numeric(month(datetime)),
+           year          = as.numeric(year(datetime)),
+           hour          = as.numeric(hour(datetime)),
+           # --- numerical part of the age field -------------
+           age_number    = as.numeric(str_extract(
+             age_upon_outcome, "[:digit:]+")),
+           # --- test part of the age field ------------------
+           age_unit      = str_extract(
+             age_upon_outcome, "[a-z]+"),
+           unit          = substr(age_unit, 1, 1)) %>%
+  # --- calculate age in years -------------------------------
+  mutate(   age = age_number*(unit == "y") +
+                  age_number*(unit == "m")/12 +
+                  age_number*(unit == "w")/52 +
+                  age_number*(unit == "d")/365 ) %>%
+  select(-age_upon_outcome, -age_number, -age_unit, -unit,
+         -datetime, -date_of_birth, -name) -> prepDF
+
+# median impute the missing ages ------------------------------
+# --- median = 2 for dogs -------------------------------------
+mDog <- median(prepDF$age[prepDF$animal_type=="Dog"], na.rm=TRUE)
+
+prepDF$age[is.na(prepDF$age) & prepDF$animal_type=="Dog"] <- mDog
+
+# --- median = 1 for bats -------------------------------------
+mBat <- median(prepDF$age[prepDF$breed=="Bat Mix"], na.rm=TRUE)
+
+prepDF$age[is.na(prepDF$age) & prepDF$breed=="Bat Mix"] <- mBat
+```
+
+
+## Cats
+
+Skimming the data on cats shows that there are 20,561 rows, 70 breeds and 201 colours.
+
+```{r eval=FALSE}
+skimr::skim(prepDF %>% filter(animal_type == "Cat"))
+```
+
+Here are the common cat breeds
+```{r}
+# --- categories of cat breed ---------------------------
+prepDF %>%
+  filter( animal_type == "Cat") %>%
+  mutate( breed = fct_lump(breed, prop=0.005)) %>%
+  plot_animals(breed)
+```
+
+The common colours are not obviously related to outcome.
+```{r}
+# --- categories of cat breed ---------------------------
+prepDF %>%
+  filter( animal_type == "Cat") %>%
+  mutate( colour = fct_lump(color, prop=0.01)) %>%
+  plot_animals(colour)
+```
+
+Neutered cats are more likely to get adopted
+```{r}
+# --- neutering in cats ---------------------------------
+prepDF %>%
+  filter( animal_type == "Cat") %>%
+  plot_animals(spay_neuter)
+```
+
+The cat's sex is not particularly predictive, but when the sex is unknown it is unlikely that the cat was adopted.
+```{r}
+prepDF %>%
+  filter( animal_type == "Cat") %>%
+  plot_animals(sex)
+```
+
+Age is recorded is days, weeks, months or years but has been records as fractions of a year.
+```{r}
+prepDF %>%
+  filter( animal_type == "Cat") %>%
+  mutate( ageGp = cut(age, breaks=c(0, 1, 2, 15))) %>%
+  plot_animals(ageGp)
+```
+
+The outcomes vary considerably across the year with a larger proportion of transfers in April and May.
+```{r}
+prepDF %>%
+  filter( animal_type == "Cat") %>%
+  mutate( month = factor(month, levels=1:12, labels=month.abb)) %>%
+  plot_animals(month)
+```
+
+Transfers are less common in recent years
+```{r}
+prepDF %>%
+  filter( animal_type == "Cat") %>%
+  mutate( year = factor(year)) %>%
+  plot_animals(year)
+```
+
+It seems like cheating, but work patterns clearly help predict outcome. Transfers occur at 9am, but people call after work to collect their adopted cat.
+```{r}
+prepDF %>%
+  filter( animal_type == "Cat") %>%
+  mutate( hour = factor(hour)) %>%
+  plot_animals(hour)
+```
+
+## Preprocessing cats
+
+I'll add some indicator variables for the common colours and breeds and prepare a data set for training the cat model.
+
+```{r}
+# --- function to add indicators ----------------------------
+add_indicators <- function(thisDF, col, keywords, prefix) {
+  for( j in seq_along(keywords) ) {
+     thisDF[[ paste(prefix, j, sep="")]] <- 
+       as.numeric( str_detect(tolower(thisDF[[col]]), keywords[j]))
+  }
+  return(thisDF)
+}
+# --- select the cats ---------------------------------------
+prepDF %>% 
+  filter(animal_type == "Cat") %>%
+  select( -animal_type ) -> prepCatDF
+
+# --- indicators for key words in breed ---------------------
+add_indicators(prepCatDF, 
+               col = "breed", 
+               keywords = c("domestic", "mix", "short", 
+                           "medium", "long"),
+               prefix = "B") -> prepCatDF
+
+# --- indicators for key words in colour ---------------------
+add_indicators(prepCatDF, 
+               col = "color", 
+               keywords = c("tabby", "black", "white", 
+                            "brown", "blue"),
+               prefix = "C") -> prepCatDF
+
+# --- indicators for sex -------------------------------------
+add_indicators(prepCatDF, 
+               col = "sex", 
+               keywords = sort(unique(tolower(prepCatDF$sex))),
+               prefix = "S") -> prepCatDF
+
+# --- indicators for neuter ---------------------------------
+add_indicators(prepCatDF, 
+               col = "spay_neuter", 
+               keywords = sort(unique(tolower(prepCatDF$spay_neuter))),
+               prefix = "N") -> prepCatDF
+
+# --- keep predictors ---------------------------------------
+prepCatDF %>%
+  select( -breed, -color, -sex, -spay_neuter,  -id) -> trainCatDF
+```
+
+# mlr3
+
+Now I will use `mlr3` to model the cat data. For an explanation of how `mlr3` works, you should read my post entitled `Methods: Introduction to mlr3`. Briefly, the terminology is  
+* task    ... the data   
+* learner ... the method of model building  
+* measure ... the performance metric
+
+Rather like loading the `tidyverse`, loading `mlr3verse` makes available all of the essential packages in the ecosystem.
+
+I want to do something simple, so that I do not have to explain the method at the same time as introducing `mlr3`, so I'll use `xgboost`
+
+In the following code, I define the data, select a learner, train the model, look at the results, makes predictions and inspect the confusion matrix; I end by choosing the logloss as my performance metric and I evaluate the logloss on the training data.  
+
+Once you understand the syntax, the code is concise and logical.  
+
+```{r}
+# --- load the important mlr3 packages -----------------------
+library(mlr3verse)
+
+# --- define the task ----------------------------------------
+myTask <- TaskClassif$new( id      = "cat_adoption",
+                           backend = trainCatDF,
+                           target  = "outcome_type")
+
+# --- select the learner -------------------------------------
+myLearner <- lrn("classif.xgboost", 
+                 nrounds     = 100,
+                 objective   = "multi:softprob",
+                 eval_metric = "mlogloss")
+
+# --- train the model ----------------------------------------
+myLearner$train(task = myTask)
+
+# --- look at the result -------------------------------------
+myLearner$model
+
+# --- predict and show the confusion matrix ------------------
+myPredictions <- myLearner$predict(myTask)
+myPredictions$confusion
+
+# --- logloss requires probability predictions ---------------
+myMeasure              <- msr("classif.logloss")
+myLearner$predict_type <- "prob"
+myPredictions          <- myLearner$predict(myTask)
+myPredictions$score(myMeasure)
+```
+
+The in-sample logloss is 0.30. It only relates to cats, but for comparison, the leading model in the competition scored a test sample logloss of 0.36 over all animals.
+
+I can access the results in the normal way since `myLearner$model` contains the usual structure returned by xgboost.
+
+```{r}
+myLearner$model$evaluation_log %>%
+    ggplot( aes(x=iter, y=train_mlogloss)) +
+    geom_line(colour="blue") +
+    scale_y_continuous( limits = c(0, 1), breaks=seq(0, 1, by=.05)) +
+    labs(x="Iteration", y="mean log loss", 
+         title="In-sample multiclass log loss")
+```
+
+I need to check if the in-sample logloss has overfitted, so I'll use cross-validation with 5 folds and I'll speed things up by running the folds in multiple sessions using the `future` package. When you use multiple sessions each one runs independently and has its own copy of the data. `mlr3` also allows multiple cores, when the cores access the same data, but this is not available in Windows.  
+
+```{r}
+future::plan("multisession")
+
+# --- define CV and apply to the data -----------------------
+set.seed(9766)
+myCV <- rsmp("cv", folds=5)
+myCV$instantiate(task = myTask)
+
+# --- run the cross validation ------------------------------
+rsFit <- resample( task       = myTask,
+                   learner    = myLearner,
+                   resampling = myCV)
+# --- show individual and aggregate logloss -----------------
+rsFit$score(myMeasure)
+rsFit$aggregate(myMeasure)
+```
+
+The cross-validated logloss is 0.45, so the in-sample result was very optimistic and the model is actually quite some way from the top of the leaderboard.
+
+I will try some classic machine learning hyperparameter tuning, even though I don't really approve, because it serves to demonstrate more features of `mlr3`. `myLearner$param_set` contains the values of the parameters that were used to fit the model.
+
+```{r}
+myLearner$param_set 
+```
+
+
+I will reduce the learning rate from 0.3 to 0.1 and simultaneously try tuning the number of iterations (rounds) and the max_depth parameter. The method that I've chosen takes 10 random pairs of parameter values within my specified ranges.
+
+```{r results="hide"}
+myLearner$predict_type <- "prob"
+
+# --- set hyperparameters -----------------------------------
+myLearner$param_set$values           <- list(eta=0.1)
+myLearner$param_set$values$nrounds   <- to_tune(50, 500)
+myLearner$param_set$values$max_depth <- to_tune(3, 6)
+
+# --- run tuning --------------------------------------------
+set.seed(9830)
+
+myTuner <-  tune(
+  method     = "random_search",
+  task       = myTask,
+  learner    = myLearner,
+  resampling = myCV,
+  measure    = myMeasure,
+  term_evals = 10,
+  batch_size = 5 
+)
+```
+
+I've suppressed the output for each iteration as it is long and boring, but here is the final result.  
+```{r}
+# --- inspect result ----------------------------------------
+myTuner
+```
+
+The best of these random combinations has a cross-validated logloss of 0.447, slightly worse than the default model. The other point to note is that changing these hyperparameters makes little difference. I'll stick with the defaults.
+
+# Dogs  
+
+I explored and preprocessed the dogs with very similar code to that used for cats so I have hidden the output. I ended with a dataset called `trainDogDF`.
+
+```{r echo=FALSE}
+# --- select the cats ---------------------------------------
+prepDF %>% 
+  filter(animal_type == "Dog") %>%
+  select( -animal_type ) -> prepDogDF
+
+# --- indicators for key words in breed ---------------------
+add_indicators(prepDogDF, 
+               col = "breed", 
+               keywords = c("mix", "bull", "terrier", "labradour",
+                            "shepherd", "chihuahua"),
+               prefix = "B") -> prepDogDF
+
+# --- indicators for key words in colour ---------------------
+add_indicators(prepDogDF, 
+               col = "color", 
+               keywords = c("black", "white", "brown", "tan", "red"),
+               prefix = "C") -> prepDogDF
+
+# --- indicators for sex -------------------------------------
+add_indicators(prepDogDF, 
+               col = "sex", 
+               keywords = sort(unique(tolower(prepDogDF$sex))),
+               prefix = "S") -> prepDogDF
+
+# --- indicators for neuter ---------------------------------
+add_indicators(prepDogDF, 
+               col = "spay_neuter", 
+               keywords = sort(unique(tolower(prepDogDF$spay_neuter))),
+               prefix = "N") -> prepDogDF
+
+# --- keep predictors ---------------------------------------
+prepDogDF %>%
+  select( -breed, -color, -sex, -spay_neuter, -id) -> trainDogDF
+```
+
+Now I will run an analysis that mirrors that for cats
+```{r}
+# --- define the task ----------------------------------------
+myTask <- TaskClassif$new( id = "dog_adoption",
+                 backend = trainDogDF,
+                 target  = "outcome_type")
+
+# --- select the learner -------------------------------------
+myLearner <- lrn("classif.xgboost", nrounds = 100,
+                 objective="multi:softprob",
+                 eval_metric="mlogloss")
+
+# --- train the model ----------------------------------------
+myLearner$train(task = myTask)
+
+# --- look at the result -------------------------------------
+myLearner$model
+
+# --- predict and show the confusion matrix ------------------
+myPredictions <- myLearner$predict(myTask)
+myPredictions$confusion
+
+# --- logloss requires probability predictions ---------------
+myMeasure              <- msr("classif.logloss")
+myLearner$predict_type <- "prob"
+myPredictions          <- myLearner$predict(myTask)
+myPredictions$score(myMeasure)
+
+# --- define CV and apply to the data -----------------------
+set.seed(9126)
+myCV <- rsmp("cv", folds=5)
+myCV$instantiate(task = myTask)
+
+# --- run the cross validation ------------------------------
+rsFit <- resample( task       = myTask,
+                   learner    = myLearner,
+                   resampling = myCV)
+# --- show individual and aggregate logloss -----------------
+rsFit$score(myMeasure)
+rsFit$aggregate(myMeasure)
+```
+
+An in-sample logloss of 0.40 and a cross-validated logloss of 0.51. Slightly worse than the result for cats.
+
+I'll not bother with hyperparameter tuning but move on to the remaining animals, i.e. everything that is not a cat or a dog. I called the data frame `trainRestDF`.
+
+```{r echo=FALSE}
+# --- select the cats ---------------------------------------
+prepDF %>% 
+  filter(animal_type != "Dog" & animal_type != "Cat") -> prepRestDF
+
+# --- indicators for key words in breed ---------------------
+add_indicators(prepRestDF, 
+               col = "breed", 
+               keywords = c("bat", "raccoon", "rabbit", "opossum"),
+               prefix = "B") -> prepRestDF
+
+# --- indicators for type -------------------------------------
+add_indicators(prepRestDF, 
+               col = "animal_type", 
+               keywords = sort(unique(tolower(prepRestDF$animal_type))),
+               prefix = "T") -> prepRestDF
+
+# --- indicators for key words in colour ---------------------
+add_indicators(prepRestDF, 
+               col = "color", 
+               keywords = c("black", "gray", "brown", "white"),
+               prefix = "C") -> prepRestDF
+
+# --- indicators for sex -------------------------------------
+add_indicators(prepRestDF, 
+               col = "sex", 
+               keywords = sort(unique(tolower(prepRestDF$sex))),
+               prefix = "S") -> prepRestDF
+
+# --- indicators for neuter ---------------------------------
+add_indicators(prepRestDF, 
+               col = "spay_neuter", 
+               keywords = sort(unique(tolower(prepRestDF$spay_neuter))),
+               prefix = "N") -> prepRestDF
+
+# --- keep predictors ---------------------------------------
+prepRestDF %>%
+  select( -breed, -color, -sex, -spay_neuter, -animal_type, -id) -> trainRestDF
+```
+
+```{r}
+# --- define the task ----------------------------------------
+myTask <- TaskClassif$new( id = "remainder_adoption",
+                 backend = trainRestDF,
+                 target  = "outcome_type")
+
+# --- select the learner -------------------------------------
+myLearner <- lrn("classif.xgboost", nrounds = 100,
+                 objective="multi:softprob",
+                 eval_metric="mlogloss")
+
+# --- train the model ----------------------------------------
+myLearner$train(task = myTask)
+
+# --- look at the result -------------------------------------
+myLearner$model
+
+# --- predict and show the confusion matrix ------------------
+myPredictions <- myLearner$predict(myTask)
+myPredictions$confusion
+
+# --- logloss requires probability predictions ---------------
+myMeasure              <- msr("classif.logloss")
+myLearner$predict_type <- "prob"
+myPredictions          <- myLearner$predict(myTask)
+myPredictions$score(myMeasure)
+
+# --- define CV and apply to the data -----------------------
+set.seed(9126)
+myCV <- rsmp("cv", folds=5)
+myCV$instantiate(task = myTask)
+
+# --- run the cross validation ------------------------------
+rsFit <- resample( task       = myTask,
+                   learner    = myLearner,
+                   resampling = myCV)
+# --- show individual and aggregate logloss -----------------
+rsFit$score(myMeasure)
+rsFit$aggregate(myMeasure)
+```
+
+The in-sample logloss is 0.03 and the cv logloss is 0.26. Much better performance than for cats or dogs.
+
+# Submission
+
+I'll make a submission based on the default models. This involves running identical preprocessing to create datasets `testCatDF`, `testDogDF` and `testRestDF`. I'll hide the code as it really is very similar to what we have already seen.
+
+```{r echo=FALSE}
+testRawDF %>%
+   mutate( month         = as.numeric(month(datetime)),
+           year          = as.numeric(year(datetime)),
+           hour          = as.numeric(hour(datetime)),
+           age_number    = as.numeric(str_extract(
+             age_upon_outcome, "[:digit:]+")),
+           age_unit      = str_extract(
+             age_upon_outcome, "[a-z]+"),
+           unit          = substr(age_unit, 1, 1)) %>%
+  mutate(   age = age_number*(unit == "y") +
+                  age_number*(unit == "m")/12 +
+                  age_number*(unit == "w")/52 +
+                  age_number*(unit == "d")/365 ) %>%
+  select(-age_upon_outcome, -age_number, -age_unit, -unit,
+         -datetime, -date_of_birth, -name) -> prep2DF
+
+# median impute the ages --------------------------------------
+# --- median = 0.25 ----------------------------------------------
+mCat <- median(prepDF$age[prepDF$animal_type=="Cat"], na.rm=TRUE)
+
+prep2DF$age[is.na(prep2DF$age) & prep2DF$animal_type=="Cat"] <- mCat
+
+# --- median = 1 ----------------------------------------------
+mBird <- median(prepDF$age[prepDF$animal_type=="Bird"], na.rm=TRUE)
+
+prep2DF$age[is.na(prep2DF$age) & prep2DF$animal_type=="Bird"] <- mBird
+
+# --- select the cats ---------------------------------------
+prep2DF %>% 
+  filter(animal_type == "Cat") %>%
+  select( -animal_type ) -> prepCatDF
+
+# --- indicators for key words in breed ---------------------
+add_indicators(prepCatDF, 
+               col = "breed", 
+               keywords = c("domestic", "mix", "short", 
+                           "medium", "long"),
+               prefix = "B") -> prepCatDF
+
+# --- indicators for key words in colour ---------------------
+add_indicators(prepCatDF, 
+               col = "color", 
+               keywords = c("tabby", "black", "white", 
+                            "brown", "blue"),
+               prefix = "C") -> prepCatDF
+
+# --- indicators for sex -------------------------------------
+add_indicators(prepCatDF, 
+               col = "sex", 
+               keywords = sort(unique(tolower(prepCatDF$sex))),
+               prefix = "S") -> prepCatDF
+
+# --- indicators for neuter ---------------------------------
+add_indicators(prepCatDF, 
+               col = "spay_neuter", 
+               keywords = sort(unique(tolower(prepCatDF$spay_neuter))),
+               prefix = "N") -> prepCatDF
+
+# --- keep predictors ---------------------------------------
+prepCatDF %>%
+  select( -breed, -color, -sex, -spay_neuter) -> testCatDF
+
+# --- select the dogs ---------------------------------------
+prep2DF %>% 
+  filter(animal_type == "Dog") %>%
+  select( -animal_type ) -> prepDogDF
+
+# --- indicators for key words in breed ---------------------
+add_indicators(prepDogDF, 
+               col = "breed", 
+               keywords = c("mix", "bull", "terrier", "labradour",
+                            "shepherd", "chihuahua"),
+               prefix = "B") -> prepDogDF
+
+# --- indicators for key words in colour ---------------------
+add_indicators(prepDogDF, 
+               col = "color", 
+               keywords = c("black", "white", "brown", "tan", "red"),
+               prefix = "C") -> prepDogDF
+
+# --- indicators for sex -------------------------------------
+add_indicators(prepDogDF, 
+               col = "sex", 
+               keywords = sort(unique(tolower(prepDogDF$sex))),
+               prefix = "S") -> prepDogDF
+
+# --- indicators for neuter ---------------------------------
+add_indicators(prepDogDF, 
+               col = "spay_neuter", 
+               keywords = sort(unique(tolower(prepDogDF$spay_neuter))),
+               prefix = "N") -> prepDogDF
+
+# --- keep predictors ---------------------------------------
+prepDogDF %>%
+  select( -breed, -color, -sex, -spay_neuter) -> testDogDF
+
+# --- select the cats ---------------------------------------
+prep2DF %>% 
+  filter(animal_type != "Dog" & animal_type != "Cat") -> prepRestDF
+
+# --- indicators for key words in breed ---------------------
+add_indicators(prepRestDF, 
+               col = "breed", 
+               keywords = c("bat", "raccoon", "rabbit", "opossum"),
+               prefix = "B") -> prepRestDF
+
+# --- indicators for type -------------------------------------
+add_indicators(prepRestDF, 
+               col = "animal_type", 
+               keywords = sort(unique(tolower(prepRestDF$animal_type))),
+               prefix = "T") -> prepRestDF
+
+# --- indicators for key words in colour ---------------------
+add_indicators(prepRestDF, 
+               col = "color", 
+               keywords = c("black", "gray", "brown", "white"),
+               prefix = "C") -> prepRestDF
+
+# --- indicators for sex -------------------------------------
+add_indicators(prepRestDF, 
+               col = "sex", 
+               keywords = sort(unique(tolower(prepRestDF$sex))),
+               prefix = "S") -> prepRestDF
+
+# --- indicators for neuter ---------------------------------
+add_indicators(prepRestDF, 
+               col = "spay_neuter", 
+               keywords = sort(unique(tolower(prepRestDF$spay_neuter))),
+               prefix = "N") -> prepRestDF
+
+# --- keep predictors ---------------------------------------
+prepRestDF %>%
+  select( -breed, -color, -sex, -spay_neuter, -animal_type) -> testRestDF
+
+```
+
+Now I will refit the default models and predict for the test data
+```{r}
+# --- define the task ----------------------------------------
+myTask <- TaskClassif$new( id = "cat_adoption",
+                 backend = trainCatDF,
+                 target  = "outcome_type")
+
+# --- select the learner -------------------------------------
+myLearner <- lrn("classif.xgboost", nrounds = 100,
+                 objective="multi:softprob",
+                 eval_metric="mlogloss")
+
+# --- train the model ----------------------------------------
+myLearner$train(task = myTask)
+
+# --- predict for test data ------------------
+myLearner$predict_type <- "prob"
+myPredictions <- myLearner$predict_newdata(testCatDF, myTask)
+
+myPredictions$print() %>%
+  cbind( testCatDF %>% select(id)) %>%
+  as_tibble() %>%
+  select( id, starts_with("prob")) %>%
+  rename( adoption = prob.adoption,
+          `no outcome` = `prob.no outcome`,
+          transfer = prob.transfer) -> catSubmissionDF
+
+# --- define the task ----------------------------------------
+myTask <- TaskClassif$new( id = "dog_adoption",
+                 backend = trainDogDF,
+                 target  = "outcome_type")
+
+# --- select the learner -------------------------------------
+myLearner <- lrn("classif.xgboost", nrounds = 100,
+                 objective="multi:softprob",
+                 eval_metric="mlogloss")
+
+# --- train the model ----------------------------------------
+myLearner$train(task = myTask)
+
+# --- predict for test data ------------------
+myLearner$predict_type <- "prob"
+myPredictions <- myLearner$predict_newdata(testDogDF)
+
+myPredictions$print() %>%
+  cbind( testDogDF %>% select(id)) %>%
+  as_tibble() %>%
+  select( id, starts_with("prob")) %>%
+  rename( adoption = prob.adoption,
+          `no outcome` = `prob.no outcome`,
+          transfer = prob.transfer) -> dogSubmissionDF
+
+# --- define the task ----------------------------------------
+myTask <- TaskClassif$new( id = "remainder_adoption",
+                 backend = trainRestDF,
+                 target  = "outcome_type")
+
+# --- select the learner -------------------------------------
+myLearner <- lrn("classif.xgboost", nrounds = 100,
+                 objective="multi:softprob",
+                 eval_metric="mlogloss")
+
+# --- train the model ----------------------------------------
+myLearner$train(task = myTask)
+
+# --- predict for test data ------------------
+myLearner$predict_type <- "prob"
+myPredictions <- myLearner$predict_newdata(testRestDF)
+
+myPredictions$print() %>%
+  cbind( testRestDF %>% select(id)) %>%
+  as_tibble() %>%
+  select( id, starts_with("prob")) %>%
+  rename( adoption = prob.adoption,
+          `no outcome` = `prob.no outcome`,
+          transfer = prob.transfer) -> restSubmissionDF
+
+bind_rows(catSubmissionDF, dogSubmissionDF, restSubmissionDF) %>%
+  write_csv( file.path(home, "temp/submission1.csv"))
+```
+
+I entered this file as a late submission and the score on the private leaderboard was 0.47718, which would have put the model in 7th place. 
+
+
+# What we have learned from this example
+
+The point of this analysis was to illustrate the basic use of `mlr3`. I have written an accompanying post, `Methods: Introduction to mlr3`, that gives more explanation of background to the code, including a brief discussion of object orientated programming (OOP) and the R6 package that are both fundamental to `mlr3`.
+
+I have never been a fan of `tidymodels`, so I did not expect to like to `mlr3`. I cannot say that I am a convert, but there were a number of features in `mlr3` that I quite like.  
+
+There is nothing in this analysis that I could not have completed very easily with my own code and yet, I did find that using `mlr3` produced neat and concise code. In the accompanying methods post, I discuss a few ways in which I think that `mlr3` improves on `tidymodels`; in brief, they are
+
+* what `mlr3` does is more transparent  
+* the user remains in greater control of what is happening under the bonnet    
+* intermediate results are easier to access    
+* `mlr3` is easier for the user to extend     
+* `mlr3` has a more coherent design  
+
+The big disadvantage of `mlr3` is that, unlike `tidymodels`, it has a steep learning curve. It is hard to follow what is going on without some understanding of OOP and R6.  
+
+In this analysis, I have kept the `mlr3` code very basic. The packages will do much more than I have shown, including the creation of very flexible pipelines that combine preprocessing and model fitting. I suspect that no package will be able to offer every option that I would want for preprocessing, so unless it is very easy to add your own pipe operations, I cannot see myself making much use of those facilities. 
+
+I will try out the pipe operators of `mlr3` when analysing the data from the next episode of *Sliced*.
+
+# Appendix
+
+Here is the code for the plots that I created for the exploratory analysis of the cat predictors.  
+
+```{r eval=FALSE}
+# ============================================================
+# --- plot_churn() ------------------------------------------
+# function to plot a factor and show the percent churn
+#   thisDF ... the source of the data
+#   col    ... column within thisDF
+#
+plot_animals <- function(thisDF, col) {
+  thisDF %>%
+    # --- make a missing category ----------------
+    mutate( across({{col}}, fct_explicit_na)) %>%
+    # --- calculate the percent churn ----------
+    group_by({{col}}, outcome_type) %>%
+    summarise( n = n(), .groups="drop" ) %>%
+    group_by( {{col}} ) %>%
+    ggplot( aes( x=n, y={{col}}, fill=outcome_type)) +
+    geom_bar( stat="identity") +
+    labs( y = deparse(substitute(col)), fill = NULL,
+          title=paste("Outcomes by",
+                      deparse(substitute(col))) ) +
+    theme( legend.position=c(0.9, 0.15))
+}
+```
+
+
