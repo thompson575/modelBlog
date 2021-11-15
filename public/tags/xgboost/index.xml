@@ -6,7 +6,17 @@
     <description>Recent content in xgboost on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Thu, 28 Oct 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/xgboost/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Tue, 02 Nov 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/xgboost/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Sliced Episode 10: Animal adoption</title>
+      <link>https://modelling-with-r.netlify.app/animal_adoption/</link>
+      <pubDate>Tue, 02 Nov 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/animal_adoption/</guid>
+      <description>IntroductionThe data for episode 10 of Sliced, the second round of the play-offs, relates to the adoption of abandoned or unwanted pets. Given information about the animal, such as its breed and age, the competitors had to predict a three class outcome, either, adoption, transfer or what is euphemistically called ‘no outcome’, which in reality means that the animal was put down (another euphemism).
+The data can be downloaded from https://www.</description>
+    </item>
+    
     <item>
       <title>Sliced Episode 9: Baseball home runs</title>
       <link>https://modelling-with-r.netlify.app/baseball/</link>

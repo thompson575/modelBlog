@@ -1,0 +1,592 @@
+---
+title: "Methods: PipeOps in mlr3"
+author: "John Thompson"
+date: "2002-11-10"
+layout: post
+tags:
+- mlr3
+- pipe ops
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE, fig.align = 'center', fig.width=5.5, fig.height=4)
+```
+
+
+# Introduction
+
+I'll use the Boardgame Rating data from episode 1 of Sliced to illustrate the use of `mlr3` for pre-processing. The challenge for that episode is to predict the scores given to boardgames by the boardgamegeek website (https://boardgamegeek.com/) using predictors that describe the game.
+
+This post is a continuation of *Methods: Introduction to mlr3*. If you are new to `mlr3` you ought to start with that earlier post.
+
+## Reading the data
+
+```{r}
+library(tidyverse)
+library(mlr3verse)
+
+# --- set home directory -------------------------------
+home <- "C:/Projects/kaggle/sliced/s01-e01"
+
+# --- read downloaded data -----------------------------
+trainRawDF <- readRDS( file.path(home, "data/rData/train.rds") )
+                
+testRawDF <- readRDS( file.path(home, "data/rData/test.rds") )
+
+print(trainRawDF)
+```
+
+I will not repeat the exploratory analysis, details of this can be found in my earlier post entitled *Spliced Episode 1: Boardgame Rating*. Instead I will concentrate on cleaning the data, extracting keywords from the text fields and filtering the important variables for use in the predictive model.  
+
+## PipeOps
+
+`mlr3` is an eco-system with a large range of packages including one called `mlr3pipelines`, which provides a host of different PipeOps that are combined to create analysis pipelines. Such a pipeline can include both pre-processing and model fitting, so that the whole pipeline can be used for resampling or hyperparameter tuning.  
+
+Although I will concentrate on the mechanics of creating a pipeline, the first question that we should ask is why bother. After all, I analysed these data perfectly well in my early post without any pipelines. I simply did the pre-processing using dplyr and a couple of my own functions.  
+
+There are pros and cons to using pipelines that need to be considered before we jump headlong into using them.
+
+The pros are
+
+* Pipelines provide neat, concise code  
+* PipeOps remember their own state  
+* Pipelines avoid data leakage when resampling  
+* Tuning can be performed simultaneously on model hyperparameters and hyperparameters of the pre-processing  
+
+The cons are   
+
+* Coding a pipeline is yet another skill to learn  
+* Running a complete pipeline discourages the analyst from inspecting intermediate steps  
+
+Let we expand slightly on the pros. Some pre-processing steps involve calculations based on the actual values, for instance median imputation requires the calculation of the median of the non-missing observations. A PipeOp will remember any such calculated values and they will be available for inspection or subsequent use.
+
+Some pre-processing steps, such as filtering the most important predictors, depends on the training data. The top 10 features based on the entire training set will not necessarily be the same as the top ten based on a sample of 80% of the training set. If we identify the top 10 from the entire training set and subsequently run a cross-validation or divide the training set into an estimation set and a validation set, then the validation data will have contributed towards the filtering. As a result the model performance in the validation will be artificially improved. Data will have leaked from the validation set into the model estimation.  
+
+Hyperparameter tuning is improved by a pipeline when we want to tune both the pre-processing and the model. For instance, we might want to ask whether to filter the top ten features or the top 15 or whatever. The number of features might interact with some aspect of the model, in which case it would be more efficient to tune both together. This is easier to organise if the entire analysis is controlled by a single pipeline.  
+
+The counter argument is that in practice the impact of data leakage is likely to be negligibly small and the gain in tuning efficiency will probably also be small. The pros are more theoretical than practical.  
+
+# Separate PipeOps
+
+I will create a series of separate PipeOps that perform distinct pre-processing steps. Only once I have all of the separate steps, will I combine them into a pipeline. Perhaps this is not how one would work in practice, but I think that it simplifies the explanation.
+
+## Sugar Functions
+
+There are a number of sugar (helper) functions that are intended to make `mlr3` easier to use. In my opinion these functions have been poorly named; the authors have gone for brevity over clarity. So I have decided to rename them. Here are my preferred names. It is unlikely that you will like my choices, so use your own or stick with the originals.
+
+```{r}
+# --- po() creates a pipe operator -----------------------------
+pipeOp <- function(...) po(...)
+
+# --- lrn() creates an instance of learner ---------------------
+setModel <- function(...) lrn(...)
+
+# --- rsmp() creates a resampler -------------------------------
+setSampler <- function(...) rsmp(...)
+
+# --- msr() creates a measure ----------------------------------
+setMeasure <- function(...) msr(...)
+
+# --- flt() creates a filter ----------------------------------
+setFilter <- function(...) flt(...)
+
+```
+
+If I am to test the PipeOps then I will need to place the data into a Task. See my post *Methods: Introduction to mlr3* for an explanation of Tasks in `mlr3`.
+
+```{r}
+# --- define the task ------------------------------------
+myTask <- TaskRegr$new( 
+               id      = "Boardgame rating",
+               backend = trainRawDF,
+               target  = "geek_rating")
+```
+
+### Extreme values
+
+The first pre-processing step will be to use median imputation to replace the small number of missing values. In these data, missing values are usually recorded as zero. So the pre-processing actually involves two steps, (a) replace 0 by missing  (b) replace missing by the median of the non-missing. 
+
+I will create the the PipeOps for imputing age in gentle stages and then duplicate the process for other variables. Age records the minimum recommended age for people playing the game.
+
+```{r}
+# --- dplyr: to inspect the problem ---------------------------
+myTask$data() %>%
+  { summary(.$age)}
+```
+
+The value 42 is also a bit suspect, but I will return to that later.
+```{r}
+# --- dplyr: to inspect the desired result --------------------
+myTask$data() %>%
+  filter( age > 0 ) %>%
+  { summary(.$age)}
+```
+
+### Mutation
+
+There is a PipeOp called `mutate` that can be used to edit the data (https://mlr3pipelines.mlr-org.com/reference/mlr_pipeops_mutate.html). The required mutations must refer to named columns, in this example they are saved in a list called `zeroAge`. The PipeOp `ageMutateOp` is created as an instance of `PipeOpMutate`, it is given an identifier and a set of parameters.
+
+```{r}
+library(mlr3pipelines)
+
+# --- list of required mutations --------------------------------------
+zeroAge <- list( age = ~ ifelse(age == 0, NA, age))
+
+# --- define with new -------------------------------------------------
+ageMutateOp <- PipeOpMutate$new( 
+                  id         = "age_to_missing",
+                  param_vals = list( mutation = zeroAge) )
+
+# --- or use the sugar function ---------------------------------------
+ageMutateOp <- pipeOp("mutate", 
+                      id       = "age_to_missing", 
+                      mutation = zeroAge)
+
+# --- if you do not like my names -------------------------------------
+ageMutateOp <- po("mutate", 
+                  id       = "age_to_missing", 
+                  mutation = zeroAge)
+
+# --- apply to myTask -------------------------------------------------
+ageMutateOp$train( list(myTask))[[1]]$data() %>%
+  { summary(.$age)}
+```
+
+A word of explanation about the training of ageMutateOp using myTask. PipeOps can be applied to any number of Tasks, so the Tasks are placed in a list, in this case there is only one Task so the list is a bit redundant. Training returns a list of transformed Tasks and I want the first Task in the returned list, hence [[1]]. From that Task, I take the data and after that it is the same code as I used before.  
+
+### Median Imputation
+
+The second step is median imputation for which there is a PipeOp called `imputemedian`
+
+```{r}
+# --- define with new -------------------------------------------------
+ageImputeOp <- PipeOpImputeMedian$new( id = "impute_age" )
+ageImputeOp$param_set$values$affect_columns = selector_name("age")
+
+# --- or with the sugar function --------------------------------------
+ageImputeOp <- pipeOp("imputemedian",
+                      id = "impute_age",
+                      affect_columns = selector_name("age"))
+```
+
+
+The default action for most PipeOps is to apply the same action to every predictor. In this case each predictor would be median imputed. I only want to input the age so I set `affect_columns`.
+
+From now on I will use the sugar functions with my own renaming.
+
+I'll run the two steps; zero to missing then impute missing
+```{r}
+# --- capture Task from step 1 ----------------------------
+partTask <- ageMutateOp$train( list(myTask))[[1]]
+
+# --- impute on the saved Task ----------------------------
+ageImputeOp$train( list(partTask))[[1]]$data() %>%
+  { summary(.$age)}
+```
+
+When the PipeOp are linked together in a pipeline, they can be run consecutively without the need to store the intermediate tasks.
+
+All seems well and we can see from the summary that the median age that was used for imputation was 12. This value is saved in the PipeOps `state`. The state contains a lot of information that I don't need. The important bit is the state's `model`.
+
+```{r}
+# --- extract the median ----------------------------------
+ageImputeOp$state$model
+```
+
+In this case the fitted model is just the median, which is 12. 
+
+### Mass Production
+
+The predictors min_time, max_time, avg_time, min_players and max_players also have zeros that need replacing with missing values.
+
+```{r}
+# --- PipeOp to replace zeros by missing ---------------------------------------------
+zeroMutationOp <- pipeOp( "mutate",
+                         id = "zero_to_missing",
+                         mutation = list( 
+                            age         = ~ ifelse(age == 0 , NA, age),
+                            min_time    = ~ifelse( min_time == 0, NA, min_time),
+                            max_time    = ~ifelse( max_time == 0, NA, max_time),
+                            avg_time    = ~ifelse( avg_time == 0, NA, avg_time),
+                            min_players = ~ifelse( min_players == 0, NA, min_players),
+                            max_players = ~ifelse( max_players == 0, NA, max_players) )) 
+```
+
+Median imputation of each of these predictors
+```{r}
+# --- median imputation -----------------------------------------------
+imputeMedianOp <- pipeOp( "imputemedian",
+                          id             = "median_imputation",
+                          affect_columns = selector_name(
+                              c("age", "min_time", "max_time", 
+                                "avg_time", "min_players", "max_players")))
+```
+
+### Truncation
+
+In my original analysis I decided to truncate several of the variables, for example games released before 1970 were grouped together as being from 1970. Truncations just requires more mutations, which I present without comment.
+
+```{r}
+# --- create the truncation PipeOp ------------------------
+truncationOp <- pipeOp("mutate",
+                       id = "truncate",
+                       mutation = list( 
+                          age         = ~ pmin( age, 18),
+                          max_players = ~ pmin(max_players, 25),
+                          max_time    = ~ pmin(max_time, 1000),
+                          avg_time    = ~ pmin(avg_time, (min_time+max_time)/2),
+                          year        = ~ pmax(year, 1970) ))
+```
+
+Of course I could have combined the two mutate PipeOps into one with a longer list of mutations.
+
+### Log tranformation
+
+I want to transform several of the predictors, I could do this using mutate but there is another way. The PipeOp `colapply` will apply a single function to any selection of columns.
+
+```{r}
+# --- function to apply to a set of predictors ----------------------
+logPredictorsOp <- pipeOp("colapply",
+                          id             = "log10_transform",
+                          applicator     = log10,
+                          affect_columns = selector_name(
+                                              c("age", "min_time", "max_time", 
+                                                "avg_time", "min_players", "max_players", 
+                                                "owned", "num_votes")))
+```
+
+### Target Transformation
+
+I also want to transform the response (target) but this presents an extra problem as `mlr3` will need to be able to invert the transformation when it makes predictions. As a result, there will be two outputs from the PipeOp, the transformation and its inverse. When we fit the model we need the transformation and when making predictions we need the inverse. Setting this up manually is quite tedious so `mlr3` provides a helper function `ppl()`, that does the work for you.
+
+To use the short cut you have to be able to specify the learner that you plan to use. I will use a simple linear model fitted by R's lm function.
+```{r}
+yTransform <- function(...) ppl(...)
+
+#--- define the learner --------------------------------
+regModel <- setModel("regr.lm")
+
+# --- use ppl to define the transformation --------------
+logResponseOp <- yTransform("targettrafo",
+                            graph                 = regModel,
+                            targetmutate.trafo    = function(x) log10(x - 5.5),
+                            targetmutate.inverter = function(x) list(
+                                                      response = 5.5 + 10 ^ x$response) )
+# --- inspect the resulting pipeline --------------------
+plot(logResponseOp)
+```
+
+Later I will combine this with the other PipeOps. If you want to understand what ppl() does, then there is an example in the `mlr3gallery` at https://mlr3gallery.mlr-org.com/posts/2020-06-15-target-transformations-via-pipelines/  
+
+### Extracting Key Phases
+
+The string variable `mechanic` contains phases that describe the game mechanics. They are separated by commas.
+
+```{r}
+trainRawDF %>%
+  select( mechanic)
+```
+
+`mlr3` has a PipeOp called `textvectorizer` that can extract key words from free text. It is very powerful and is built using the `quanteda` package. What we need here is rather different. We have fixed responses rather than free text and we want to note when the phases are present.  
+
+My analysis of Episode 11 of *Sliced* uses `quanteda`, but here I make a list of all of the possible phrases using good old dplyr
+
+```{r}
+# --- Extract all possible mechanisms --------------------------
+trainRawDF %>%
+    select( mechanic) %>%
+    separate(mechanic, sep=",",
+             into=paste("x", 1:10, sep=""),
+             remove=TRUE, extra="drop", fill="right" ) %>%
+    pivot_longer(everything(), values_to="terms", names_to="source" ) %>%
+    filter( !is.na(terms) ) %>%
+    mutate( terms = str_trim(terms)) %>%
+    filter( terms != "" ) %>%
+    group_by( terms) %>%
+    summarise( n = n() , .groups="drop") %>%
+    arrange( desc(n)) %>%
+    print() %>%
+    pull(terms) -> keyPhrases
+```
+
+There are 52 phrases in the dataset of which `Dice Rolling` is the most common.
+
+I'll make a tibble with 52 indicator (0/1) columns that encode whether each phase applies to that game. The code uses a map() function from `purrr`. 
+
+```{r}
+# --- named list of the phrases ------------------------------
+phrases <- as.list(keyPhrases)
+names(phrases) <- paste("M", 1:52, sep="")
+
+# --- create indicators --------------------------------------
+map_df(phrases, ~ as.numeric(str_detect(trainRawDF$mechanic, .x)) ) %>%
+  print() -> mecDF
+```
+
+I bind these indicators with trainRawDF in a re-definition of the task.
+```{r}
+myTask$cbind(mecDF)
+```
+
+The phrase extraction will not cause a problem of data leakage in a resampling design, but it could cause a problem if we were to randomly sample a set of games in which one of the rarer phrases was completely absent. This would create a predictor in which every value was zero. The PipeOp `removeconstants` will remove predictors that show no variation and would avoid this potential problem.
+
+```{r}
+# --- PipeOp to remove constant predictors --------------------------
+noConstantsOp <- pipeOp("removeconstants")
+```
+
+I did not bother to give this PipeOp an identifier as there will only ever be one removeconstants PipeOp.
+
+# Dropping Predictors
+
+Sometimes it is necessary to drop some of the potential predictors, in this example, before I fit the model, I want to drop the game identifier and all of the string variables. In doing this, those variables are removed from the list of potential predictors, they are not dropped from the data. The PipeOp `select` does the job.
+
+First, I list all current features
+```{r}
+# -- what features are available -------------------------------
+myTask$feature_types
+```
+
+Next I drop the character variables
+```{r}
+# --- drop unwanted features -----------------------------------
+dropFeaturesOp <- pipeOp("select",
+                         id = "drop_features",
+                         selector = selector_invert(
+                                      selector_union(selector_type("character"),
+                                                     selector_name("game_id") )))
+```
+
+What is left
+```{r}
+dropFeaturesOp$train(list( myTask))[[1]]$feature_names
+```
+
+# Filtering
+
+After dropping the strings and identifiers there will be 61 possible predictors. For some models it is necessary to feature select prior to model fitting, in `mlr3` this is done with a `filter`. A filter is not itself a PipeOp but once created it can be inserted into a PipeOp.
+
+There are many filters provided by the package `mlr3filters` as can be seen from https://mlr3book.mlr-org.com/appendix.html or by printing contents of the dictionary that stores their names.
+
+```{r}
+mlr_filters
+```
+
+The filter correlation is one of the simplest, it chooses the predictors with the largest absolute correlation to the response. Here is such a filter.
+
+```{r}
+# --- Create a correlation filter ----------------------------------
+corFilter <- setFilter("correlation")
+
+# --- drop strings and the id --------------------------------------
+smallTask <- dropFeaturesOp$train(list(myTask))[[1]]
+
+# --- apply correlation filter to the remaining predictors ---------
+corFilter$calculate(smallTask)
+
+# --- show the absolute correlations -------------------------------
+as.data.table(corFilter)
+```
+
+The filter calculates the statistic that is to be used in filtering but it does not itself make a selection. To do that we need to place the filter in a PipeOp.
+
+I create a PipeOp that uses this filter to pick the 10 ten correlations
+```{r}
+# --- create filtering PipeOp ---------------------------------
+corFilterOp <- pipeOp("filter", 
+                      id           = "correlation_filter",
+                      filter       = corFilter,
+                      filter.nfeat = 10)
+
+# --- apply the PipeOp to the remaining features --------------
+corFilterOp$train(list(smallTask))[[1]]$feature_names
+```
+
+Of course, the selected features might change after the predictors have been log transformed.
+
+# Making a Pipeline
+
+PipeOps are combined using the %>>% operator.
+
+```{r}
+# --- Pipeline for pre-processing -----------------
+
+  # --- zero to missing -----------
+  zeroMutationOp    %>>%
+  # --- median imputation ---------
+  imputeMedianOp    %>>%
+  # --- feature truncation --------
+  truncationOp      %>>%
+  # --- drop unwanted features ----
+  dropFeaturesOp    %>>%
+  # --- log transform -------------
+  logPredictorsOp   %>>%
+  # --- drop constant features ----
+  noConstantsOp     %>>%
+  # --- filter by correlation -----
+  corFilterOp       %>>%
+  # --- transform response --------
+  logResponseOp     -> myPipeline
+
+plot(myPipeline)
+```
+
+The pipeline can be converted in a learner so that the entire process can be trained, resampled or tuned
+
+```{r}
+# --- convert pipeline to a learner --------------------- 
+myAnalysis <- as_learner(myPipeline)
+
+# --- train: pre-process & fit model --------------------
+myAnalysis$train(myTask)
+```
+
+I could look at the fit but I would get the fit (results) for every step in the pipeline and not just the regression model.
+```{r eval=FALSE}
+# --- model results for every step in the analysis ------
+myAnalysis$model
+```
+
+For the regression model fit I need
+```{r}
+# --- not a good idea: very long -----------------------
+myAnalysis$model$regr.lm$model
+```
+This is just the returned structure of lm().
+
+I could even use everyone's favourite package, `broom`
+```{r}
+# --- table of model coefficients ----------------------
+broom::tidy(myAnalysis$model$regr.lm$model)
+```
+
+At present the correlation filter looks at the correlations before the target is transformed.
+```{r}
+# --- filter after transforming y --------------
+logResponseOp <- yTransform("targettrafo",
+                            graph                 = corFilterOp %>>% regModel,
+                            targetmutate.trafo    = function(x) log10(x - 5.5),
+                            targetmutate.inverter = function(x) list(
+                                                      response = 5.5 + 10 ^ x$response) )
+# --- redefine the pipeline ----------------------
+
+  # --- zero to missing -----------
+  zeroMutationOp    %>>%
+  # --- median imputation ---------
+  imputeMedianOp    %>>%
+  # --- feature truncation --------
+  truncationOp      %>>%
+  # --- drop unwanted features ----
+  dropFeaturesOp    %>>%
+  # --- log transform -------------
+  logPredictorsOp   %>>%
+  # --- drop constant features ----
+  noConstantsOp     %>>%
+  # --- transform response --------
+  # --- then filter, then fit -----
+  logResponseOp     -> myNewPipeline
+
+plot(myNewPipeline)
+```
+
+```{r}
+# --- make a new analysis ------------------------------
+myNewAnalysis <- as_learner(myNewPipeline)
+
+# --- run the analysis ---------------------------------
+myNewAnalysis$train(myTask)
+
+# --- table of coefficients ----------------------------
+broom::tidy(myNewAnalysis$model$regr.lm$model)
+```
+
+Notice that predictor M27 has been selected where previously we had M33.
+
+
+Even though the model has been fitted to the transformed response, the predictions are made on the original scale because the target transformation knows how to invert y.
+```{r}
+# --- predictions for the new analysis ---------------------
+myPredictions <- myNewAnalysis$predict(task = myTask)
+
+# --- predictions are on the original scale ----------------
+myPredictions$print()
+```
+
+```{r}
+broom::glance(myNewAnalysis$model$regr.lm$model)
+```
+
+The R2 value is a measure of model performance but it ignores the uncertainty over the pre-processing, in particular the filtering. This R2 value would apply if these 10 features were selected without reference to the training data. Perhaps we should cross-validate the entire analysis.
+
+```{r}
+# --- seed for reproducibility ----------------------------
+set.seed(9372)
+
+# --- define the sampler; here 10-fold cross-validation ---
+myCV <- setSampler("cv")
+
+# --- prepare the folds from myTask -----------------------
+myCV$instantiate(task = myTask)
+
+# --- run the cross-validation ----------------------------
+rsFit <- resample( task       = myTask,
+                   learner    = myNewAnalysis,
+                   resampling = myCV)
+
+# --- choose a performance measure ------------------------
+myMeasure <- setMeasure("regr.rsq")
+
+# --- look at performance across the 10 folds -------------
+rsFit$score(myMeasure)
+
+# --- average performance ---------------------------------
+rsFit$aggregate(myMeasure)
+```
+
+As expected, the cross-validated value of R2 for the entire pipeline is quite a bit lower than the output from lm() alone suggested.
+
+Why just use the top 10 features? perhaps more would be better. I will tune the number of predictors taken from the filter. 
+```{r}
+# --- use the future package to create the sessions ---------------------
+future::plan("multisession")
+
+# --- set the hyperparameters to be tuned -------------------------------
+myNewAnalysis$param_set$values$correlation_filter.filter.nfeat = to_tune(10, 50)
+
+# --- run a grid of 10 values ---------------------------------------
+set.seed(9830)
+myTuner <-  tune(
+  method = "grid_search",
+  task = myTask,
+  learner = myNewAnalysis,
+  resampling = myCV,
+  measure = myMeasure,
+  term_evals = 10,
+  batch_size = 5 
+)
+
+myTuner
+```
+
+The tuning says that 19 features is best, but I do not believe it. The R2 values from 10-fold cross-validation are themselves subject to a sampling error that is greater than any differences that we see.
+
+```{r}
+# --- plot cv R2 by number of features ------------------------------
+myTuner$archive %>%
+  as.data.table() %>%
+  as_tibble() %>%
+  ggplot( aes(x=correlation_filter.filter.nfeat, y=regr.rsq)) +
+  geom_point() +
+  geom_line()
+```
+
+I am sure that you will have spotted that correlation is a terrible filter, many of the other filters offered by `mlr3` would do much better. I should also use splines for age, num_votes and owners. 
+
+
+
+

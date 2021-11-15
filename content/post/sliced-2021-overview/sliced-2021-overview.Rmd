@@ -17,9 +17,9 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Introduction
+# Introduction 
 
-Sliced is a data science competition hosted by Nick Wan and Meg Risdal on twitch ( https://www.twitch.tv/nickwan_datasci ). In each episode, 4 data scientists with very different backgrounds are given the same dataset and in 2 hours they must explore the data and build a predictive model. As well as the training data, they are given a test set that lacks the variable to be predicted. The model that best predicts in the test data according to a specified metric, wins the prediction element of the competition, but other points are available for data visualization, golden features and popularity as voted for by chat.
+Sliced is a data science competition hosted by Nick Wan and Meg Risdal on twitch ( https://www.twitch.tv/nickwan_datasci ). In each episode, 4 data scientists with very different backgrounds are given the same dataset and in 2 hours they must explore the data and build a predictive model. As well as the training data, they are given a test set that lacks the variable to be predicted. The model that best predicts in the test data according to a specified metric, wins the prediction element of the competition, but other points are available for data visualization, golden features and popularity as voted for by chat. 
 
 The datasets are all available on kaggle and while the competition is live on twitch, members of the audience can run their own analyses and submit them so that they are assessed alongside the models of the competitors. Afterwards, anyone can download the data and submit a late entry, but it will not be added to the leaderboard.
 
@@ -374,4 +374,35 @@ In my analysis I analyse cats, dogs and other animals separately since it seems 
 Within `mlr3` I use `xgboost` to model each animal type and I run cross-validations to estimate the likely performance of each model. I also demonstrate how `mlr3` can be used to tune the hyperparameters of `xgboost`, even though I am not convinced that this is a sensible thing to do.  
 
 The model produced by my analysis does moderately well in comparison to the model on the leaderboard, but this is not the primary aim of the analysis. More important for me, is to illustrate the use of `mlr3` and to make its potential better-known. At the end, I give my opinion on the relative merits of `mlr3` and `tidymodels`. The fact that I have not used `tidymodels` for any of my analyses will give you a good clue as to which I prefer. 
+
+
+## Episode 11: Austin House Prices
+
+### Keywords
+
+mlr3; pipelines; pipe operators; tables; random forests; cross-validation; hyperparameter tuning;
+
+### Packages
+
+tidyverse; mlr3; mlr3verse; randomForest; janitor; kableExtra; quanteda;  
+
+### The data 
+
+The data for this episode can be downloaded from https://www.kaggle.com/c/sliced-s01e11-semifinals/. 
+
+## The problem
+
+The data consist of the prices of 10,000 properties from the area around Austin, Texas that were advertised by the on-line estate agent, Zillow. The house prices where categorised into 5 price bands and the objective was to predict the price band from variables that describe the property. Evaluation was by multicalss logloss.
+
+## My Analysis 
+
+I decided to use these data to continue my demonstration of the `mlr3` ecosystem of packages that I started in Episode 10. For this analysis I concentrated on the production of analysis pipelines.
+
+For the exploratory analysis, I decided to use descriptive tables in place of my more usual graphical visualizations. For many problems tables of counts or tables of means are the best way of conveying the data structure. It is my impression that tables are under-used in exploratory analyses.
+
+The property descriptors include a piece of free text produced by the estate agents to summarise the appeal of the property. I used the package `quanteda` to extract keywords from the free text and then developed am `mlr3` pipeline in which the other property descriptors were scaled while a filter was applied to the keywords so that those most significant in a Kruskal-Wallis test were kept. The combined set of scaled variables and filtered variables was then used in a random forest.  
+
+The entire pipeline was used in a cross-validation and I simultaneously tuned the number of filtered keywords and the hyperparameters of the random forest.  
+
+The analysis is a good example of the use of pipelines but it proved to be poor at predicting house price categories. I discuss why this might be.
 

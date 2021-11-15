@@ -1,7 +1,7 @@
 ---
 title: "Sliced Episode 10: Animal adoption"
 author: "John Thompson"
-date: "2021-10-02"
+date: "2021-11-02"
 layout: post
 tags:
 - Sliced

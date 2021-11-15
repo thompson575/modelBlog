@@ -1,0 +1,849 @@
+---
+title: "Sliced Episode 11: Austin House Prices"
+author: "John Thompson"
+date: "2021-11-12"
+layout: post
+tags:
+- Sliced
+- mlr3
+- pipe ops
+- tables
+- tabyl
+- kable
+- random forest
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE, fig.align = 'center', fig.width=5.5, fig.height=4)
+```
+
+# Summary:
+
+**Background:** In episode 11 of the 2021 series of *Sliced*, the competitors were given two hours in which to analyse a set of data on properties in the Austin area that were advertised on Zillow. The aim was to predict the house price, lumped into 5 categories.  
+**My approach:** I decided to use these data to illustrate the use of pipelines in mlr3. I identify commonly used words from the estate agents description of the property and use a pipeline to filter them and combine the selected keywords with the numerical descriptors of the property. I use a random forest model and measure performance using cross-validation. I tune both the number of filtered features and the hyperparameters of the random forest.
+**Result:** Performance of the model was poor.  
+**Conclusion:** The analysis provided a good illustration of the use of pipelines in `mlr3`, but it did not result in a competitive model. I found myself falling into the trap that I often see in videos on the use of `tidymodels`; insufficient attention to the intermediate steps.     
+
+# Introduction:
+
+The data for episode 11 of *Sliced 2021* can be downloaded from https://www.kaggle.com/c/sliced-s01e11-semifinals/. The competition organisers took the data from a US on-line estate agent called *Zillow*. The properties have been grouped into five price categories, which the competitors to predict. Evaluation was by multi-class logloss.
+
+I use these data to demonstrate exploratory analysis with tables and the use of pipelines in `mlr3`. The tables are produced using a combination of `dplyr`, `janitor::tabyl` and `kable`.
+
+I have written two methods posts entitled *Introduction to `mlr3`* and *Pipelines in `mlr3`*. These posts give the background needed to understand the `mlr3` components of this analysis.
+
+# Reading the data
+
+It is my practice to read the data asis and to immediately save it in rds format within a directory called data/rData. For details of the way that I organise my analyses you should read my post called `Sliced Methods Overview`.
+
+```{r}
+# --- setup: libraries & options ------------------------
+library(tidyverse)
+
+theme_set( theme_light())
+
+# --- set home directory -------------------------------
+home <- "C:/Projects/kaggle/sliced/s01-e11"
+
+# --- read downloaded data -----------------------------
+trainRawDF <- readRDS( file.path(home, "data/rData/train.rds") )
+
+testRawDF <- readRDS( file.path(home, "data/rData/test.rds") )
+```
+
+# Data Exploration:
+
+As usual, I start by summarising the training data with the `skimr` package.
+
+```{r eval=FALSE}
+# --- summarise the training set -----------------------
+skimr::skim(trainRawDF)
+```
+
+I have hidden the output, which in this case shows very little except that the training set has data on 10,000 properties and there is no missing data except for 1 house that lacks a textual description.
+
+## The response
+
+The response is called `priceRange`. It is an ordered categorical variable with 5 levels $0-$250,000, $250,000-$350,000, $350,000-$450,000, $450,000-$650,000 and $650,000+.
+
+The boundaries have been chosen to give a symmetrical distribution across the price range.
+```{r}
+# --- count of response categories ----------------------
+trainRawDF %>%
+  count( priceRange)
+```
+
+## Predictors
+
+The location of the property is given in two ways, as a city and as a latitude and longitude. Here are the house prices by city.
+
+```{r}
+library(knitr)
+library(kableExtra)
+# --- city ----------------------------------------------
+trainRawDF %>%
+  janitor::tabyl( priceRange, city) %>%
+  janitor::adorn_totals("row") %>%
+  kable(caption="House prices by City",
+        col.names=c("Price",
+                  substr(sort(unique(trainRawDF$city)),1,8))) %>%
+  kable_classic(full_width=FALSE)
+```
+
+Almost all of the houses are in Austin, so `City` will be of little use.
+
+Austin does  have a crescent shape with a wooded area that takes a bite out of the city. The expensive houses seem to be clustered in and around this bite. The cheaper housing is mostly in suburbs to the east of the city.
+
+```{r}
+# --- location ----------------------------------------
+trainRawDF %>%
+  ggplot( aes(x=longitude, y=latitude, colour=priceRange)) +
+  geom_point()
+```
+
+It looks as though the value depends on the distance from the centre, so it might be useful to plot polar coordinates.
+```{r}
+# --- polar coordinates -------------------------------
+mlat <- median(trainRawDF$latitude)
+mlon <- median(trainRawDF$longitude)
+trainRawDF %>%
+  mutate( radius = sqrt( (latitude-mlat)^2 + (longitude-mlon)^2),
+          angle = atan((latitude-mlat)/(longitude-mlon))) %>%
+    ggplot( aes(x=radius, y=angle, colour=priceRange)) +
+  geom_point()
+```
+
+The other geographical predictors relate to local schooling. As you might expect, schooling is better if you are well-off. However, the worse schools seem to have fewer students for each teacher.
+
+```{r}
+# --- table of measures of schooling -------------------
+trainRawDF %>%
+  group_by( priceRange) %>%
+  summarise( n=n(),
+             rating = mean(avgSchoolRating),
+             ratio  = mean(MedianStudentsPerTeacher),
+             .groups = "drop") %>%
+  kable( digits=2,
+         col.names = c("Price", "n", "school rating", "student ratio"),
+         caption="House prices and local schools") %>%
+  kable_classic(full_width=FALSE)
+```
+
+House type should be a useful predictor, but unfortunately most houses are described as `single family` dwellings.
+
+```{r}
+# --- home type ----------------------------------------------
+trainRawDF %>%
+  janitor::tabyl( priceRange, homeType) %>%
+  janitor::adorn_totals("row") %>%
+  kable(caption="Price by type of home",
+        col.names=c("Price",
+                  substr(sort(unique(trainRawDF$homeType)),1,6))) %>%
+  kable_classic(full_width=FALSE)
+```
+
+Indicators of size include number of bathrooms. I am never sure with Americans whether bathroom is literal. Presumably some facilities are shared giving the multiples of 0.5.
+
+```{r}
+# --- number of bathrooms -----------------------------------
+trainRawDF %>%
+  janitor::tabyl(  priceRange, numOfBathrooms) %>%
+  kable(caption="Price and the number of bathrooms")%>%
+  kable_classic(full_width=FALSE) %>%
+  add_header_above(c(" "=1,"Number of bathrooms"=15))
+```
+
+As you would expect, the trend is, the greater the number of bedrooms, the higher the price. A similar pattern can be seen in the number of bedrooms.
+
+```{r}
+# --- number of bedrooms -----------------------------------
+trainRawDF %>%
+  group_by( priceRange, numOfBedrooms) %>% 
+  summarise( n = n(), .groups="drop") %>%
+  pivot_wider(values_from=n, names_from=numOfBedrooms, values_fill=0,
+              names_sort=TRUE) %>%
+kable(caption="Price and the number of bedrooms") %>%
+  kable_classic(full_width=FALSE) %>%
+  add_header_above(c(" "=1,"Number of bedrooms"=9))
+```
+
+These are US data, so one can never be certain, but it is likely that some of the larger numbers of garage spaces refer to shared parking for a group of properties.
+```{r}
+# --- parking ---------------------------------------------
+trainRawDF %>%
+  group_by( priceRange, garageSpaces) %>% 
+  summarise( n = n(), .groups="drop") %>%
+  pivot_wider(values_from=n, names_from=garageSpaces, values_fill=0,
+              names_sort=TRUE) %>%
+  kable(caption="Price and size of garage") %>%
+  kable_classic(full_width=FALSE) %>%
+  add_header_above(c(" "=1,"Garage Spaces"=13))
+```
+
+Number of patio & porch features also show the more you get the more expensive the property.
+
+```{r}
+# --- Patio and Porch --------------------------------------
+trainRawDF %>%
+  group_by( priceRange, numOfPatioAndPorchFeatures) %>% 
+  summarise( n = n(), .groups="drop") %>%
+  pivot_wider(values_from=n, names_from=numOfPatioAndPorchFeatures,
+              values_fill=0, names_sort=TRUE) %>%
+  kable(caption="Price and Patio/Porch features") %>%
+  kable_classic(full_width=FALSE) %>%
+  add_header_above(c(" "=1,"Patio and Porch features"=9))
+```
+
+Having a spa is also associated with expensive properties.
+```{r}
+# --- Spa -------------------------------------------------
+trainRawDF %>%
+  mutate( hasSpa = factor(hasSpa, levels=c(FALSE,TRUE),
+                          labels=c("No","Yes"))) %>%
+  group_by( priceRange, hasSpa) %>% 
+  summarise( n = n(), .groups="drop") %>%
+  pivot_wider(values_from=n, names_from=hasSpa, values_fill=0,
+              names_sort=TRUE) %>%
+  kable(caption="Price and Spa") %>%
+  kable_classic(full_width=FALSE) %>%
+  add_header_above(c(" "=1,"Spa"=2))
+```
+
+The lot size in square feet shows the expected trend of larger properties costing more, but with some oddities.
+
+```{r}
+# --- area of the land -------------------------------------
+trainRawDF %>%
+  group_by( priceRange) %>%
+  summarise( n       = n(),
+             mean    = round(mean(lotSizeSqFt), 0),
+             median  = round(median(lotSizeSqFt), 0),
+             min     = min(lotSizeSqFt),
+             max     = max(lotSizeSqFt),
+             .groups = "drop") %>%
+  kable(caption="Price and size of garage") %>%
+  kable_classic(full_width=FALSE)
+```
+
+Clearly there is a data problem. There are two properties with over 10 million square feet and both are cheap.
+
+```{r}
+# --- log area by price ------------------------------------
+trainRawDF %>%
+   ggplot( aes(x=priceRange, y=log10(lotSizeSqFt))) +
+   geom_boxplot()
+```
+
+Let look at the descriptions of the largest properties.
+```{r}
+trainRawDF %>%
+  filter( lotSizeSqFt > 5000000) %>%
+  pull( description) 
+```
+
+Five million square feet equates to over 100 acres. I find it hard to believe that affordable housing is on such a grand scale [2].
+ 
+The very small lots also seem unlikely. 100 square feet is the size of a box room.
+
+Removing the extremes provides a more believable distribution.
+
+```{r}
+mSize <- median(trainRawDF$lotSizeSqFt)
+
+trainRawDF %>%
+  mutate( lotSizeSqFt = ifelse(lotSizeSqFt > 1000000 |
+                               lotSizeSqFt < 300, mSize,
+                               lotSizeSqFt) ) %>%
+  group_by( priceRange) %>%
+  summarise( n       = n(),
+             mean    = round(mean(lotSizeSqFt), 0),
+             median  = round(median(lotSizeSqFt), 0),
+             min     = min(lotSizeSqFt),
+             max     = max(lotSizeSqFt),
+             .groups = "drop") %>%
+  kable(caption="Price and size of garage") %>%
+  kable_classic(full_width=FALSE)
+```
+
+The other thing that we know is the year when the house was built; this does not look particularly predictive of price.
+
+```{r}
+# --- year built -----------------------------------
+trainRawDF %>%
+   ggplot( aes(x=priceRange, y=yearBuilt)) +
+   geom_boxplot()
+```
+
+# House Descriptions
+
+In previous posts analysing other episodes of *Slided*, I have used my own functions for handling text, but here the text is longer and unstructured so it is worth using a package. `tidytext` would do the job, but I will use `quanteda`, because `quanteda` is integrated into `mlr3` and it is a good package in its own right.
+
+Here is a function built with `quanteda` that extracts words that occur at least some specified minimum number of times.
+
+* `stopwords` are words such as "the", ""a", "and", "on", etc  
+* `stems` are the roots of words, so "bedroom" and "bedrooms" are united as "bedroom", "great" and "greatly" are combined and so on.  
+
+```{r}
+# --- function to extract common words -------------------------
+# arguments 
+#   text ... vector of character strings (the text)
+#   minCount ... words must occur at least this many times
+#   minLength ... minimum length of an eligible word
+#   prefix ... prefix for a variable that counts the number of 
+#              occurrences in each string
+# returns
+#   tibble containing the indicators.
+#
+# uses the quanteda package
+#
+text_indicators <- function(text, minCount, minLength,
+                            prefix="X") {
+  library(quanteda)
+  
+  # --- extract the words -------------------------
+  tokens(text, remove_punct=TRUE, 
+               remove_numbers=TRUE, 
+               remove_symbols=TRUE)  %>%
+  # --- remove English stopwords ------------------
+     tokens_remove(stopwords("en")) %>% 
+  # --- find words stems --------------------------
+     tokens_wordstem() %>%
+  # --- create indicators -------------------------
+     dfm() %>%
+     as.matrix() %>%
+     as_tibble() -> mDF
+  # --- remove if too rare  -----------------------
+  mDF[, names(mDF)[apply(mDF, 2, sum) >= minCount]] -> mDF
+  # --- remove if too ahort -----------------------
+  mDF[, names(mDF)[str_length(names(mDF)) >= minLength]] -> mDF
+  # --- create variable names ---------------------
+  keywords <- names(mDF) 
+  names(mDF) <- paste(prefix, ".", names(mDF), sep="") 
+  return( mDF)
+}
+```
+
+I will use the function to extract common words from the property description and construct indicator variables to show the number of times that the words occur in each description.
+
+```{r}
+# --- DF of indicators for commonly occurring words --------------------
+trainRawDF %>%
+  mutate( description = ifelse( is.na(description), "", description)) %>%
+  { text_indicators(.[["description"]], 
+                    200, 3, 
+                    prefix = "desc")} %>%
+  print() -> indicatorDF
+```
+
+It would be interesting to know which words are associated with price. I will use a kruskal-wallis nonparameteric test to assess the association
+```{r}
+# --- kruskal-wallis test of counts vs priceRange ------------------
+trainRawDF %>%
+  select( priceRange) %>%
+  bind_cols(indicatorDF) %>%
+  pivot_longer(starts_with("d"), names_to="var", values_to="count") %>%
+  group_by( var) %>%
+  summarise( p = kruskal.test(count, priceRange)$p.value, .groups="drop") %>%
+  filter( p < 0.05) %>% 
+  arrange( p ) %>% 
+  print()             -> keyVarDF
+```
+
+`indicatorDF` contains 394 words that occur at least 200 times in the property descriptions and `keyvarDF` contains 293 words that show a nominally significant relationship with `priceRange`. 
+
+# Pre-processing
+
+I want to continue the theme from episode 10 and illustrate some more aspects of `mlr3`. In particular, I want to run the pre-process using `mlr3` rather than writing my own code as I usually do. My eventual plan for the analysis is to use a random forest model.
+
+The data cleaning will consist of
+
+* convert `priceRange` from a character to a factor  
+* if `description` is missing replace it with an empty string  
+* convert the logical `hasSpa` to a numerical 0/1  
+* encode the factors `city` and `hometype` as indicators (dummy variables)  
+* encode the keywords from the `description`  
+
+Having cleaned the data, I plan to introduce a filter whereby I select the best keywords for inclusion in the predictive model. I will treat the number of keywords, n, as a hyperparameter and tune the model to find the best value of n.
+
+
+## Data cleaning
+
+First I perform those pre-processing steps that I judge will not change materially whether I run them on the full training data or a subset of it, i.e. I do not anticipate a problem of data leakage.
+
+```{r}
+library(tidyverse)
+
+# --- set home directory -------------------------------
+home <- "C:/Projects/kaggle/sliced/s01-e11"
+
+# --- read downloaded data -----------------------------
+trainRawDF <- readRDS( file.path(home, "data/rData/train.rds") ) %>%
+                mutate( priceRange = factor(priceRange))
+
+testRawDF <- readRDS( file.path(home, "data/rData/test.rds") )
+
+# --- function to clean a data set ---------------------
+pre_process <- function(thisDF) {
+   # --- median lat and long ---------------------------
+   mlat  <- median(trainRawDF$latitude)
+   mlon  <- median(trainRawDF$longitude)
+   # --- median lot size -------------------------------
+   mSize <- median(trainRawDF$lotSizeSqFt)
+
+   thisDF %>%
+      # --- city = Austin or Other ---------------------
+      mutate( city = factor(city=="austin", levels=c(TRUE, FALSE),
+                           labels=c("Austin", "Other")),
+      # --- combine multiple categories ----------------
+              homeType  = factor( 
+                          ifelse( homeType == "MultiFamily" | 
+                                  homeType == "Multiple Occupancy", 
+                                  "Multiple", homeType)),
+      # --- remove extreme lot sizes -------------------
+              lotSizeSqFt = ifelse(lotSizeSqFt > 1000000 |
+                               lotSizeSqFt < 300, mSize,
+                               lotSizeSqFt),
+      # --- missing description converted to "" --------
+              description = ifelse( is.na(description), "",
+                                    description),
+      # --- hasSpa to numeric (0/1) --------------------
+              hasSpa = as.numeric(hasSpa),
+      # --- polar coordinates --------------------------
+              radius = sqrt( (latitude-mlat)^2 + (longitude-mlon)^2),
+              angle = atan((latitude-mlat)/(longitude-mlon)))  %>%
+  return()
+}
+
+trainDF <- pre_process(trainRawDF)
+
+# --- combine indicators with clean training data -----
+trainDF <- bind_cols( trainDF %>% 
+                      select( -description, -uid),
+                      indicatorDF)
+
+# --- remove the hyphens from the column names ------------
+names(trainDF) <- str_replace_all(names(trainDF), "-", "_")
+
+trainDF
+```
+
+# Modelling
+
+### Task definition
+
+I will now switch to `mlr3`. The first job is to define the task, which in this case is to classify `priceRange` using `trainDF`. 
+
+```{r}
+library(mlr3verse)
+
+myTask <- TaskClassif$new( 
+               id      = "Austin housing",
+               backend = trainDF,
+               target  = "priceRange")
+```
+
+### PipeOps
+
+As I explain in my post "Methods: Pipelines in `mlr3`*. I do not like the names that `mlr3` gives to its helper functions; the names are to short for my taste and I keep forgetting what they do. So I have renamed them. You, of course, are free to use the original names.
+
+```{r}
+# === NEW NAMES FOR THE HELPER FUNCTIONS =======================
+
+# --- po() creates a pipe operator -----------------------------
+pipeOp <- function(...) po(...)
+
+# --- lrn() creates an instance of learner ---------------------
+setModel <- function(...) lrn(...)
+
+# --- rsmp() creates a resampler -------------------------------
+setSampler <- function(...) rsmp(...)
+
+# --- msr() creates a measure ----------------------------------
+setMeasure <- function(...) msr(...)
+
+# --- flt() creates a filter ----------------------------------
+setFilter <- function(...) flt(...)
+```
+
+I want to convert the two factors (city and homeType) into dummy variables. I could have done this in `dplyr`, but it is a good example to start with, when explaining pre-processing in `mlr3`.
+
+I define two encoding `PipeOps` using `mlr3`s helper (sugar) function `po()`, renamed `pipeOp`. `treatment` encoding omits the first level of the factor, so I get a single numeric variable that is 0 for Austin and 1 for Other. homeType has 5 levels and I opt for `one-hot` encoding; this give 5 indicators one for each level.
+
+The two `PipeOps` are given the names `encCityOp` and `encHomeTypeOp`. 
+```{r}
+# --- encode City ----------------------------------
+encCityOp = pipeOp("encode", 
+                   id             = "encCity", 
+                   method         = "treatment",
+                   affect_columns = selector_name("city"))
+
+# --- encode HouseType -----------------------------
+encHomeTypeOp = pipeOp("encode", 
+                       id             = "encHome", 
+                       method         = "one-hot",
+                       affect_columns = selector_name("homeType"))
+```
+
+
+Next I want to run a filter on the features, 394 is simply too many for a random forest and I am sure that most of them would not contribute. `mlr3` offers a wide range of filters. They are stored in a dictionary and we can list them
+
+```{r}
+library("mlr3filters")
+
+mlr_filters
+```
+
+I stick with the kruskal-wallis test that I used earlier and create a filter using the helper function `flt()` renamed to `setFilter()`
+
+```{r}
+kwFilter <- setFilter("kruskal_test") 
+```
+
+I need to put this filter into a PipeOp and then add it to the pipeline. To start with I will perform the K-W test and then pick the top 20 features.
+
+Individual `PipeOps` can operate on multiple tasks, but a pipeline always starts with a single set of data, so not need for a list() when I train a pipeline.
+```{r}
+kwFilterOp <- pipeOp("filter",
+                     filter       = kwFilter,
+                     filter.nfeat = 20)
+```
+
+Let's see which features would get selected.
+
+```{r}
+encCityOp %>>%
+  encHomeTypeOp %>>%
+  kwFilterOp     ->   myPipeline
+
+myPipeline$train( myTask)
+```
+
+Latitude does not make the top 20 features, which I find surprising. The likely reason is that `radius` was preferred. 
+
+In the spirit of the demonstration of pieplines, I'll suppose that I want to force `latitude` into the model. In fact, I go further and  pick out all of the continuous variables and force them into the feature set and I'll run the filter only on the indicator variables.
+
+Here are the names of the features that I will select from
+```{r}
+# --- description indicators ---------------------------------
+trainDF %>%
+  select( starts_with("desc")) %>%
+  names() %>%
+  print() -> descVars
+```
+
+Here is my plan. I'll duplicate the data, from one copy I'll extract the continuous features and scale them (using median and MAD), from the other copy of the data I'll extract the description features and then I'll run the filter on them selecting the top 20. Finally, I'll combine the two sets of selected features.
+
+Several of the PipeOps are defined in place when I create the pipeline.
+```{r}
+# --- PipeOp to select non-description variables -------------------
+selectOrigOp <- pipeOp("select", 
+                       id       = "selectOriginal",
+                       selector = selector_invert(selector_name(descVars)))
+
+# --- PipeOp to select description variables --------------
+selectDescOp <- pipeOp("select", 
+                       id       = "selectDescOp",
+                       selector = selector_name(descVars))
+
+# --- Create a branched pipeline ---------------------------------
+encCityOp %>>%
+encHomeTypeOp %>>%
+pipeOp("copy", outnum = 2) %>>%
+gunion(list( 
+  # --- branch 1 ----
+  selectOrigOp %>>%
+    pipeOp("scale", robust=TRUE),
+  # --- branch 2 ----
+  selectDescOp %>>%
+    kwFilterOp )
+  ) %>>%
+pipeOp("featureunion") -> myPipeline
+
+# --- Plot the pipeline ------------------------------------------
+plot(myPipeline)
+
+# --- train the pipeline -----------------------------------------
+myPipeline$train(myTask)
+```
+
+We now have 43 features, the 23 features from the original data that I forced into the feature set and the best 20 of the description variables as selected by the filter.
+
+The last step is to add a learner to the pipeline. I have decided to use the `randomForest` package. As it happens, this is not one of `mlr3` standard set of learners, so I need to load the package `mlr3extralearners`, which contains details of many more, including `randomForest`. Importantly, it is relatively easy to add your own learners if the one you want is not in the package.
+
+I would not usually build a pipeline by first saving the constituent PipOps, but rather I would define them all in place. So I'll rewrite the pipeline in that style
+```{r}
+# --- load the extra learners --------------------------
+library(mlr3extralearners)
+
+# --- factor encoding ----------------------------
+pipeOp("encode", 
+       id             = "encCity", 
+       method         = "treatment",
+       affect_columns = selector_name("city")) %>>%
+pipeOp("encode", 
+       id             = "encHome", 
+       method         = "one-hot",
+       affect_columns = selector_name("homeType")) %>>%
+# --- make two copies of the data ----------------
+pipeOp("copy", outnum = 2) %>>%
+gunion(list( 
+  # --- branch 1 ----
+  # --- Select original predictors ---------------
+  pipeOp("select", 
+         id       = "selectOriginal",
+         selector = selector_invert(selector_name(descVars))) %>>%
+  # --- scale robustly ---------------------------
+  pipeOp("scale", robust=TRUE),
+  # --- branch 2 ----
+  # --- select description predictors ------------
+  pipeOp("select", 
+         id       = "selectDescOp",
+         selector = selector_name(descVars)) %>>%
+  # --- filter using Kruskal-Wallis --------------
+  pipeOp("filter",
+         filter       = setFilter("kruskal_test"),
+         filter.nfeat = 20) 
+  ) ) %>>%
+# --- join the two branches ----------------------
+pipeOp("featureunion") %>>%
+# --- add the learner ----------------------------
+pipeOp("learner", 
+       learner = setModel("classif.randomForest")) -> myPipeline
+```
+
+I want to treat this entire pipeline as a giant learner, what `mlr3` calls a `graph learner`.
+
+```{r}
+# --- treat the whole pipeline as a learner -------------------
+myAnalysis = as_learner(myPipeline)
+```
+
+Now I can treat `myAnalysis` in the same way I would any other learner. For example, I can run cross-validation to see how well the model would perform. The calculation is quite slow, even though the folds run in parallel, so I save the result in a folder called `dataStore`.
+
+The prediction type has to be set to probability rather than a price category so that we will be able to calculate the multi-class logloss.
+
+```{r eval=FALSE}
+# --- cross-validate the full pipeline ---------------------
+
+# --- use multiple sessions --------------------------------
+future::plan("multisession")
+
+# --- define the cross-validation design -------------------
+cvDesign <- setSampler("cv", folds=5)
+
+# --- create the folds -------------------------------------
+set.seed(9822)
+cvDesign$instantiate(myTask)
+
+# --- predict probabilities so that logloss can be found ---
+myAnalysis$predict_type <- "prob"
+
+# --- run the cross-validation -----------------------------
+resample( task       = myTask,
+          learner    = myAnalysis,
+          resampling = cvDesign)  %>%
+   saveRDS(file.path(home, "data/dataStore/cv_rf.rds"))
+
+# --- switch off session -------------------------------
+future::plan("sequential")
+```
+
+Read the results and calculate the logloss.
+
+```{r}
+# --- read cross-validation results -------------------------
+cvRF <- readRDS(file.path(home, "data/dataStore/cv_rf.rds"))
+
+# --- select logloss as the performance measure -------------
+myMeasure <- setMeasure("classif.logloss")
+
+# --- performance in each fold ------------------------------
+cvRF$score(myMeasure)
+
+# --- overall performance -----------------------------------
+cvRF$aggregate(myMeasure)
+```
+
+The whole pipeline has been cross-validated. So when the filter is run, the kruskal-wallis test is run on the current estimation set, which means that the 5 models might be using different sets of predictors.
+
+A logloss of 0.934 is not great; the leader in the *Sliced* competition scored 0.87 on the test data; a logloss of 0.934 would put the model around 20th.
+
+However, we have made no attempt to tune the model. I'm sceptical, but let's see if it makes a difference. Perhaps, the number of trees will need to be changed. So far I have relied on the default hyperparameter values.
+
+# Tuning
+
+Let's look at the parameters that are available for tuning
+```{r}
+myAnalysis$param_set
+```
+I can tune any aspect of the pipeline.
+
+I'll pick 3 hyperparameters, `nfeat`, the number of features taken from the filter and `mtry` and `ntrees` from `randomForest` and I set limits on the search space. `mlr3` knows when a parameter has to be an integer.
+
+```{r}
+# --- set hyperparameters -----------------------------------
+myAnalysis$param_set$values$kruskal_test.filter.nfeat  <- to_tune(10, 100)
+myAnalysis$param_set$values$classif.randomForest.mtry  <- to_tune(10, 30)
+myAnalysis$param_set$values$classif.randomForest.ntree <- to_tune(250, 750)
+```
+
+In the interests of time I take 10 random combinations of hyperparameters within the specified ranges. Of course, `mlr3` offers a lot of different search strategies. In fact, compared with other strategies, random search usually does better that you might suspect.
+
+The tuning is slow, so I save the result in the dataStore.
+```{r eval=FALSE}
+# --- use multiple sessions -----------------------------
+future::plan("multisession")
+
+# --- run tuning ----------------------------------------
+set.seed(9830)
+tune(
+  method     = "random_search",
+  task       = myTask,
+  learner    = myAnalysis,
+  resampling = cvDesign,
+  measure    = myMeasure,
+  term_evals = 10,
+  batch_size = 5 
+) %>%
+saveRDS(file.path(home, "data/dataStore/tune_rf.rds"))
+
+# --- switch off sessions -------------------------------
+future::plan("sequential")
+```
+
+Look at the results of the tuning
+```{r}
+# --- inspect result ----------------------------------------
+readRDS( file.path(home, "data/dataStore/tune_rf.rds")) %>%
+  print()
+```
+
+Not a great result given that the best result is 0.930 and without tuning we got 0.934 and our target is 0.87
+
+The best result is achieved when `nfeat`is 70, `mtry` is 29 and `ntree`is 712. Both `ntree` and `mtry` are close to the top of the range that I allowed so perhaps I should try larger values. WHat stops me is the fact that the improvement has been so small. I think that the real message is that the hyperparameters make little difference.
+
+## Submission
+
+I have a terrible model, none the less I'll make a submission. I am sure that the model will perform poorly, but I want to show how `mlr3` handles the test data.
+
+```{r}
+# --- pre-process the test data -------------------------
+testDF <- pre_process(testRawDF)
+
+# --- set text indicators -----------------------------
+testIndDF <- NULL
+testDF$description <- tolower(testDF$description)
+
+for( v in names(indicatorDF) ) {
+  word <- str_replace(v, "desc.", "")
+  testIndDF[[ v]] <- as.double(str_count(testDF$description, word))
+}
+as_tibble(testIndDF)
+
+# --- combine indicators with clean test data -----
+testDF <- bind_cols( testDF %>% 
+                        select( -description),
+                      as_tibble(testIndDF))
+
+# --- remove the hyphens from the column names ------------
+names(testDF) <- str_replace_all(names(testDF), "-", "_")
+
+testDF
+```
+
+Create the pipeline with nfeat=20.
+```{r}
+# --- factor encoding ----------------------------
+pipeOp("encode", 
+       id             = "encCity", 
+       method         = "treatment",
+       affect_columns = selector_name("city")) %>>%
+pipeOp("encode", 
+       id             = "encHome", 
+       method         = "one-hot",
+       affect_columns = selector_name("homeType")) %>>%
+# --- make two copies of the data ----------------
+pipeOp("copy", outnum = 2) %>>%
+gunion(list( 
+  # --- branch 1 ----
+  # --- Select original predictors ---------------
+  pipeOp("select", 
+         id       = "selectOriginal",
+         selector = selector_invert(selector_name(descVars))) %>>%
+  # --- scale robustly ---------------------------
+  pipeOp("scale", robust=TRUE),
+  # --- branch 2 ----
+  # --- select description predictors ------------
+  pipeOp("select", 
+         id       = "selectDescOp",
+         selector = selector_name(descVars)) %>>%
+  # --- filter using Kruskal-Wallis --------------
+  pipeOp("filter",
+         filter       = setFilter("kruskal_test"),
+         filter.nfeat = 20) 
+  ) ) %>>%
+# --- join the two branches ----------------------
+pipeOp("featureunion") %>>%
+# --- add the learner ----------------------------
+pipeOp("learner", 
+       learner = setModel("classif.randomForest")) -> myPipeline
+
+myAnalysis = as_learner(myPipeline)
+myAnalysis$predict_type <- "prob"
+
+# --- fit the model to the training data -------------------
+myAnalysis$train(myTask)
+
+# --- create predictions for test set ----------------------
+myPredictions <- myAnalysis$predict_newdata(testDF)
+
+# --- create submission ------------------------------------
+myPredictions$print() %>%
+  cbind( testDF %>% select(uid)) %>%
+  as_tibble() %>%
+  select( uid, starts_with("prob")) %>%
+  rename( `0-250000` = `prob.0-250000`,
+          `250000-350000` = `prob.250000-350000`,
+          `350000-450000` = `prob.350000-450000`,
+          `450000-650000` = `prob.450000-650000`,
+          `650000+` = `prob.650000+`) %>%
+  write_csv( file.path(home, "temp/submission1.csv"))
+```
+
+This model scores 0.923, which is rather disappointing. No, it is not disappointing, it is terrible. The question is, why?
+
+I have been pre-occupied with creating a pipeline in `mlr3`, so perhaps I have taken my eye off the main target, which is, of course, creating a good predictive model.
+
+Although not reported, I did try `xgboost` in place of `randomForest` and I got a very similar cross-validated logloss. So the problem appears to lie in the feature selection rather than in the model. The `mlr3` team is working on a package called `mlr3ordinal`, which ought to be ideal for this problem, but unfortunately it has not been released yet (https://github.com/mlr-org/mlr3ordinal).  
+
+
+# What we have learned from this example
+
+I have used these data to demonstrate pipelines in `mlr3` and at the end, I produced a poorly performing model. The question is, to what extent is this the fault of pipelines? I am not suggesting that the problem is in `mlr3`s implementation of pipelines, but rather in the very idea of setting up a pipeline.  
+
+My prejudice is that black box methods tend to lead to poor analyses because the analyst is discouraged from checking the intermediate stages. Perhaps errors creep in unnoticed or unusual aspects of the data that require special treatment are missed.  
+
+In the case of the Zillow data, the pipeline was quite simple but I did not check the distributions of the scaled variables and I did not investigate which of the words from the description made it into the model. Of course, there are other decisions that I made outside of the pipeline, that in retrospect I could have checked more carefully. Was it sensible to recode City into Austin and not Austin? Did I recode home type in an appropriate way? What was the effect of including both latitude and longitude and their polar coordinate equivalents?  
+
+I must not blame pipelines for my own failings, but I remain convinced of two things,  
+
+* involvement of the analyst in all stages of the analysis lead to better models  
+* pipelines discourage analyst involvement in the intermediate steps 
+
+Perhaps, the problem is not pipelines but in the way that I use them. There ought to be a way of working that takes advantage of the efficiencies of a pipeline, without losing the essential feel for what is going on.
+
+I like `mlr3`'s design and the logical way in which it is programmed. It is possible for the user to extend the options by writing their own learner, measure or pipe operator. I think that it would help if there were a PipeOp that wrote information to file whenever the pipeline passed through that operation. So, for example, after filtering I could insert a PipeOp that would write the names of selected features and their selection statistics to a file; either creating a series of rds files or appending to a single text file as I felt appropriate. This would enable easier checking of intermediate steps.  
+
+I cannot leave the model in its current unsatisfactory state. I don't know if I have made a silly error, or I have missed an important aspect of the data or if random forests were a poor choice of algorithm or if some other decision that I made was inappropriate. I need to look more closely at the problem, but I am already over 3,000 words, which is more than enough. 
+
+My plan is to return to the *Sliced* datasets and to analyse each of them in a different way. Currently, I have in mind a series on Bayesian models, a series on modelling in Julia and a series on neural networks. So I will return to these data in the future. I hope with better results.
+
+
+
+
+

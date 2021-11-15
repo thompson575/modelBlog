@@ -384,6 +384,32 @@
 <p>Based on my experience of using xgboost in earlier episodes of <em>Sliced</em>, I subjective choose what I though would be a better set of hyperparameters and I created a model that would have topped the leaderboard.</p>
 <p>The top five models on the leaderboard all had similar performance and the difference between my model and anyone of these is meaningless. I argue that one should not take the position on the leaderboard too seriously.</p>
 </div>
+<div id="episode-10animal-adoption" class="section level2">
+<h2>Episode 10:Animal adoption</h2>
+<div id="keywords-9" class="section level3">
+<h3>Keywords</h3>
+<p>mlr3; xgboost; cross-validation; hyperparameter tuning;</p>
+</div>
+<div id="packages-9" class="section level3">
+<h3>Packages</h3>
+<p>tidyverse; mlr3; mlr3verse; xgboost;</p>
+</div>
+<div id="the-data-9" class="section level3">
+<h3>The data</h3>
+<p>The data for this episode can be downloaded from <a href="https://www.kaggle.com/c/sliced-s01e10-playoffs-2/overview/description" class="uri">https://www.kaggle.com/c/sliced-s01e10-playoffs-2/overview/description</a>.</p>
+</div>
+</div>
+<div id="the-problem-9" class="section level2">
+<h2>The problem</h2>
+<p>The data describe the fates of 54,408 animals abandoned or rescued between 7th Nov 2015 and 1 Feb 2018 in, I think, USA. The objective is to predict whether the animal was adopted, transferred to another facility or put down. Evaluation was by logloss.</p>
+</div>
+<div id="my-analysis-9" class="section level2">
+<h2>My Analysis</h2>
+<p>I decided to use these data to illustrate the use of the <code>mlr3</code> ecosystem of packages. Although, <code>tidymodels</code> is well-known and much used, <code>mlr3</code>, which does much the same job, is hardly known at all outside of a small group of enthusiasts. This is a great shame because in many respects <code>mlr3</code> is better than <code>tidymodels</code>.</p>
+<p>In my analysis I analyse cats, dogs and other animals separately since it seems to me that the predictors that are relevant to the adoption of cats will be very different to those that are important for bats or squirrels.</p>
+<p>Within <code>mlr3</code> I use <code>xgboost</code> to model each animal type and I run cross-validations to estimate the likely performance of each model. I also demonstrate how <code>mlr3</code> can be used to tune the hyperparameters of <code>xgboost</code>, even though I am not convinced that this is a sensible thing to do.</p>
+<p>The model produced by my analysis does moderately well in comparison to the model on the leaderboard, but this is not the primary aim of the analysis. More important for me, is to illustrate the use of <code>mlr3</code> and to make its potential better-known. At the end, I give my opinion on the relative merits of <code>mlr3</code> and <code>tidymodels</code>. The fact that I have not used <code>tidymodels</code> for any of my analyses will give you a good clue as to which I prefer.</p>
+</div>
 </div>
 
   

@@ -1,0 +1,932 @@
+---
+title: "Methods: PipeOps in mlr3"
+author: "John Thompson"
+date: "2021-11-10"
+layout: post
+tags:
+- mlr3
+- pipe ops
+- mlr3 pipelines
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>I’ll use the Boardgame Rating data from episode 1 of Sliced to illustrate the use of <code>mlr3</code> for pre-processing. The challenge for that episode is to predict the scores given to boardgames by the boardgamegeek website (<a href="https://boardgamegeek.com/" class="uri">https://boardgamegeek.com/</a>) using predictors that describe the game.</p>
+<p>This post is a continuation of <em>Methods: Introduction to mlr3</em>. If you are new to <code>mlr3</code> you ought to start with that earlier post.</p>
+<div id="reading-the-data" class="section level2">
+<h2>Reading the data</h2>
+<pre class="r"><code>library(tidyverse)
+library(mlr3verse)
+
+# --- set home directory -------------------------------
+home &lt;- &quot;C:/Projects/kaggle/sliced/s01-e01&quot;
+
+# --- read downloaded data -----------------------------
+trainRawDF &lt;- readRDS( file.path(home, &quot;data/rData/train.rds&quot;) )
+                
+testRawDF &lt;- readRDS( file.path(home, &quot;data/rData/test.rds&quot;) )
+
+print(trainRawDF)</code></pre>
+<pre><code>## # A tibble: 3,499 x 26
+##    game_id names min_players max_players avg_time min_time max_time  year
+##      &lt;dbl&gt; &lt;chr&gt;       &lt;dbl&gt;       &lt;dbl&gt;    &lt;dbl&gt;    &lt;dbl&gt;    &lt;dbl&gt; &lt;dbl&gt;
+##  1   17526 Heca~           2           4       30       30       30  2005
+##  2     156 Wild~           2           6       60       60       60  1985
+##  3    2397 Back~           2           2       30       30       30 -3000
+##  4    8147 Maka~           2           6       60       45       60  2003
+##  5   92190 Supe~           2           6      120      120      120  2011
+##  6    1668 Mode~           2           6       90       90       90  1989
+##  7   28089 Chât~           2           4       30       30       30  2007
+##  8    4854 7th ~           2           2      120      120      120  1987
+##  9   75333 Targ~           1           4       90       90       90  2010
+## 10   21791 Maso~           2           4       45       45       45  2006
+## # ... with 3,489 more rows, and 18 more variables: geek_rating &lt;dbl&gt;,
+## #   num_votes &lt;dbl&gt;, age &lt;dbl&gt;, mechanic &lt;chr&gt;, owned &lt;dbl&gt;, category1 &lt;chr&gt;,
+## #   category2 &lt;chr&gt;, category3 &lt;chr&gt;, category4 &lt;chr&gt;, category5 &lt;chr&gt;,
+## #   category6 &lt;chr&gt;, category7 &lt;chr&gt;, category8 &lt;chr&gt;, category9 &lt;chr&gt;,
+## #   category10 &lt;chr&gt;, category11 &lt;chr&gt;, category12 &lt;chr&gt;, designer &lt;chr&gt;</code></pre>
+<p>I will not repeat the exploratory analysis, details of this can be found in my earlier post entitled <em>Spliced Episode 1: Boardgame Rating</em>. Instead I will concentrate on cleaning the data, extracting keywords from the text fields and filtering the important variables for use in the predictive model.</p>
+</div>
+<div id="pipeops" class="section level2">
+<h2>PipeOps</h2>
+<p><code>mlr3</code> is an eco-system with a large range of packages including one called <code>mlr3pipelines</code>, which provides a host of different PipeOps that are combined to create analysis pipelines. Such a pipeline can include both pre-processing and model fitting, so that the whole pipeline can be used for resampling or hyperparameter tuning.</p>
+<p>Although I will concentrate on the mechanics of creating a pipeline, the first question that we should ask is why bother. After all, I analysed these data perfectly well in my early post without any pipelines. I simply did the pre-processing using dplyr and a couple of my own functions.</p>
+<p>There are pros and cons to using pipelines that need to be considered before we jump headlong into using them.</p>
+<p>The pros are</p>
+<ul>
+<li>Pipelines provide neat, concise code<br />
+</li>
+<li>PipeOps remember their own state<br />
+</li>
+<li>Pipelines avoid data leakage when resampling<br />
+</li>
+<li>Tuning can be performed simultaneously on model hyperparameters and hyperparameters of the pre-processing</li>
+</ul>
+<p>The cons are</p>
+<ul>
+<li>Coding a pipeline is yet another skill to learn<br />
+</li>
+<li>Running a complete pipeline discourages the analyst from inspecting intermediate steps</li>
+</ul>
+<p>Let we expand slightly on the pros. Some pre-processing steps involve calculations based on the actual values, for instance median imputation requires the calculation of the median of the non-missing observations. A PipeOp will remember any such calculated values and they will be available for inspection or subsequent use.</p>
+<p>Some pre-processing steps, such as filtering the most important predictors, depends on the training data. The top 10 features based on the entire training set will not necessarily be the same as the top ten based on a sample of 80% of the training set. If we identify the top 10 from the entire training set and subsequently run a cross-validation or divide the training set into an estimation set and a validation set, then the validation data will have contributed towards the filtering. As a result the model performance in the validation will be artificially improved. Data will have leaked from the validation set into the model estimation.</p>
+<p>Hyperparameter tuning is improved by a pipeline when we want to tune both the pre-processing and the model. For instance, we might want to ask whether to filter the top ten features or the top 15 or whatever. The number of features might interact with some aspect of the model, in which case it would be more efficient to tune both together. This is easier to organise if the entire analysis is controlled by a single pipeline.</p>
+<p>The counter argument is that in practice the impact of data leakage is likely to be negligibly small and the gain in tuning efficiency will probably also be small. The pros are more theoretical than practical.</p>
+</div>
+</div>
+<div id="separate-pipeops" class="section level1">
+<h1>Separate PipeOps</h1>
+<p>I will create a series of separate PipeOps that perform distinct pre-processing steps. Only once I have all of the separate steps, will I combine them into a pipeline. Perhaps this is not how one would work in practice, but I think that it simplifies the explanation.</p>
+<div id="sugar-functions" class="section level2">
+<h2>Sugar Functions</h2>
+<p>There are a number of sugar (helper) functions that are intended to make <code>mlr3</code> easier to use. In my opinion these functions have been poorly named; the authors have gone for brevity over clarity. So I have decided to rename them. Here are my preferred names. It is unlikely that you will like my choices, so use your own or stick with the originals.</p>
+<pre class="r"><code># --- po() creates a pipe operator -----------------------------
+pipeOp &lt;- function(...) po(...)
+
+# --- lrn() creates an instance of learner ---------------------
+setModel &lt;- function(...) lrn(...)
+
+# --- rsmp() creates a resampler -------------------------------
+setSampler &lt;- function(...) rsmp(...)
+
+# --- msr() creates a measure ----------------------------------
+setMeasure &lt;- function(...) msr(...)
+
+# --- flt() creates a filter ----------------------------------
+setFilter &lt;- function(...) flt(...)</code></pre>
+<p>If I am to test the PipeOps then I will need to place the data into a Task. See my post <em>Methods: Introduction to mlr3</em> for an explanation of Tasks in <code>mlr3</code>.</p>
+<pre class="r"><code># --- define the task ------------------------------------
+myTask &lt;- TaskRegr$new( 
+               id      = &quot;Boardgame rating&quot;,
+               backend = trainRawDF,
+               target  = &quot;geek_rating&quot;)</code></pre>
+<div id="extreme-values" class="section level3">
+<h3>Extreme values</h3>
+<p>The first pre-processing step will be to use median imputation to replace the small number of missing values. In these data, missing values are usually recorded as zero. So the pre-processing actually involves two steps, (a) replace 0 by missing (b) replace missing by the median of the non-missing.</p>
+<p>I will create the the PipeOps for imputing age in gentle stages and then duplicate the process for other variables. Age records the minimum recommended age for people playing the game.</p>
+<pre class="r"><code># --- dplyr: to inspect the problem ---------------------------
+myTask$data() %&gt;%
+  { summary(.$age)}</code></pre>
+<pre><code>##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+##    0.00    8.00   11.00   10.43   12.00   42.00</code></pre>
+<p>The value 42 is also a bit suspect, but I will return to that later.</p>
+<pre class="r"><code># --- dplyr: to inspect the desired result --------------------
+myTask$data() %&gt;%
+  filter( age &gt; 0 ) %&gt;%
+  { summary(.$age)}</code></pre>
+<pre><code>##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+##    3.00   10.00   12.00   10.89   12.00   42.00</code></pre>
+</div>
+<div id="mutation" class="section level3">
+<h3>Mutation</h3>
+<p>There is a PipeOp called <code>mutate</code> that can be used to edit the data (<a href="https://mlr3pipelines.mlr-org.com/reference/mlr_pipeops_mutate.html" class="uri">https://mlr3pipelines.mlr-org.com/reference/mlr_pipeops_mutate.html</a>). The required mutations must refer to named columns, in this example they are saved in a list called <code>zeroAge</code>. The PipeOp <code>ageMutateOp</code> is created as an instance of <code>PipeOpMutate</code>, it is given an identifier and a set of parameters.</p>
+<pre class="r"><code>library(mlr3pipelines)
+
+# --- list of required mutations --------------------------------------
+zeroAge &lt;- list( age = ~ ifelse(age == 0, NA, age))
+
+# --- define with new -------------------------------------------------
+ageMutateOp &lt;- PipeOpMutate$new( 
+                  id         = &quot;age_to_missing&quot;,
+                  param_vals = list( mutation = zeroAge) )
+
+# --- or use the sugar function ---------------------------------------
+ageMutateOp &lt;- pipeOp(&quot;mutate&quot;, 
+                      id       = &quot;age_to_missing&quot;, 
+                      mutation = zeroAge)
+
+# --- if you do not like my names -------------------------------------
+ageMutateOp &lt;- po(&quot;mutate&quot;, 
+                  id       = &quot;age_to_missing&quot;, 
+                  mutation = zeroAge)
+
+# --- apply to myTask -------------------------------------------------
+ageMutateOp$train( list(myTask))[[1]]$data() %&gt;%
+  { summary(.$age)}</code></pre>
+<pre><code>##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA&#39;s 
+##    3.00   10.00   12.00   10.89   12.00   42.00     146</code></pre>
+<p>A word of explanation about the training of ageMutateOp using myTask. PipeOps can be applied to any number of Tasks, so the Tasks are placed in a list, in this case there is only one Task so the list is a bit redundant. Training returns a list of transformed Tasks and I want the first Task in the returned list, hence [[1]]. From that Task, I take the data and after that it is the same code as I used before.</p>
+</div>
+<div id="median-imputation" class="section level3">
+<h3>Median Imputation</h3>
+<p>The second step is median imputation for which there is a PipeOp called <code>imputemedian</code></p>
+<pre class="r"><code># --- define with new -------------------------------------------------
+ageImputeOp &lt;- PipeOpImputeMedian$new( id = &quot;impute_age&quot; )
+ageImputeOp$param_set$values$affect_columns = selector_name(&quot;age&quot;)
+
+# --- or with the sugar function --------------------------------------
+ageImputeOp &lt;- pipeOp(&quot;imputemedian&quot;,
+                      id = &quot;impute_age&quot;,
+                      affect_columns = selector_name(&quot;age&quot;))</code></pre>
+<p>The default action for most PipeOps is to apply the same action to every predictor. In this case each predictor would be median imputed. I only want to input the age so I set <code>affect_columns</code>.</p>
+<p>From now on I will use the sugar functions with my own renaming.</p>
+<p>I’ll run the two steps; zero to missing then impute missing</p>
+<pre class="r"><code># --- capture Task from step 1 ----------------------------
+partTask &lt;- ageMutateOp$train( list(myTask))[[1]]
+
+# --- impute on the saved Task ----------------------------
+ageImputeOp$train( list(partTask))[[1]]$data() %&gt;%
+  { summary(.$age)}</code></pre>
+<pre><code>##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+##    3.00   10.00   12.00   10.93   12.00   42.00</code></pre>
+<p>When the PipeOp are linked together in a pipeline, they can be run consecutively without the need to store the intermediate tasks.</p>
+<p>All seems well and we can see from the summary that the median age that was used for imputation was 12. This value is saved in the PipeOps <code>state</code>. The state contains a lot of information that I don’t need. The important bit is the state’s <code>model</code>.</p>
+<pre class="r"><code># --- extract the median ----------------------------------
+ageImputeOp$state$model</code></pre>
+<pre><code>## $age
+## [1] 12</code></pre>
+<p>In this case the fitted model is just the median, which is 12.</p>
+</div>
+<div id="mass-production" class="section level3">
+<h3>Mass Production</h3>
+<p>The predictors min_time, max_time, avg_time, min_players and max_players also have zeros that need replacing with missing values.</p>
+<pre class="r"><code># --- PipeOp to replace zeros by missing ---------------------------------------------
+zeroMutationOp &lt;- pipeOp( &quot;mutate&quot;,
+                         id = &quot;zero_to_missing&quot;,
+                         mutation = list( 
+                            age         = ~ ifelse(age == 0 , NA, age),
+                            min_time    = ~ifelse( min_time == 0, NA, min_time),
+                            max_time    = ~ifelse( max_time == 0, NA, max_time),
+                            avg_time    = ~ifelse( avg_time == 0, NA, avg_time),
+                            min_players = ~ifelse( min_players == 0, NA, min_players),
+                            max_players = ~ifelse( max_players == 0, NA, max_players) )) </code></pre>
+<p>Median imputation of each of these predictors</p>
+<pre class="r"><code># --- median imputation -----------------------------------------------
+imputeMedianOp &lt;- pipeOp( &quot;imputemedian&quot;,
+                          id             = &quot;median_imputation&quot;,
+                          affect_columns = selector_name(
+                              c(&quot;age&quot;, &quot;min_time&quot;, &quot;max_time&quot;, 
+                                &quot;avg_time&quot;, &quot;min_players&quot;, &quot;max_players&quot;)))</code></pre>
+</div>
+<div id="truncation" class="section level3">
+<h3>Truncation</h3>
+<p>In my original analysis I decided to truncate several of the variables, for example games released before 1970 were grouped together as being from 1970. Truncations just requires more mutations, which I present without comment.</p>
+<pre class="r"><code># --- create the truncation PipeOp ------------------------
+truncationOp &lt;- pipeOp(&quot;mutate&quot;,
+                       id = &quot;truncate&quot;,
+                       mutation = list( 
+                          age         = ~ pmin( age, 18),
+                          max_players = ~ pmin(max_players, 25),
+                          max_time    = ~ pmin(max_time, 1000),
+                          avg_time    = ~ pmin(avg_time, (min_time+max_time)/2),
+                          year        = ~ pmax(year, 1970) ))</code></pre>
+<p>Of course I could have combined the two mutate PipeOps into one with a longer list of mutations.</p>
+</div>
+<div id="log-tranformation" class="section level3">
+<h3>Log tranformation</h3>
+<p>I want to transform several of the predictors, I could do this using mutate but there is another way. The PipeOp <code>colapply</code> will apply a single function to any selection of columns.</p>
+<pre class="r"><code># --- function to apply to a set of predictors ----------------------
+logPredictorsOp &lt;- pipeOp(&quot;colapply&quot;,
+                          id             = &quot;log10_transform&quot;,
+                          applicator     = log10,
+                          affect_columns = selector_name(
+                                              c(&quot;age&quot;, &quot;min_time&quot;, &quot;max_time&quot;, 
+                                                &quot;avg_time&quot;, &quot;min_players&quot;, &quot;max_players&quot;, 
+                                                &quot;owned&quot;, &quot;num_votes&quot;)))</code></pre>
+</div>
+<div id="target-transformation" class="section level3">
+<h3>Target Transformation</h3>
+<p>I also want to transform the response (target) but this presents an extra problem as <code>mlr3</code> will need to be able to invert the transformation when it makes predictions. As a result, there will be two outputs from the PipeOp, the transformation and its inverse. When we fit the model we need the transformation and when making predictions we need the inverse. Setting this up manually is quite tedious so <code>mlr3</code> provides a helper function <code>ppl()</code>, that does the work for you.</p>
+<p>To use the short cut you have to be able to specify the learner that you plan to use. I will use a simple linear model fitted by R’s lm function.</p>
+<pre class="r"><code>yTransform &lt;- function(...) ppl(...)
+
+#--- define the learner --------------------------------
+regModel &lt;- setModel(&quot;regr.lm&quot;)
+
+# --- use ppl to define the transformation --------------
+logResponseOp &lt;- yTransform(&quot;targettrafo&quot;,
+                            graph                 = regModel,
+                            targetmutate.trafo    = function(x) log10(x - 5.5),
+                            targetmutate.inverter = function(x) list(
+                                                      response = 5.5 + 10 ^ x$response) )
+# --- inspect the resulting pipeline --------------------
+plot(logResponseOp)</code></pre>
+<p><img src="/post/methods_mlr3/mlr3_preprocessing_files/figure-html/unnamed-chunk-14-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Later I will combine this with the other PipeOps. If you want to understand what ppl() does, then there is an example in the <code>mlr3gallery</code> at <a href="https://mlr3gallery.mlr-org.com/posts/2020-06-15-target-transformations-via-pipelines/" class="uri">https://mlr3gallery.mlr-org.com/posts/2020-06-15-target-transformations-via-pipelines/</a></p>
+</div>
+<div id="extracting-key-phases" class="section level3">
+<h3>Extracting Key Phases</h3>
+<p>The string variable <code>mechanic</code> contains phases that describe the game mechanics. They are separated by commas.</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  select( mechanic)</code></pre>
+<pre><code>## # A tibble: 3,499 x 1
+##    mechanic                                                                     
+##    &lt;chr&gt;                                                                        
+##  1 Hand Management                                                              
+##  2 Point to Point Movement, Route/Network Building                              
+##  3 Betting/Wagering, Dice Rolling, Roll / Spin and Move                         
+##  4 Secret Unit Deployment, Simultaneous Action Selection                        
+##  5 Action Point Allowance System, Dice Rolling, Modular Board, Partnerships, Va~
+##  6 Hand Management, Take That                                                   
+##  7 Action Point Allowance System, Memory                                        
+##  8 Dice Rolling, Hex-and-Counter                                                
+##  9 Co-operative Play, Dice Rolling, Simulation                                  
+## 10 Dice Rolling, Hand Management                                                
+## # ... with 3,489 more rows</code></pre>
+<p><code>mlr3</code> has a PipeOp called <code>textvectorizer</code> that can extract key words from free text. It is very powerful and is built using the <code>quanteda</code> package. What we need here is rather different. We have fixed responses rather than free text and we want to note when the phases are present.</p>
+<p>My analysis of Episode 11 of <em>Sliced</em> uses <code>quanteda</code>, but here I make a list of all of the possible phrases using good old dplyr</p>
+<pre class="r"><code># --- Extract all possible mechanisms --------------------------
+trainRawDF %&gt;%
+    select( mechanic) %&gt;%
+    separate(mechanic, sep=&quot;,&quot;,
+             into=paste(&quot;x&quot;, 1:10, sep=&quot;&quot;),
+             remove=TRUE, extra=&quot;drop&quot;, fill=&quot;right&quot; ) %&gt;%
+    pivot_longer(everything(), values_to=&quot;terms&quot;, names_to=&quot;source&quot; ) %&gt;%
+    filter( !is.na(terms) ) %&gt;%
+    mutate( terms = str_trim(terms)) %&gt;%
+    filter( terms != &quot;&quot; ) %&gt;%
+    group_by( terms) %&gt;%
+    summarise( n = n() , .groups=&quot;drop&quot;) %&gt;%
+    arrange( desc(n)) %&gt;%
+    print() %&gt;%
+    pull(terms) -&gt; keyPhrases</code></pre>
+<pre><code>## # A tibble: 52 x 2
+##    terms                             n
+##    &lt;chr&gt;                         &lt;int&gt;
+##  1 Dice Rolling                    990
+##  2 Hand Management                 963
+##  3 Variable Player Powers          644
+##  4 Set Collection                  511
+##  5 Area Control / Area Influence   446
+##  6 Card Drafting                   415
+##  7 Modular Board                   401
+##  8 Tile Placement                  391
+##  9 Hex-and-Counter                 317
+## 10 Action Point Allowance System   287
+## # ... with 42 more rows</code></pre>
+<p>There are 52 phrases in the dataset of which <code>Dice Rolling</code> is the most common.</p>
+<p>I’ll make a tibble with 52 indicator (0/1) columns that encode whether each phase applies to that game. The code uses a map() function from <code>purrr</code>.</p>
+<pre class="r"><code># --- named list of the phrases ------------------------------
+phrases &lt;- as.list(keyPhrases)
+names(phrases) &lt;- paste(&quot;M&quot;, 1:52, sep=&quot;&quot;)
+
+# --- create indicators --------------------------------------
+map_df(phrases, ~ as.numeric(str_detect(trainRawDF$mechanic, .x)) ) %&gt;%
+  print() -&gt; mecDF</code></pre>
+<pre><code>## # A tibble: 3,499 x 52
+##       M1    M2    M3    M4    M5    M6    M7    M8    M9   M10   M11   M12   M13
+##    &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+##  1     0     1     0     0     0     0     0     0     0     0     0     0     0
+##  2     0     0     0     0     0     0     0     0     0     0     0     0     0
+##  3     1     0     0     0     0     0     0     0     0     0     0     0     0
+##  4     0     0     0     0     0     0     0     0     0     0     0     1     0
+##  5     1     0     1     0     0     0     1     0     0     1     0     0     0
+##  6     0     1     0     0     0     0     0     0     0     0     0     0     0
+##  7     0     0     0     0     0     0     0     0     0     1     0     0     0
+##  8     1     0     0     0     0     0     0     0     1     0     0     0     0
+##  9     1     0     0     0     0     0     0     0     0     0     1     0     0
+## 10     1     1     0     0     0     0     0     0     0     0     0     0     0
+## # ... with 3,489 more rows, and 39 more variables: M14 &lt;dbl&gt;, M15 &lt;dbl&gt;,
+## #   M16 &lt;dbl&gt;, M17 &lt;dbl&gt;, M18 &lt;dbl&gt;, M19 &lt;dbl&gt;, M20 &lt;dbl&gt;, M21 &lt;dbl&gt;,
+## #   M22 &lt;dbl&gt;, M23 &lt;dbl&gt;, M24 &lt;dbl&gt;, M25 &lt;dbl&gt;, M26 &lt;dbl&gt;, M27 &lt;dbl&gt;,
+## #   M28 &lt;dbl&gt;, M29 &lt;dbl&gt;, M30 &lt;dbl&gt;, M31 &lt;dbl&gt;, M32 &lt;dbl&gt;, M33 &lt;dbl&gt;,
+## #   M34 &lt;dbl&gt;, M35 &lt;dbl&gt;, M36 &lt;dbl&gt;, M37 &lt;dbl&gt;, M38 &lt;dbl&gt;, M39 &lt;dbl&gt;,
+## #   M40 &lt;dbl&gt;, M41 &lt;dbl&gt;, M42 &lt;dbl&gt;, M43 &lt;dbl&gt;, M44 &lt;dbl&gt;, M45 &lt;dbl&gt;,
+## #   M46 &lt;dbl&gt;, M47 &lt;dbl&gt;, M48 &lt;dbl&gt;, M49 &lt;dbl&gt;, M50 &lt;dbl&gt;, M51 &lt;dbl&gt;, M52 &lt;dbl&gt;</code></pre>
+<p>I bind these indicators with trainRawDF in a re-definition of the task.</p>
+<pre class="r"><code>myTask$cbind(mecDF)</code></pre>
+<p>The phrase extraction will not cause a problem of data leakage in a resampling design, but it could cause a problem if we were to randomly sample a set of games in which one of the rarer phrases was completely absent. This would create a predictor in which every value was zero. The PipeOp <code>removeconstants</code> will remove predictors that show no variation and would avoid this potential problem.</p>
+<pre class="r"><code># --- PipeOp to remove constant predictors --------------------------
+noConstantsOp &lt;- pipeOp(&quot;removeconstants&quot;)</code></pre>
+<p>I did not bother to give this PipeOp an identifier as there will only ever be one removeconstants PipeOp.</p>
+</div>
+</div>
+</div>
+<div id="dropping-predictors" class="section level1">
+<h1>Dropping Predictors</h1>
+<p>Sometimes it is necessary to drop some of the potential predictors, in this example, before I fit the model, I want to drop the game identifier and all of the string variables. In doing this, those variables are removed from the list of potential predictors, they are not dropped from the data. The PipeOp <code>select</code> does the job.</p>
+<p>First, I list all current features</p>
+<pre class="r"><code># -- what features are available -------------------------------
+myTask$feature_types</code></pre>
+<pre><code>##              id      type
+##  1:          M1   numeric
+##  2:         M10   numeric
+##  3:         M11   numeric
+##  4:         M12   numeric
+##  5:         M13   numeric
+##  6:         M14   numeric
+##  7:         M15   numeric
+##  8:         M16   numeric
+##  9:         M17   numeric
+## 10:         M18   numeric
+## 11:         M19   numeric
+## 12:          M2   numeric
+## 13:         M20   numeric
+## 14:         M21   numeric
+## 15:         M22   numeric
+## 16:         M23   numeric
+## 17:         M24   numeric
+## 18:         M25   numeric
+## 19:         M26   numeric
+## 20:         M27   numeric
+## 21:         M28   numeric
+## 22:         M29   numeric
+## 23:          M3   numeric
+## 24:         M30   numeric
+## 25:         M31   numeric
+## 26:         M32   numeric
+## 27:         M33   numeric
+## 28:         M34   numeric
+## 29:         M35   numeric
+## 30:         M36   numeric
+## 31:         M37   numeric
+## 32:         M38   numeric
+## 33:         M39   numeric
+## 34:          M4   numeric
+## 35:         M40   numeric
+## 36:         M41   numeric
+## 37:         M42   numeric
+## 38:         M43   numeric
+## 39:         M44   numeric
+## 40:         M45   numeric
+## 41:         M46   numeric
+## 42:         M47   numeric
+## 43:         M48   numeric
+## 44:         M49   numeric
+## 45:          M5   numeric
+## 46:         M50   numeric
+## 47:         M51   numeric
+## 48:         M52   numeric
+## 49:          M6   numeric
+## 50:          M7   numeric
+## 51:          M8   numeric
+## 52:          M9   numeric
+## 53:         age   numeric
+## 54:    avg_time   numeric
+## 55:   category1 character
+## 56:  category10 character
+## 57:  category11 character
+## 58:  category12 character
+## 59:   category2 character
+## 60:   category3 character
+## 61:   category4 character
+## 62:   category5 character
+## 63:   category6 character
+## 64:   category7 character
+## 65:   category8 character
+## 66:   category9 character
+## 67:    designer character
+## 68:     game_id   numeric
+## 69: max_players   numeric
+## 70:    max_time   numeric
+## 71:    mechanic character
+## 72: min_players   numeric
+## 73:    min_time   numeric
+## 74:       names character
+## 75:   num_votes   numeric
+## 76:       owned   numeric
+## 77:        year   numeric
+##              id      type</code></pre>
+<p>Next I drop the character variables</p>
+<pre class="r"><code># --- drop unwanted features -----------------------------------
+dropFeaturesOp &lt;- pipeOp(&quot;select&quot;,
+                         id = &quot;drop_features&quot;,
+                         selector = selector_invert(
+                                      selector_union(selector_type(&quot;character&quot;),
+                                                     selector_name(&quot;game_id&quot;) )))</code></pre>
+<p>What is left</p>
+<pre class="r"><code>dropFeaturesOp$train(list( myTask))[[1]]$feature_names</code></pre>
+<pre><code>##  [1] &quot;age&quot;         &quot;avg_time&quot;    &quot;max_players&quot; &quot;max_time&quot;    &quot;min_players&quot;
+##  [6] &quot;min_time&quot;    &quot;num_votes&quot;   &quot;owned&quot;       &quot;year&quot;        &quot;M1&quot;         
+## [11] &quot;M2&quot;          &quot;M3&quot;          &quot;M4&quot;          &quot;M5&quot;          &quot;M6&quot;         
+## [16] &quot;M7&quot;          &quot;M8&quot;          &quot;M9&quot;          &quot;M10&quot;         &quot;M11&quot;        
+## [21] &quot;M12&quot;         &quot;M13&quot;         &quot;M14&quot;         &quot;M15&quot;         &quot;M16&quot;        
+## [26] &quot;M17&quot;         &quot;M18&quot;         &quot;M19&quot;         &quot;M20&quot;         &quot;M21&quot;        
+## [31] &quot;M22&quot;         &quot;M23&quot;         &quot;M24&quot;         &quot;M25&quot;         &quot;M26&quot;        
+## [36] &quot;M27&quot;         &quot;M28&quot;         &quot;M29&quot;         &quot;M30&quot;         &quot;M31&quot;        
+## [41] &quot;M32&quot;         &quot;M33&quot;         &quot;M34&quot;         &quot;M35&quot;         &quot;M36&quot;        
+## [46] &quot;M37&quot;         &quot;M38&quot;         &quot;M39&quot;         &quot;M40&quot;         &quot;M41&quot;        
+## [51] &quot;M42&quot;         &quot;M43&quot;         &quot;M44&quot;         &quot;M45&quot;         &quot;M46&quot;        
+## [56] &quot;M47&quot;         &quot;M48&quot;         &quot;M49&quot;         &quot;M50&quot;         &quot;M51&quot;        
+## [61] &quot;M52&quot;</code></pre>
+</div>
+<div id="filtering" class="section level1">
+<h1>Filtering</h1>
+<p>After dropping the strings and identifiers there will be 61 possible predictors. For some models it is necessary to feature select prior to model fitting, in <code>mlr3</code> this is done with a <code>filter</code>. A filter is not itself a PipeOp but once created it can be inserted into a PipeOp.</p>
+<p>There are many filters provided by the package <code>mlr3filters</code> as can be seen from <a href="https://mlr3book.mlr-org.com/appendix.html" class="uri">https://mlr3book.mlr-org.com/appendix.html</a> or by printing contents of the dictionary that stores their names.</p>
+<pre class="r"><code>mlr_filters</code></pre>
+<pre><code>## &lt;DictionaryFilter&gt; with 19 stored values
+## Keys: anova, auc, carscore, cmim, correlation, disr, find_correlation,
+##   importance, information_gain, jmi, jmim, kruskal_test, mim, mrmr,
+##   njmim, performance, permutation, relief, variance</code></pre>
+<p>The filter correlation is one of the simplest, it chooses the predictors with the largest absolute correlation to the response. Here is such a filter.</p>
+<pre class="r"><code># --- Create a correlation filter ----------------------------------
+corFilter &lt;- setFilter(&quot;correlation&quot;)
+
+# --- drop strings and the id --------------------------------------
+smallTask &lt;- dropFeaturesOp$train(list(myTask))[[1]]
+
+# --- apply correlation filter to the remaining predictors ---------
+corFilter$calculate(smallTask)
+
+# --- show the absolute correlations -------------------------------
+as.data.table(corFilter)</code></pre>
+<pre><code>##         feature       score
+##  1:   num_votes 0.648535629
+##  2:       owned 0.638831344
+##  3:          M3 0.185533043
+##  4:         age 0.161868048
+##  5:          M6 0.155695698
+##  6:          M9 0.153654275
+##  7:         M15 0.140097318
+##  8:          M2 0.135833960
+##  9:          M5 0.133068536
+## 10:         M33 0.111895188
+## 11:         M27 0.110192636
+## 12:         M16 0.108594547
+## 13:         M18 0.099994897
+## 14:         M10 0.094210104
+## 15:         M14 0.094048040
+## 16:         M42 0.078857711
+## 17:         M11 0.078069407
+## 18:          M7 0.076150946
+## 19:          M4 0.074788323
+## 20:         M29 0.074745328
+## 21:         M13 0.069072392
+## 22:         M19 0.065834500
+## 23:         M30 0.057519123
+## 24:         M21 0.057259794
+## 25:         M20 0.056175144
+## 26:         M41 0.053039720
+## 27:         M17 0.052891144
+## 28:         M12 0.051783371
+## 29:         M40 0.049851052
+## 30:         M22 0.049661995
+## 31:         M32 0.046432962
+## 32:         M47 0.039698666
+## 33:         M37 0.039392064
+## 34:          M8 0.037942921
+## 35:         M34 0.034718427
+## 36:         M38 0.033000262
+## 37:         M44 0.032968116
+## 38: min_players 0.032768111
+## 39:         M26 0.031865539
+## 40:         M48 0.028688666
+## 41:          M1 0.028305055
+## 42:         M43 0.025560229
+## 43:         M24 0.025237677
+## 44:    min_time 0.023188890
+## 45:         M52 0.019815224
+## 46:         M39 0.019160129
+## 47:         M46 0.018992873
+## 48:         M49 0.018457101
+## 49:         M25 0.016859180
+## 50: max_players 0.015327948
+## 51:    avg_time 0.014488493
+## 52:         M50 0.014396461
+## 53:    max_time 0.014000777
+## 54:         M51 0.013917298
+## 55:         M36 0.013069618
+## 56:         M45 0.012609392
+## 57:         M28 0.010686335
+## 58:         M35 0.009745224
+## 59:         M23 0.007110701
+## 60:        year 0.005827105
+## 61:         M31 0.004009631
+##         feature       score</code></pre>
+<p>The filter calculates the statistic that is to be used in filtering but it does not itself make a selection. To do that we need to place the filter in a PipeOp.</p>
+<p>I create a PipeOp that uses this filter to pick the 10 ten correlations</p>
+<pre class="r"><code># --- create filtering PipeOp ---------------------------------
+corFilterOp &lt;- pipeOp(&quot;filter&quot;, 
+                      id           = &quot;correlation_filter&quot;,
+                      filter       = corFilter,
+                      filter.nfeat = 10)
+
+# --- apply the PipeOp to the remaining features --------------
+corFilterOp$train(list(smallTask))[[1]]$feature_names</code></pre>
+<pre><code>##  [1] &quot;age&quot;       &quot;num_votes&quot; &quot;owned&quot;     &quot;M2&quot;        &quot;M3&quot;        &quot;M5&quot;       
+##  [7] &quot;M6&quot;        &quot;M9&quot;        &quot;M15&quot;       &quot;M33&quot;</code></pre>
+<p>Of course, the selected features might change after the predictors have been log transformed.</p>
+</div>
+<div id="making-a-pipeline" class="section level1">
+<h1>Making a Pipeline</h1>
+<p>PipeOps are combined using the %&gt;&gt;% operator.</p>
+<pre class="r"><code># --- Pipeline for pre-processing -----------------
+
+  # --- zero to missing -----------
+  zeroMutationOp    %&gt;&gt;%
+  # --- median imputation ---------
+  imputeMedianOp    %&gt;&gt;%
+  # --- feature truncation --------
+  truncationOp      %&gt;&gt;%
+  # --- drop unwanted features ----
+  dropFeaturesOp    %&gt;&gt;%
+  # --- log transform -------------
+  logPredictorsOp   %&gt;&gt;%
+  # --- drop constant features ----
+  noConstantsOp     %&gt;&gt;%
+  # --- filter by correlation -----
+  corFilterOp       %&gt;&gt;%
+  # --- transform response --------
+  logResponseOp     -&gt; myPipeline
+
+plot(myPipeline)</code></pre>
+<p><img src="/post/methods_mlr3/mlr3_preprocessing_files/figure-html/unnamed-chunk-26-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The pipeline can be converted in a learner so that the entire process can be trained, resampled or tuned</p>
+<pre class="r"><code># --- convert pipeline to a learner --------------------- 
+myAnalysis &lt;- as_learner(myPipeline)
+
+# --- train: pre-process &amp; fit model --------------------
+myAnalysis$train(myTask)</code></pre>
+<p>I could look at the fit but I would get the fit (results) for every step in the pipeline and not just the regression model.</p>
+<pre class="r"><code># --- model results for every step in the analysis ------
+myAnalysis$model</code></pre>
+<p>For the regression model fit I need</p>
+<pre class="r"><code># --- not a good idea: very long -----------------------
+myAnalysis$model$regr.lm$model</code></pre>
+<pre><code>## 
+## Call:
+## stats::lm(formula = task$formula(), data = task$data())
+## 
+## Coefficients:
+## (Intercept)          age    num_votes        owned           M2           M3  
+##    -2.30216      0.39943      0.47803      0.04444     -0.01367      0.03175  
+##          M5           M6           M9          M15          M33  
+##     0.02474      0.02566      0.05324      0.06612      0.04508</code></pre>
+<p>This is just the returned structure of lm().</p>
+<p>I could even use everyone’s favourite package, <code>broom</code></p>
+<pre class="r"><code># --- table of model coefficients ----------------------
+broom::tidy(myAnalysis$model$regr.lm$model)</code></pre>
+<pre><code>## # A tibble: 11 x 5
+##    term        estimate std.error statistic   p.value
+##    &lt;chr&gt;          &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;
+##  1 (Intercept)  -2.30     0.0337     -68.3  0.       
+##  2 age           0.399    0.0283      14.1  5.87e- 44
+##  3 num_votes     0.478    0.0189      25.3  1.17e-129
+##  4 owned         0.0444   0.0208       2.13 3.30e-  2
+##  5 M2           -0.0137   0.00632     -2.16 3.07e-  2
+##  6 M3            0.0317   0.00736      4.32 1.64e-  5
+##  7 M5            0.0247   0.00831      2.98 2.94e-  3
+##  8 M6            0.0257   0.00864      2.97 2.98e-  3
+##  9 M9            0.0532   0.0109       4.90 1.01e-  6
+## 10 M15           0.0661   0.0109       6.07 1.43e-  9
+## 11 M33           0.0451   0.0174       2.59 9.53e-  3</code></pre>
+<p>At present the correlation filter looks at the correlations before the target is transformed.</p>
+<pre class="r"><code># --- filter after transforming y --------------
+logResponseOp &lt;- yTransform(&quot;targettrafo&quot;,
+                            graph                 = corFilterOp %&gt;&gt;% regModel,
+                            targetmutate.trafo    = function(x) log10(x - 5.5),
+                            targetmutate.inverter = function(x) list(
+                                                      response = 5.5 + 10 ^ x$response) )
+# --- redefine the pipeline ----------------------
+
+  # --- zero to missing -----------
+  zeroMutationOp    %&gt;&gt;%
+  # --- median imputation ---------
+  imputeMedianOp    %&gt;&gt;%
+  # --- feature truncation --------
+  truncationOp      %&gt;&gt;%
+  # --- drop unwanted features ----
+  dropFeaturesOp    %&gt;&gt;%
+  # --- log transform -------------
+  logPredictorsOp   %&gt;&gt;%
+  # --- drop constant features ----
+  noConstantsOp     %&gt;&gt;%
+  # --- transform response --------
+  # --- then filter, then fit -----
+  logResponseOp     -&gt; myNewPipeline
+
+plot(myNewPipeline)</code></pre>
+<p><img src="/post/methods_mlr3/mlr3_preprocessing_files/figure-html/unnamed-chunk-31-1.png" width="528" style="display: block; margin: auto;" /></p>
+<pre class="r"><code># --- make a new analysis ------------------------------
+myNewAnalysis &lt;- as_learner(myNewPipeline)
+
+# --- run the analysis ---------------------------------
+myNewAnalysis$train(myTask)
+
+# --- table of coefficients ----------------------------
+broom::tidy(myNewAnalysis$model$regr.lm$model)</code></pre>
+<pre><code>## # A tibble: 11 x 5
+##    term        estimate std.error statistic   p.value
+##    &lt;chr&gt;          &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;
+##  1 (Intercept)  -2.30     0.0341     -67.4  0.       
+##  2 age           0.398    0.0284      14.0  3.08e- 43
+##  3 num_votes     0.477    0.0189      25.2  3.74e-129
+##  4 owned         0.0452   0.0208       2.17 3.01e-  2
+##  5 M2           -0.0155   0.00636     -2.45 1.45e-  2
+##  6 M3            0.0323   0.00735      4.39 1.15e-  5
+##  7 M5            0.0256   0.00830      3.08 2.10e-  3
+##  8 M6            0.0251   0.00865      2.90 3.73e-  3
+##  9 M9            0.0516   0.0109       4.73 2.32e-  6
+## 10 M15           0.0674   0.0109       6.20 6.34e- 10
+## 11 M27          -0.0279   0.0154      -1.81 7.03e-  2</code></pre>
+<p>Notice that predictor M27 has been selected where previously we had M33.</p>
+<p>Even though the model has been fitted to the transformed response, the predictions are made on the original scale because the target transformation knows how to invert y.</p>
+<pre class="r"><code># --- predictions for the new analysis ---------------------
+myPredictions &lt;- myNewAnalysis$predict(task = myTask)
+
+# --- predictions are on the original scale ----------------
+myPredictions$print()</code></pre>
+<pre><code>## &lt;PredictionRegr&gt; for 3499 observations:
+##     row_ids   truth response
+##           1 5.70135 5.819208
+##           2 5.92648 5.840950
+##           3 6.37107 6.916004
+## ---                         
+##        3497 5.72251 5.861026
+##        3498 5.66587 5.675672
+##        3499 6.04041 6.377437</code></pre>
+<pre class="r"><code>broom::glance(myNewAnalysis$model$regr.lm$model)</code></pre>
+<pre><code>## # A tibble: 1 x 12
+##   r.squared adj.r.squared sigma statistic p.value    df logLik    AIC    BIC
+##       &lt;dbl&gt;         &lt;dbl&gt; &lt;dbl&gt;     &lt;dbl&gt;   &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;
+## 1     0.763         0.762 0.160     1121.       0    10  1443. -2861. -2787.
+## # ... with 3 more variables: deviance &lt;dbl&gt;, df.residual &lt;int&gt;, nobs &lt;int&gt;</code></pre>
+<p>The R2 value is a measure of model performance but it ignores the uncertainty over the pre-processing, in particular the filtering. This R2 value would apply if these 10 features were selected without reference to the training data. Perhaps we should cross-validate the entire analysis.</p>
+<pre class="r"><code># --- seed for reproducibility ----------------------------
+set.seed(9372)
+
+# --- define the sampler; here 10-fold cross-validation ---
+myCV &lt;- setSampler(&quot;cv&quot;)
+
+# --- prepare the folds from myTask -----------------------
+myCV$instantiate(task = myTask)
+
+# --- run the cross-validation ----------------------------
+rsFit &lt;- resample( task       = myTask,
+                   learner    = myNewAnalysis,
+                   resampling = myCV)</code></pre>
+<pre><code>## INFO  [10:58:25.044] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 5/10) 
+## INFO  [10:58:26.224] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 3/10) 
+## INFO  [10:58:27.383] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 2/10) 
+## INFO  [10:58:28.715] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 10/10) 
+## INFO  [10:58:29.857] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 7/10) 
+## INFO  [10:58:30.992] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 8/10) 
+## INFO  [10:58:32.148] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 1/10) 
+## INFO  [10:58:33.282] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 9/10) 
+## INFO  [10:58:34.433] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 6/10) 
+## INFO  [10:58:35.595] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 4/10)</code></pre>
+<pre class="r"><code># --- choose a performance measure ------------------------
+myMeasure &lt;- setMeasure(&quot;regr.rsq&quot;)
+
+# --- look at performance across the 10 folds -------------
+rsFit$score(myMeasure)</code></pre>
+<pre><code>##               task          task_id            learner
+##  1: &lt;TaskRegr[44]&gt; Boardgame rating &lt;GraphLearner[35]&gt;
+##  2: &lt;TaskRegr[44]&gt; Boardgame rating &lt;GraphLearner[35]&gt;
+##  3: &lt;TaskRegr[44]&gt; Boardgame rating &lt;GraphLearner[35]&gt;
+##  4: &lt;TaskRegr[44]&gt; Boardgame rating &lt;GraphLearner[35]&gt;
+##  5: &lt;TaskRegr[44]&gt; Boardgame rating &lt;GraphLearner[35]&gt;
+##  6: &lt;TaskRegr[44]&gt; Boardgame rating &lt;GraphLearner[35]&gt;
+##  7: &lt;TaskRegr[44]&gt; Boardgame rating &lt;GraphLearner[35]&gt;
+##  8: &lt;TaskRegr[44]&gt; Boardgame rating &lt;GraphLearner[35]&gt;
+##  9: &lt;TaskRegr[44]&gt; Boardgame rating &lt;GraphLearner[35]&gt;
+## 10: &lt;TaskRegr[44]&gt; Boardgame rating &lt;GraphLearner[35]&gt;
+##                                                                                                                                        learner_id
+##  1: zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert
+##  2: zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert
+##  3: zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert
+##  4: zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert
+##  5: zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert
+##  6: zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert
+##  7: zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert
+##  8: zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert
+##  9: zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert
+## 10: zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert
+##             resampling resampling_id iteration           prediction  regr.rsq
+##  1: &lt;ResamplingCV[19]&gt;            cv         1 &lt;PredictionRegr[18]&gt; 0.7451363
+##  2: &lt;ResamplingCV[19]&gt;            cv         2 &lt;PredictionRegr[18]&gt; 0.6587752
+##  3: &lt;ResamplingCV[19]&gt;            cv         3 &lt;PredictionRegr[18]&gt; 0.7677487
+##  4: &lt;ResamplingCV[19]&gt;            cv         4 &lt;PredictionRegr[18]&gt; 0.5105902
+##  5: &lt;ResamplingCV[19]&gt;            cv         5 &lt;PredictionRegr[18]&gt; 0.6834928
+##  6: &lt;ResamplingCV[19]&gt;            cv         6 &lt;PredictionRegr[18]&gt; 0.6217273
+##  7: &lt;ResamplingCV[19]&gt;            cv         7 &lt;PredictionRegr[18]&gt; 0.6448513
+##  8: &lt;ResamplingCV[19]&gt;            cv         8 &lt;PredictionRegr[18]&gt; 0.7608137
+##  9: &lt;ResamplingCV[19]&gt;            cv         9 &lt;PredictionRegr[18]&gt; 0.5328952
+## 10: &lt;ResamplingCV[19]&gt;            cv        10 &lt;PredictionRegr[18]&gt; 0.6024001</code></pre>
+<pre class="r"><code># --- average performance ---------------------------------
+rsFit$aggregate(myMeasure)</code></pre>
+<pre><code>##  regr.rsq 
+## 0.6528431</code></pre>
+<p>As expected, the cross-validated value of R2 for the entire pipeline is quite a bit lower than the output from lm() alone suggested.</p>
+<p>Why just use the top 10 features? perhaps more would be better. I will tune the number of predictors taken from the filter.</p>
+<pre class="r"><code># --- use the future package to create the sessions ---------------------
+future::plan(&quot;multisession&quot;)
+
+# --- set the hyperparameters to be tuned -------------------------------
+myNewAnalysis$param_set$values$correlation_filter.filter.nfeat = to_tune(10, 50)
+
+# --- run a grid of 10 values ---------------------------------------
+set.seed(9830)
+myTuner &lt;-  tune(
+  method = &quot;grid_search&quot;,
+  task = myTask,
+  learner = myNewAnalysis,
+  resampling = myCV,
+  measure = myMeasure,
+  term_evals = 10,
+  batch_size = 5 
+)</code></pre>
+<pre><code>## INFO  [10:58:39.733] [bbotk] Starting to optimize 1 parameter(s) with &#39;&lt;OptimizerGridSearch&gt;&#39; and &#39;&lt;TerminatorEvals&gt; [n_evals=10]&#39; 
+## INFO  [10:58:39.736] [bbotk] Evaluating 5 configuration(s) 
+## INFO  [10:58:40.164] [mlr3]  Running benchmark with 50 resampling iterations 
+## INFO  [10:58:40.652] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 2/10) 
+## INFO  [10:58:42.405] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 6/10) 
+## INFO  [10:58:44.591] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 5/10) 
+## INFO  [10:58:46.994] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 3/10) 
+## INFO  [10:58:49.714] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 3/10) 
+## INFO  [10:58:52.132] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 8/10) 
+## INFO  [10:58:54.626] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 3/10) 
+## INFO  [10:58:41.213] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 4/10) 
+## INFO  [10:58:43.213] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 1/10) 
+## INFO  [10:58:45.432] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 2/10) 
+## INFO  [10:58:47.827] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 7/10) 
+## INFO  [10:58:50.566] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 7/10) 
+## INFO  [10:58:52.974] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 6/10) 
+## INFO  [10:58:41.799] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 9/10) 
+## INFO  [10:58:44.035] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 4/10) 
+## INFO  [10:58:46.417] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 8/10) 
+## INFO  [10:58:48.982] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 2/10) 
+## INFO  [10:58:51.468] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 8/10) 
+## INFO  [10:58:54.077] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 4/10) 
+## INFO  [10:58:42.432] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 5/10) 
+## INFO  [10:58:44.764] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 9/10) 
+## INFO  [10:58:47.213] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 3/10) 
+## INFO  [10:58:49.857] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 9/10) 
+## INFO  [10:58:52.242] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 1/10) 
+## INFO  [10:58:54.795] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 1/10) 
+## INFO  [10:58:43.229] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 2/10) 
+## INFO  [10:58:45.733] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 1/10) 
+## INFO  [10:58:48.238] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 10/10) 
+## INFO  [10:58:50.797] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 5/10) 
+## INFO  [10:58:53.286] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 6/10) 
+## INFO  [10:58:55.830] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 1/10) 
+## INFO  [10:58:44.055] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 10/10) 
+## INFO  [10:58:46.737] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 9/10) 
+## INFO  [10:58:49.372] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 10/10) 
+## INFO  [10:58:51.761] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 8/10) 
+## INFO  [10:58:54.299] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 4/10) 
+## INFO  [10:58:56.476] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 5/10) 
+## INFO  [10:58:44.916] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 3/10) 
+## INFO  [10:58:47.563] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 2/10) 
+## INFO  [10:58:50.275] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 6/10) 
+## INFO  [10:58:52.631] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 7/10) 
+## INFO  [10:58:55.229] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 7/10) 
+## INFO  [10:58:57.253] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 5/10) 
+## INFO  [10:58:45.813] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 10/10) 
+## INFO  [10:58:48.559] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 10/10) 
+## INFO  [10:58:51.140] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 4/10) 
+## INFO  [10:58:53.603] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 7/10) 
+## INFO  [10:58:55.973] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 6/10) 
+## INFO  [10:58:57.693] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 9/10) 
+## INFO  [10:58:58.913] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 8/10) 
+## INFO  [10:59:00.156] [mlr3]  Finished benchmark 
+## INFO  [10:59:00.616] [bbotk] Result of batch 1: 
+## INFO  [10:59:00.618] [bbotk]  correlation_filter.filter.nfeat  regr.rsq                                uhash 
+## INFO  [10:59:00.618] [bbotk]                               14 0.6788379 3cae3f3c-912c-46f4-9ad6-1f2b75f81294 
+## INFO  [10:59:00.618] [bbotk]                               23 0.6869976 13973f8c-41e6-46e7-8604-7a90c3bf8a9b 
+## INFO  [10:59:00.618] [bbotk]                               28 0.6810663 28a70f11-e72e-469a-879e-816f99e95541 
+## INFO  [10:59:00.618] [bbotk]                               32 0.6816229 bccfd5bd-d360-468a-a425-17d729ac2e35 
+## INFO  [10:59:00.618] [bbotk]                               37 0.6860195 626f0409-9109-445f-99f9-ccb826ee0ad8 
+## INFO  [10:59:00.619] [bbotk] Evaluating 5 configuration(s) 
+## INFO  [10:59:00.886] [mlr3]  Running benchmark with 50 resampling iterations 
+## INFO  [10:59:00.970] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 5/10) 
+## INFO  [10:59:03.261] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 3/10) 
+## INFO  [10:59:05.857] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 3/10) 
+## INFO  [10:59:08.278] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 8/10) 
+## INFO  [10:59:10.639] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 3/10) 
+## INFO  [10:59:13.165] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 4/10) 
+## INFO  [10:59:15.680] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 1/10) 
+## INFO  [10:59:01.035] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 2/10) 
+## INFO  [10:59:03.490] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 7/10) 
+## INFO  [10:59:05.916] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 7/10) 
+## INFO  [10:59:08.286] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 8/10) 
+## INFO  [10:59:10.697] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 6/10) 
+## INFO  [10:59:13.267] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 4/10) 
+## INFO  [10:59:01.086] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 10/10) 
+## INFO  [10:59:03.484] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 2/10) 
+## INFO  [10:59:05.876] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 10/10) 
+## INFO  [10:59:08.301] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 3/10) 
+## INFO  [10:59:10.814] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 1/10) 
+## INFO  [10:59:13.335] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 5/10) 
+## INFO  [10:59:01.148] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 4/10) 
+## INFO  [10:59:03.543] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 7/10) 
+## INFO  [10:59:05.915] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 4/10) 
+## INFO  [10:59:08.448] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 7/10) 
+## INFO  [10:59:10.916] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 1/10) 
+## INFO  [10:59:13.355] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 10/10) 
+## INFO  [10:59:01.211] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 5/10) 
+## INFO  [10:59:03.719] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 8/10) 
+## INFO  [10:59:06.096] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 1/10) 
+## INFO  [10:59:08.556] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 2/10) 
+## INFO  [10:59:11.048] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 6/10) 
+## INFO  [10:59:13.537] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 9/10) 
+## INFO  [10:59:01.346] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 9/10) 
+## INFO  [10:59:03.767] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 2/10) 
+## INFO  [10:59:06.293] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 9/10) 
+## INFO  [10:59:08.705] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 9/10) 
+## INFO  [10:59:11.365] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 5/10) 
+## INFO  [10:59:13.710] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 10/10) 
+## INFO  [10:59:01.435] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 4/10) 
+## INFO  [10:59:03.905] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 6/10) 
+## INFO  [10:59:06.313] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 5/10) 
+## INFO  [10:59:08.893] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 10/10) 
+## INFO  [10:59:11.492] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 3/10) 
+## INFO  [10:59:13.842] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 2/10) 
+## INFO  [10:59:01.844] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 6/10) 
+## INFO  [10:59:04.378] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 7/10) 
+## INFO  [10:59:06.970] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 8/10) 
+## INFO  [10:59:09.346] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 8/10) 
+## INFO  [10:59:11.897] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 9/10) 
+## INFO  [10:59:14.330] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 6/10) 
+## INFO  [10:59:16.264] [mlr3]  Applying learner &#39;zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert&#39; on task &#39;Boardgame rating&#39; (iter 1/10) 
+## INFO  [10:59:17.521] [mlr3]  Finished benchmark 
+## INFO  [10:59:18.002] [bbotk] Result of batch 2: 
+## INFO  [10:59:18.003] [bbotk]  correlation_filter.filter.nfeat  regr.rsq                                uhash 
+## INFO  [10:59:18.003] [bbotk]                               10 0.6528431 ead8cc73-55c3-4a96-bf9a-9b6f4da19f82 
+## INFO  [10:59:18.003] [bbotk]                               19 0.6904128 57eb7d4a-013c-4bd7-b4bc-df6a30088e16 
+## INFO  [10:59:18.003] [bbotk]                               41 0.6851661 8528b177-6d0f-4d22-aff6-026b50437dca 
+## INFO  [10:59:18.003] [bbotk]                               46 0.6861537 b21b1a5d-3eb5-488a-b720-f0422ccc3e1c 
+## INFO  [10:59:18.003] [bbotk]                               50 0.6850456 a4085cfb-9d2b-45ee-8bbe-f85e1b47a0df 
+## INFO  [10:59:18.012] [bbotk] Finished optimizing after 10 evaluation(s) 
+## INFO  [10:59:18.012] [bbotk] Result: 
+## INFO  [10:59:18.013] [bbotk]  correlation_filter.filter.nfeat learner_param_vals  x_domain  regr.rsq 
+## INFO  [10:59:18.013] [bbotk]                               19         &lt;list[15]&gt; &lt;list[1]&gt; 0.6904128</code></pre>
+<pre class="r"><code>myTuner</code></pre>
+<pre><code>## &lt;TuningInstanceSingleCrit&gt;
+## * State:  Optimized
+## * Objective: &lt;ObjectiveTuning:zero_to_missing.median_imputation.truncate.drop_features.log10_transform.removeconstants.targetmutate.correlation_filter.regr.lm.targetinvert_on_Boardgame
+##   rating&gt;
+## * Search Space:
+## &lt;ParamSet&gt;
+##                                 id    class lower upper nlevels        default
+## 1: correlation_filter.filter.nfeat ParamInt    10    50      41 &lt;NoDefault[3]&gt;
+##    value
+## 1:      
+## * Terminator: &lt;TerminatorEvals&gt;
+## * Terminated: TRUE
+## * Result:
+##    correlation_filter.filter.nfeat learner_param_vals  x_domain  regr.rsq
+## 1:                              19         &lt;list[15]&gt; &lt;list[1]&gt; 0.6904128
+## * Archive:
+## &lt;ArchiveTuning&gt;
+##     correlation_filter.filter.nfeat regr.rsq           timestamp batch_nr
+##  1:                              14     0.68 2021-11-15 10:59:00        1
+##  2:                              23     0.69 2021-11-15 10:59:00        1
+##  3:                              28     0.68 2021-11-15 10:59:00        1
+##  4:                              32     0.68 2021-11-15 10:59:00        1
+##  5:                              37     0.69 2021-11-15 10:59:00        1
+##  6:                              10     0.65 2021-11-15 10:59:18        2
+##  7:                              19     0.69 2021-11-15 10:59:18        2
+##  8:                              41     0.69 2021-11-15 10:59:18        2
+##  9:                              46     0.69 2021-11-15 10:59:18        2
+## 10:                              50     0.69 2021-11-15 10:59:18        2</code></pre>
+<p>The tuning says that 19 features is best, but I do not believe it. The R2 values from 10-fold cross-validation are themselves subject to a sampling error that is greater than any differences that we see.</p>
+<pre class="r"><code># --- plot cv R2 by number of features ------------------------------
+myTuner$archive %&gt;%
+  as.data.table() %&gt;%
+  as_tibble() %&gt;%
+  ggplot( aes(x=correlation_filter.filter.nfeat, y=regr.rsq)) +
+  geom_point() +
+  geom_line()</code></pre>
+<p><img src="/post/methods_mlr3/mlr3_preprocessing_files/figure-html/unnamed-chunk-37-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>I am sure that you will have spotted that correlation is a terrible filter, many of the other filters offered by <code>mlr3</code> would do much better. I should also use splines for age, num_votes and owners.</p>
+</div>

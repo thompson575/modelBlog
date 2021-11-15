@@ -6,7 +6,27 @@
     <description>Recent content in Posts on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Thu, 28 Oct 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Tue, 02 Nov 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Sliced Episode 10: Animal adoption</title>
+      <link>https://modelling-with-r.netlify.app/animal_adoption/</link>
+      <pubDate>Tue, 02 Nov 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/animal_adoption/</guid>
+      <description>IntroductionThe data for episode 10 of Sliced, the second round of the play-offs, relates to the adoption of abandoned or unwanted pets. Given information about the animal, such as its breed and age, the competitors had to predict a three class outcome, either, adoption, transfer or what is euphemistically called ‘no outcome’, which in reality means that the animal was put down (another euphemism).
+The data can be downloaded from https://www.</description>
+    </item>
+    
+    <item>
+      <title>Methods: Introduction to mlr3</title>
+      <link>https://modelling-with-r.netlify.app/mlr3/</link>
+      <pubDate>Mon, 01 Nov 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/mlr3/</guid>
+      <description>IntroductionThis post introduces the ecosystem of packages known as mlr3. It is an alternative to tidymodels and one of my reasons for trying mlr3 was to compare the two.
+mlr3 is built on R6. a package that enables Object Oriented Programming (OOP) in R. To understand the way that mlr3 works, it is helpful to know a little about OOP and R6, so that is where I will start.</description>
+    </item>
+    
     <item>
       <title>Sliced Episode 9: Baseball home runs</title>
       <link>https://modelling-with-r.netlify.app/baseball/</link>

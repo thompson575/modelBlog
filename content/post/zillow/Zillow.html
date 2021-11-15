@@ -1,0 +1,3096 @@
+---
+title: "Sliced Episode 11: Austin House Prices"
+author: "John Thompson"
+date: "2021-11-12"
+layout: post
+tags:
+- Sliced
+- mlr3
+- pipe ops
+- tables
+- tabyl
+- kable
+- random forest
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+<script src="/rmarkdown-libs/kePrint/kePrint.js"></script>
+<link href="/rmarkdown-libs/lightable/lightable.css" rel="stylesheet" />
+
+
+<div id="summary" class="section level1">
+<h1>Summary:</h1>
+<p><strong>Background:</strong> In episode 11 of the 2021 series of <em>Sliced</em>, the competitors were given two hours in which to analyse a set of data on properties in the Austin area that were advertised on Zillow. The aim was to predict the house price, lumped into 5 categories.<br />
+<strong>My approach:</strong> I decided to use these data to illustrate the use of pipelines in mlr3. I identify commonly used words from the estate agents description of the property and use a pipeline to filter them and combine the selected keywords with the numerical descriptors of the property. I use a random forest model and measure performance using cross-validation. I tune both the number of filtered features and the hyperparameters of the random forest.
+<strong>Result:</strong> Performance of the model was poor.<br />
+<strong>Conclusion:</strong> The analysis provided a good illustration of the use of pipelines in <code>mlr3</code>, but it did not result in a competitive model. I found myself falling into the trap that I often see in videos on the use of <code>tidymodels</code>; insufficient attention to the intermediate steps.</p>
+</div>
+<div id="introduction" class="section level1">
+<h1>Introduction:</h1>
+<p>The data for episode 11 of <em>Sliced 2021</em> can be downloaded from <a href="https://www.kaggle.com/c/sliced-s01e11-semifinals/" class="uri">https://www.kaggle.com/c/sliced-s01e11-semifinals/</a>. The competition organisers took the data from a US on-line estate agent called <em>Zillow</em>. The properties have been grouped into five price categories, which the competitors to predict. Evaluation was by multi-class logloss.</p>
+<p>I use these data to demonstrate exploratory analysis with tables and the use of pipelines in <code>mlr3</code>. The tables are produced using a combination of <code>dplyr</code>, <code>janitor::tabyl</code> and <code>kable</code>.</p>
+<p>I have written two methods posts entitled <em>Introduction to <code>mlr3</code></em> and <em>Pipelines in <code>mlr3</code></em>. These posts give the background needed to understand the <code>mlr3</code> components of this analysis.</p>
+</div>
+<div id="reading-the-data" class="section level1">
+<h1>Reading the data</h1>
+<p>It is my practice to read the data asis and to immediately save it in rds format within a directory called data/rData. For details of the way that I organise my analyses you should read my post called <code>Sliced Methods Overview</code>.</p>
+<pre class="r"><code># --- setup: libraries &amp; options ------------------------
+library(tidyverse)
+
+theme_set( theme_light())
+
+# --- set home directory -------------------------------
+home &lt;- &quot;C:/Projects/kaggle/sliced/s01-e11&quot;
+
+# --- read downloaded data -----------------------------
+trainRawDF &lt;- readRDS( file.path(home, &quot;data/rData/train.rds&quot;) )
+
+testRawDF &lt;- readRDS( file.path(home, &quot;data/rData/test.rds&quot;) )</code></pre>
+</div>
+<div id="data-exploration" class="section level1">
+<h1>Data Exploration:</h1>
+<p>As usual, I start by summarising the training data with the <code>skimr</code> package.</p>
+<pre class="r"><code># --- summarise the training set -----------------------
+skimr::skim(trainRawDF)</code></pre>
+<p>I have hidden the output, which in this case shows very little except that the training set has data on 10,000 properties and there is no missing data except for 1 house that lacks a textual description.</p>
+<div id="the-response" class="section level2">
+<h2>The response</h2>
+<p>The response is called <code>priceRange</code>. It is an ordered categorical variable with 5 levels $0-$250,000, $250,000-$350,000, $350,000-$450,000, $450,000-$650,000 and $650,000+.</p>
+<p>The boundaries have been chosen to give a symmetrical distribution across the price range.</p>
+<pre class="r"><code># --- count of response categories ----------------------
+trainRawDF %&gt;%
+  count( priceRange)</code></pre>
+<pre><code>## # A tibble: 5 x 2
+##   priceRange        n
+##   &lt;chr&gt;         &lt;int&gt;
+## 1 0-250000       1249
+## 2 250000-350000  2356
+## 3 350000-450000  2301
+## 4 450000-650000  2275
+## 5 650000+        1819</code></pre>
+</div>
+<div id="predictors" class="section level2">
+<h2>Predictors</h2>
+<p>The location of the property is given in two ways, as a city and as a latitude and longitude. Here are the house prices by city.</p>
+<pre class="r"><code>library(knitr)
+library(kableExtra)
+# --- city ----------------------------------------------
+trainRawDF %&gt;%
+  janitor::tabyl( priceRange, city) %&gt;%
+  janitor::adorn_totals(&quot;row&quot;) %&gt;%
+  kable(caption=&quot;House prices by City&quot;,
+        col.names=c(&quot;Price&quot;,
+                  substr(sort(unique(trainRawDF$city)),1,8))) %&gt;%
+  kable_classic(full_width=FALSE)</code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-4">Table 1: </span>House prices by City
+</caption>
+<thead>
+<tr>
+<th style="text-align:left;">
+Price
+</th>
+<th style="text-align:right;">
+austin
+</th>
+<th style="text-align:right;">
+del vall
+</th>
+<th style="text-align:right;">
+driftwoo
+</th>
+<th style="text-align:right;">
+dripping
+</th>
+<th style="text-align:right;">
+manchaca
+</th>
+<th style="text-align:right;">
+pflugerv
+</th>
+<th style="text-align:right;">
+west lak
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+0-250000
+</td>
+<td style="text-align:right;">
+1189
+</td>
+<td style="text-align:right;">
+54
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+250000-350000
+</td>
+<td style="text-align:right;">
+2329
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+22
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+350000-450000
+</td>
+<td style="text-align:right;">
+2299
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+450000-650000
+</td>
+<td style="text-align:right;">
+2274
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+650000+
+</td>
+<td style="text-align:right;">
+1807
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+7
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+2
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Total
+</td>
+<td style="text-align:right;">
+9898
+</td>
+<td style="text-align:right;">
+57
+</td>
+<td style="text-align:right;">
+8
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+29
+</td>
+<td style="text-align:right;">
+2
+</td>
+</tr>
+</tbody>
+</table>
+<p>Almost all of the houses are in Austin, so <code>City</code> will be of little use.</p>
+<p>Austin does have a crescent shape with a wooded area that takes a bite out of the city. The expensive houses seem to be clustered in and around this bite. The cheaper housing is mostly in suburbs to the east of the city.</p>
+<pre class="r"><code># --- location ----------------------------------------
+trainRawDF %&gt;%
+  ggplot( aes(x=longitude, y=latitude, colour=priceRange)) +
+  geom_point()</code></pre>
+<p><img src="/post/zillow/Zillow_files/figure-html/unnamed-chunk-5-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>It looks as though the value depends on the distance from the centre, so it might be useful to plot polar coordinates.</p>
+<pre class="r"><code># --- polar coordinates -------------------------------
+mlat &lt;- median(trainRawDF$latitude)
+mlon &lt;- median(trainRawDF$longitude)
+trainRawDF %&gt;%
+  mutate( radius = sqrt( (latitude-mlat)^2 + (longitude-mlon)^2),
+          angle = atan((latitude-mlat)/(longitude-mlon))) %&gt;%
+    ggplot( aes(x=radius, y=angle, colour=priceRange)) +
+  geom_point()</code></pre>
+<p><img src="/post/zillow/Zillow_files/figure-html/unnamed-chunk-6-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The other geographical predictors relate to local schooling. As you might expect, schooling is better if you are well-off. However, the worse schools seem to have fewer students for each teacher.</p>
+<pre class="r"><code># --- table of measures of schooling -------------------
+trainRawDF %&gt;%
+  group_by( priceRange) %&gt;%
+  summarise( n=n(),
+             rating = mean(avgSchoolRating),
+             ratio  = mean(MedianStudentsPerTeacher),
+             .groups = &quot;drop&quot;) %&gt;%
+  kable( digits=2,
+         col.names = c(&quot;Price&quot;, &quot;n&quot;, &quot;school rating&quot;, &quot;student ratio&quot;),
+         caption=&quot;House prices and local schools&quot;) %&gt;%
+  kable_classic(full_width=FALSE)</code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-7">Table 2: </span>House prices and local schools
+</caption>
+<thead>
+<tr>
+<th style="text-align:left;">
+Price
+</th>
+<th style="text-align:right;">
+n
+</th>
+<th style="text-align:right;">
+school rating
+</th>
+<th style="text-align:right;">
+student ratio
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+0-250000
+</td>
+<td style="text-align:right;">
+1249
+</td>
+<td style="text-align:right;">
+4.27
+</td>
+<td style="text-align:right;">
+13.74
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+250000-350000
+</td>
+<td style="text-align:right;">
+2356
+</td>
+<td style="text-align:right;">
+4.80
+</td>
+<td style="text-align:right;">
+14.10
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+350000-450000
+</td>
+<td style="text-align:right;">
+2301
+</td>
+<td style="text-align:right;">
+5.79
+</td>
+<td style="text-align:right;">
+14.93
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+450000-650000
+</td>
+<td style="text-align:right;">
+2275
+</td>
+<td style="text-align:right;">
+6.68
+</td>
+<td style="text-align:right;">
+15.62
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+650000+
+</td>
+<td style="text-align:right;">
+1819
+</td>
+<td style="text-align:right;">
+6.88
+</td>
+<td style="text-align:right;">
+15.56
+</td>
+</tr>
+</tbody>
+</table>
+<p>House type should be a useful predictor, but unfortunately most houses are described as <code>single family</code> dwellings.</p>
+<pre class="r"><code># --- home type ----------------------------------------------
+trainRawDF %&gt;%
+  janitor::tabyl( priceRange, homeType) %&gt;%
+  janitor::adorn_totals(&quot;row&quot;) %&gt;%
+  kable(caption=&quot;Price by type of home&quot;,
+        col.names=c(&quot;Price&quot;,
+                  substr(sort(unique(trainRawDF$homeType)),1,6))) %&gt;%
+  kable_classic(full_width=FALSE)</code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-8">Table 3: </span>Price by type of home
+</caption>
+<thead>
+<tr>
+<th style="text-align:left;">
+Price
+</th>
+<th style="text-align:right;">
+Apartm
+</th>
+<th style="text-align:right;">
+Condo
+</th>
+<th style="text-align:right;">
+Mobile
+</th>
+<th style="text-align:right;">
+MultiF
+</th>
+<th style="text-align:right;">
+Multip
+</th>
+<th style="text-align:right;">
+Other
+</th>
+<th style="text-align:right;">
+Reside
+</th>
+<th style="text-align:right;">
+Single
+</th>
+<th style="text-align:right;">
+Townho
+</th>
+<th style="text-align:right;">
+Vacant
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+0-250000
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+88
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+12
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+1108
+</td>
+<td style="text-align:right;">
+32
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+250000-350000
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+73
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+15
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+7
+</td>
+<td style="text-align:right;">
+2241
+</td>
+<td style="text-align:right;">
+15
+</td>
+<td style="text-align:right;">
+1
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+350000-450000
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+71
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+15
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+2178
+</td>
+<td style="text-align:right;">
+27
+</td>
+<td style="text-align:right;">
+1
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+450000-650000
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+65
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+13
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+12
+</td>
+<td style="text-align:right;">
+2152
+</td>
+<td style="text-align:right;">
+25
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+650000+
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+36
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+1748
+</td>
+<td style="text-align:right;">
+14
+</td>
+<td style="text-align:right;">
+2
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Total
+</td>
+<td style="text-align:right;">
+19
+</td>
+<td style="text-align:right;">
+333
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+60
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+27
+</td>
+<td style="text-align:right;">
+9427
+</td>
+<td style="text-align:right;">
+113
+</td>
+<td style="text-align:right;">
+4
+</td>
+</tr>
+</tbody>
+</table>
+<p>Indicators of size include number of bathrooms. I am never sure with Americans whether bathroom is literal. Presumably some facilities are shared giving the multiples of 0.5.</p>
+<pre class="r"><code># --- number of bathrooms -----------------------------------
+trainRawDF %&gt;%
+  janitor::tabyl(  priceRange, numOfBathrooms) %&gt;%
+  kable(caption=&quot;Price and the number of bathrooms&quot;)%&gt;%
+  kable_classic(full_width=FALSE) %&gt;%
+  add_header_above(c(&quot; &quot;=1,&quot;Number of bathrooms&quot;=15))</code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-9">Table 4: </span>Price and the number of bathrooms
+</caption>
+<thead>
+<tr>
+<th style="empty-cells: hide;" colspan="1">
+</th>
+<th style="padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="15">
+<div style="border-bottom: 1px solid #111111; margin-bottom: -1px; ">
+Number of bathrooms
+</div>
+</th>
+</tr>
+<tr>
+<th style="text-align:left;">
+priceRange
+</th>
+<th style="text-align:right;">
+1
+</th>
+<th style="text-align:right;">
+1.5
+</th>
+<th style="text-align:right;">
+10
+</th>
+<th style="text-align:right;">
+2
+</th>
+<th style="text-align:right;">
+2.5
+</th>
+<th style="text-align:right;">
+3
+</th>
+<th style="text-align:right;">
+3.5
+</th>
+<th style="text-align:right;">
+4
+</th>
+<th style="text-align:right;">
+4.5
+</th>
+<th style="text-align:right;">
+5
+</th>
+<th style="text-align:right;">
+5.5
+</th>
+<th style="text-align:right;">
+6
+</th>
+<th style="text-align:right;">
+6.5
+</th>
+<th style="text-align:right;">
+7
+</th>
+<th style="text-align:right;">
+8
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+0-250000
+</td>
+<td style="text-align:right;">
+147
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+733
+</td>
+<td style="text-align:right;">
+24
+</td>
+<td style="text-align:right;">
+320
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+18
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+1
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+250000-350000
+</td>
+<td style="text-align:right;">
+172
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+1294
+</td>
+<td style="text-align:right;">
+24
+</td>
+<td style="text-align:right;">
+822
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+36
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+350000-450000
+</td>
+<td style="text-align:right;">
+170
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+1096
+</td>
+<td style="text-align:right;">
+19
+</td>
+<td style="text-align:right;">
+864
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+138
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+450000-650000
+</td>
+<td style="text-align:right;">
+95
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+670
+</td>
+<td style="text-align:right;">
+14
+</td>
+<td style="text-align:right;">
+950
+</td>
+<td style="text-align:right;">
+14
+</td>
+<td style="text-align:right;">
+479
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+38
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+3
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+650000+
+</td>
+<td style="text-align:right;">
+38
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+237
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+602
+</td>
+<td style="text-align:right;">
+7
+</td>
+<td style="text-align:right;">
+599
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+208
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+80
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+33
+</td>
+<td style="text-align:right;">
+4
+</td>
+</tr>
+</tbody>
+</table>
+<p>As you would expect, the trend is, the greater the number of bedrooms, the higher the price. A similar pattern can be seen in the number of bedrooms.</p>
+<pre class="r"><code># --- number of bedrooms -----------------------------------
+trainRawDF %&gt;%
+  group_by( priceRange, numOfBedrooms) %&gt;% 
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider(values_from=n, names_from=numOfBedrooms, values_fill=0,
+              names_sort=TRUE) %&gt;%
+kable(caption=&quot;Price and the number of bedrooms&quot;) %&gt;%
+  kable_classic(full_width=FALSE) %&gt;%
+  add_header_above(c(&quot; &quot;=1,&quot;Number of bedrooms&quot;=9))</code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-10">Table 5: </span>Price and the number of bedrooms
+</caption>
+<thead>
+<tr>
+<th style="empty-cells: hide;" colspan="1">
+</th>
+<th style="padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="9">
+<div style="border-bottom: 1px solid #111111; margin-bottom: -1px; ">
+Number of bedrooms
+</div>
+</th>
+</tr>
+<tr>
+<th style="text-align:left;">
+priceRange
+</th>
+<th style="text-align:right;">
+1
+</th>
+<th style="text-align:right;">
+2
+</th>
+<th style="text-align:right;">
+3
+</th>
+<th style="text-align:right;">
+4
+</th>
+<th style="text-align:right;">
+5
+</th>
+<th style="text-align:right;">
+6
+</th>
+<th style="text-align:right;">
+7
+</th>
+<th style="text-align:right;">
+8
+</th>
+<th style="text-align:right;">
+10
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+0-250000
+</td>
+<td style="text-align:right;">
+24
+</td>
+<td style="text-align:right;">
+150
+</td>
+<td style="text-align:right;">
+833
+</td>
+<td style="text-align:right;">
+214
+</td>
+<td style="text-align:right;">
+21
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+250000-350000
+</td>
+<td style="text-align:right;">
+15
+</td>
+<td style="text-align:right;">
+154
+</td>
+<td style="text-align:right;">
+1564
+</td>
+<td style="text-align:right;">
+577
+</td>
+<td style="text-align:right;">
+40
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+350000-450000
+</td>
+<td style="text-align:right;">
+17
+</td>
+<td style="text-align:right;">
+160
+</td>
+<td style="text-align:right;">
+1247
+</td>
+<td style="text-align:right;">
+781
+</td>
+<td style="text-align:right;">
+85
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+450000-650000
+</td>
+<td style="text-align:right;">
+9
+</td>
+<td style="text-align:right;">
+155
+</td>
+<td style="text-align:right;">
+815
+</td>
+<td style="text-align:right;">
+1013
+</td>
+<td style="text-align:right;">
+265
+</td>
+<td style="text-align:right;">
+12
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+1
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+650000+
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+69
+</td>
+<td style="text-align:right;">
+460
+</td>
+<td style="text-align:right;">
+868
+</td>
+<td style="text-align:right;">
+376
+</td>
+<td style="text-align:right;">
+35
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+</tbody>
+</table>
+<p>These are US data, so one can never be certain, but it is likely that some of the larger numbers of garage spaces refer to shared parking for a group of properties.</p>
+<pre class="r"><code># --- parking ---------------------------------------------
+trainRawDF %&gt;%
+  group_by( priceRange, garageSpaces) %&gt;% 
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider(values_from=n, names_from=garageSpaces, values_fill=0,
+              names_sort=TRUE) %&gt;%
+  kable(caption=&quot;Price and size of garage&quot;) %&gt;%
+  kable_classic(full_width=FALSE) %&gt;%
+  add_header_above(c(&quot; &quot;=1,&quot;Garage Spaces&quot;=13))</code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-11">Table 6: </span>Price and size of garage
+</caption>
+<thead>
+<tr>
+<th style="empty-cells: hide;" colspan="1">
+</th>
+<th style="padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="13">
+<div style="border-bottom: 1px solid #111111; margin-bottom: -1px; ">
+Garage Spaces
+</div>
+</th>
+</tr>
+<tr>
+<th style="text-align:left;">
+priceRange
+</th>
+<th style="text-align:right;">
+0
+</th>
+<th style="text-align:right;">
+1
+</th>
+<th style="text-align:right;">
+2
+</th>
+<th style="text-align:right;">
+3
+</th>
+<th style="text-align:right;">
+4
+</th>
+<th style="text-align:right;">
+5
+</th>
+<th style="text-align:right;">
+6
+</th>
+<th style="text-align:right;">
+7
+</th>
+<th style="text-align:right;">
+8
+</th>
+<th style="text-align:right;">
+9
+</th>
+<th style="text-align:right;">
+10
+</th>
+<th style="text-align:right;">
+12
+</th>
+<th style="text-align:right;">
+22
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+0-250000
+</td>
+<td style="text-align:right;">
+660
+</td>
+<td style="text-align:right;">
+138
+</td>
+<td style="text-align:right;">
+395
+</td>
+<td style="text-align:right;">
+12
+</td>
+<td style="text-align:right;">
+40
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+250000-350000
+</td>
+<td style="text-align:right;">
+1183
+</td>
+<td style="text-align:right;">
+170
+</td>
+<td style="text-align:right;">
+888
+</td>
+<td style="text-align:right;">
+27
+</td>
+<td style="text-align:right;">
+71
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+9
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+350000-450000
+</td>
+<td style="text-align:right;">
+1044
+</td>
+<td style="text-align:right;">
+167
+</td>
+<td style="text-align:right;">
+933
+</td>
+<td style="text-align:right;">
+76
+</td>
+<td style="text-align:right;">
+65
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+9
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+1
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+450000-650000
+</td>
+<td style="text-align:right;">
+899
+</td>
+<td style="text-align:right;">
+150
+</td>
+<td style="text-align:right;">
+872
+</td>
+<td style="text-align:right;">
+218
+</td>
+<td style="text-align:right;">
+96
+</td>
+<td style="text-align:right;">
+12
+</td>
+<td style="text-align:right;">
+18
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+650000+
+</td>
+<td style="text-align:right;">
+672
+</td>
+<td style="text-align:right;">
+108
+</td>
+<td style="text-align:right;">
+577
+</td>
+<td style="text-align:right;">
+298
+</td>
+<td style="text-align:right;">
+114
+</td>
+<td style="text-align:right;">
+27
+</td>
+<td style="text-align:right;">
+15
+</td>
+<td style="text-align:right;">
+3
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+</tbody>
+</table>
+<p>Number of patio &amp; porch features also show the more you get the more expensive the property.</p>
+<pre class="r"><code># --- Patio and Porch --------------------------------------
+trainRawDF %&gt;%
+  group_by( priceRange, numOfPatioAndPorchFeatures) %&gt;% 
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider(values_from=n, names_from=numOfPatioAndPorchFeatures,
+              values_fill=0, names_sort=TRUE) %&gt;%
+  kable(caption=&quot;Price and Patio/Porch features&quot;) %&gt;%
+  kable_classic(full_width=FALSE) %&gt;%
+  add_header_above(c(&quot; &quot;=1,&quot;Patio and Porch features&quot;=9))</code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-12">Table 7: </span>Price and Patio/Porch features
+</caption>
+<thead>
+<tr>
+<th style="empty-cells: hide;" colspan="1">
+</th>
+<th style="padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="9">
+<div style="border-bottom: 1px solid #111111; margin-bottom: -1px; ">
+Patio and Porch features
+</div>
+</th>
+</tr>
+<tr>
+<th style="text-align:left;">
+priceRange
+</th>
+<th style="text-align:right;">
+0
+</th>
+<th style="text-align:right;">
+1
+</th>
+<th style="text-align:right;">
+2
+</th>
+<th style="text-align:right;">
+3
+</th>
+<th style="text-align:right;">
+4
+</th>
+<th style="text-align:right;">
+5
+</th>
+<th style="text-align:right;">
+6
+</th>
+<th style="text-align:right;">
+7
+</th>
+<th style="text-align:right;">
+8
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+0-250000
+</td>
+<td style="text-align:right;">
+931
+</td>
+<td style="text-align:right;">
+227
+</td>
+<td style="text-align:right;">
+74
+</td>
+<td style="text-align:right;">
+15
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+250000-350000
+</td>
+<td style="text-align:right;">
+1525
+</td>
+<td style="text-align:right;">
+470
+</td>
+<td style="text-align:right;">
+274
+</td>
+<td style="text-align:right;">
+68
+</td>
+<td style="text-align:right;">
+18
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+350000-450000
+</td>
+<td style="text-align:right;">
+1344
+</td>
+<td style="text-align:right;">
+490
+</td>
+<td style="text-align:right;">
+320
+</td>
+<td style="text-align:right;">
+115
+</td>
+<td style="text-align:right;">
+27
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+450000-650000
+</td>
+<td style="text-align:right;">
+1250
+</td>
+<td style="text-align:right;">
+466
+</td>
+<td style="text-align:right;">
+375
+</td>
+<td style="text-align:right;">
+146
+</td>
+<td style="text-align:right;">
+31
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+650000+
+</td>
+<td style="text-align:right;">
+1022
+</td>
+<td style="text-align:right;">
+324
+</td>
+<td style="text-align:right;">
+288
+</td>
+<td style="text-align:right;">
+135
+</td>
+<td style="text-align:right;">
+40
+</td>
+<td style="text-align:right;">
+7
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+1
+</td>
+</tr>
+</tbody>
+</table>
+<p>Having a spa is also associated with expensive properties.</p>
+<pre class="r"><code># --- Spa -------------------------------------------------
+trainRawDF %&gt;%
+  mutate( hasSpa = factor(hasSpa, levels=c(FALSE,TRUE),
+                          labels=c(&quot;No&quot;,&quot;Yes&quot;))) %&gt;%
+  group_by( priceRange, hasSpa) %&gt;% 
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider(values_from=n, names_from=hasSpa, values_fill=0,
+              names_sort=TRUE) %&gt;%
+  kable(caption=&quot;Price and Spa&quot;) %&gt;%
+  kable_classic(full_width=FALSE) %&gt;%
+  add_header_above(c(&quot; &quot;=1,&quot;Spa&quot;=2))</code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-13">Table 8: </span>Price and Spa
+</caption>
+<thead>
+<tr>
+<th style="empty-cells: hide;" colspan="1">
+</th>
+<th style="padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="2">
+<div style="border-bottom: 1px solid #111111; margin-bottom: -1px; ">
+Spa
+</div>
+</th>
+</tr>
+<tr>
+<th style="text-align:left;">
+priceRange
+</th>
+<th style="text-align:right;">
+No
+</th>
+<th style="text-align:right;">
+Yes
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+0-250000
+</td>
+<td style="text-align:right;">
+1221
+</td>
+<td style="text-align:right;">
+28
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+250000-350000
+</td>
+<td style="text-align:right;">
+2243
+</td>
+<td style="text-align:right;">
+113
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+350000-450000
+</td>
+<td style="text-align:right;">
+2161
+</td>
+<td style="text-align:right;">
+140
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+450000-650000
+</td>
+<td style="text-align:right;">
+2057
+</td>
+<td style="text-align:right;">
+218
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+650000+
+</td>
+<td style="text-align:right;">
+1493
+</td>
+<td style="text-align:right;">
+326
+</td>
+</tr>
+</tbody>
+</table>
+<p>The lot size in square feet shows the expected trend of larger properties costing more, but with some oddities.</p>
+<pre class="r"><code># --- area of the land -------------------------------------
+trainRawDF %&gt;%
+  group_by( priceRange) %&gt;%
+  summarise( n       = n(),
+             mean    = round(mean(lotSizeSqFt), 0),
+             median  = round(median(lotSizeSqFt), 0),
+             min     = min(lotSizeSqFt),
+             max     = max(lotSizeSqFt),
+             .groups = &quot;drop&quot;) %&gt;%
+  kable(caption=&quot;Price and size of garage&quot;) %&gt;%
+  kable_classic(full_width=FALSE)</code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-14">Table 9: </span>Price and size of garage
+</caption>
+<thead>
+<tr>
+<th style="text-align:left;">
+priceRange
+</th>
+<th style="text-align:right;">
+n
+</th>
+<th style="text-align:right;">
+mean
+</th>
+<th style="text-align:right;">
+median
+</th>
+<th style="text-align:right;">
+min
+</th>
+<th style="text-align:right;">
+max
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+0-250000
+</td>
+<td style="text-align:right;">
+1249
+</td>
+<td style="text-align:right;">
+62553
+</td>
+<td style="text-align:right;">
+6359
+</td>
+<td style="text-align:right;">
+392
+</td>
+<td style="text-align:right;">
+34154525
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+250000-350000
+</td>
+<td style="text-align:right;">
+2356
+</td>
+<td style="text-align:right;">
+8210
+</td>
+<td style="text-align:right;">
+7143
+</td>
+<td style="text-align:right;">
+113
+</td>
+<td style="text-align:right;">
+435600
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+350000-450000
+</td>
+<td style="text-align:right;">
+2301
+</td>
+<td style="text-align:right;">
+11727
+</td>
+<td style="text-align:right;">
+8058
+</td>
+<td style="text-align:right;">
+100
+</td>
+<td style="text-align:right;">
+2988216
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+450000-650000
+</td>
+<td style="text-align:right;">
+2275
+</td>
+<td style="text-align:right;">
+14660
+</td>
+<td style="text-align:right;">
+9452
+</td>
+<td style="text-align:right;">
+117
+</td>
+<td style="text-align:right;">
+5880600
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+650000+
+</td>
+<td style="text-align:right;">
+1819
+</td>
+<td style="text-align:right;">
+27102
+</td>
+<td style="text-align:right;">
+12197
+</td>
+<td style="text-align:right;">
+217
+</td>
+<td style="text-align:right;">
+8581320
+</td>
+</tr>
+</tbody>
+</table>
+<p>Clearly there is a data problem. There are two properties with over 10 million square feet and both are cheap.</p>
+<pre class="r"><code># --- log area by price ------------------------------------
+trainRawDF %&gt;%
+   ggplot( aes(x=priceRange, y=log10(lotSizeSqFt))) +
+   geom_boxplot()</code></pre>
+<p><img src="/post/zillow/Zillow_files/figure-html/unnamed-chunk-15-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Let look at the descriptions of the largest properties.</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  filter( lotSizeSqFt &gt; 5000000) %&gt;%
+  pull( description) </code></pre>
+<pre><code>## [1] &quot;Leased for $1695 though 7/31/2020 - Unique gated community, quiet, and one of the most sought after locations in West Campus, 2 (TWO) parking spaces, High ceilings, split level 2 bedroom (one is a loft), one bath with marble &amp; custom laminate floors which were recently replaced. Private deck-close to UT &amp; downtown- Leased for $1695 though 7/31/2020&quot;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+## [2] &quot;**Subject to City of Austin SMART Housing and Mueller Foundation Affordable Home Program requirements. (80% MFI). BUYER MUST HAVE PRE-QUALIFICATION** See Process/COVID docs for application process. Walk to Thinkery, Drafthouse, HEB, hike &amp; bike trails, playgrounds/community pools. Great Community to Live, Work, and Play! This isa resale-restricted home and must be sold to an income-qualified buyers. See Docs/Agent for details.**&quot;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+## [3] &quot;Rare 2 story home with 5 bed, 4.5 bath, dedicated office, game room AND theater room. One of the most desired features of this home is the 2 spacious master suites downstairs with 2 full + 1/2 bathrooms. This home shows like a model home with features ranging from stunning hardwoods, high-end finishes, tankless water heater, vaulted ceilings, recessed lighting, built-in speakers, stunning cast stone gas fireplace, granite countertops throughout the home to an outdoor living area with a built-in kitchen and BBQ grill. Luxury master suite has an oversized frameless shower enclosure and drop-in garden tub. The game room offers an additional living space. The theater room provides the key to a relaxing night in. Excellent Round Rock ISD schools and neighborhood amenities.\r\n\r\nThis home is professionally listed by Eric Peterson at Kopa Real Estate. Call 512-791-7473  or email eric@koparealestate.com for more information.&quot;
+## [4] &quot;201 Charismatic Pl, Austin, TX 78737 is a single family home that contains 4,459 sq ft and was built in 2015. It contains 5 bedrooms and 6 bathrooms. \r\n \r\n&quot;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
+## [5] &quot;Newly remodeled 3-2 conveniently located in Brushy Creek. This is an open floor plan that feels much larger than the stated size. New features include fresh paint, tile, carpet, fixtures, new furnace, new exterior doors, blinds, etc. New 30 year roof installed this year. One car garage with opener. Has two large master bedrooms and one smaller. Ceiling fans throughout. Gas heat and cooking. Large back yard. Planter beds in the front are ready for your personal touch.This is a MUST SEE nice home with great neighbors. Ready to move in and enjoy!\r\n\r\nNeighborhood Description\r\n\r\nGreat family oriented neighborhood in walking distance of exemplary Brushy Creek Elementary school. Walk to parks and trails. Convenient central location. Must see this one!&quot;</code></pre>
+<p>Five million square feet equates to over 100 acres. I find it hard to believe that affordable housing is on such a grand scale [2].</p>
+<p>The very small lots also seem unlikely. 100 square feet is the size of a box room.</p>
+<p>Removing the extremes provides a more believable distribution.</p>
+<pre class="r"><code>mSize &lt;- median(trainRawDF$lotSizeSqFt)
+
+trainRawDF %&gt;%
+  mutate( lotSizeSqFt = ifelse(lotSizeSqFt &gt; 1000000 |
+                               lotSizeSqFt &lt; 300, mSize,
+                               lotSizeSqFt) ) %&gt;%
+  group_by( priceRange) %&gt;%
+  summarise( n       = n(),
+             mean    = round(mean(lotSizeSqFt), 0),
+             median  = round(median(lotSizeSqFt), 0),
+             min     = min(lotSizeSqFt),
+             max     = max(lotSizeSqFt),
+             .groups = &quot;drop&quot;) %&gt;%
+  kable(caption=&quot;Price and size of garage&quot;) %&gt;%
+  kable_classic(full_width=FALSE)</code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-17">Table 10: </span>Price and size of garage
+</caption>
+<thead>
+<tr>
+<th style="text-align:left;">
+priceRange
+</th>
+<th style="text-align:right;">
+n
+</th>
+<th style="text-align:right;">
+mean
+</th>
+<th style="text-align:right;">
+median
+</th>
+<th style="text-align:right;">
+min
+</th>
+<th style="text-align:right;">
+max
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+0-250000
+</td>
+<td style="text-align:right;">
+1249
+</td>
+<td style="text-align:right;">
+7751
+</td>
+<td style="text-align:right;">
+6359
+</td>
+<td style="text-align:right;">
+392
+</td>
+<td style="text-align:right;">
+411206.4
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+250000-350000
+</td>
+<td style="text-align:right;">
+2356
+</td>
+<td style="text-align:right;">
+8213
+</td>
+<td style="text-align:right;">
+7143
+</td>
+<td style="text-align:right;">
+392
+</td>
+<td style="text-align:right;">
+435600.0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+350000-450000
+</td>
+<td style="text-align:right;">
+2301
+</td>
+<td style="text-align:right;">
+9783
+</td>
+<td style="text-align:right;">
+8058
+</td>
+<td style="text-align:right;">
+644
+</td>
+<td style="text-align:right;">
+871200.0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+450000-650000
+</td>
+<td style="text-align:right;">
+2275
+</td>
+<td style="text-align:right;">
+12082
+</td>
+<td style="text-align:right;">
+9452
+</td>
+<td style="text-align:right;">
+1219
+</td>
+<td style="text-align:right;">
+219542.4
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+650000+
+</td>
+<td style="text-align:right;">
+1819
+</td>
+<td style="text-align:right;">
+21846
+</td>
+<td style="text-align:right;">
+12197
+</td>
+<td style="text-align:right;">
+1258
+</td>
+<td style="text-align:right;">
+702622.8
+</td>
+</tr>
+</tbody>
+</table>
+<p>The other thing that we know is the year when the house was built; this does not look particularly predictive of price.</p>
+<pre class="r"><code># --- year built -----------------------------------
+trainRawDF %&gt;%
+   ggplot( aes(x=priceRange, y=yearBuilt)) +
+   geom_boxplot()</code></pre>
+<p><img src="/post/zillow/Zillow_files/figure-html/unnamed-chunk-18-1.png" width="528" style="display: block; margin: auto;" /></p>
+</div>
+</div>
+<div id="house-descriptions" class="section level1">
+<h1>House Descriptions</h1>
+<p>In previous posts analysing other episodes of <em>Slided</em>, I have used my own functions for handling text, but here the text is longer and unstructured so it is worth using a package. <code>tidytext</code> would do the job, but I will use <code>quanteda</code>, because <code>quanteda</code> is integrated into <code>mlr3</code> and it is a good package in its own right.</p>
+<p>Here is a function built with <code>quanteda</code> that extracts words that occur at least some specified minimum number of times.</p>
+<ul>
+<li><code>stopwords</code> are words such as “the”, "“a”, “and”, “on”, etc<br />
+</li>
+<li><code>stems</code> are the roots of words, so “bedroom” and “bedrooms” are united as “bedroom”, “great” and “greatly” are combined and so on.</li>
+</ul>
+<pre class="r"><code># --- function to extract common words -------------------------
+# arguments 
+#   text ... vector of character strings (the text)
+#   minCount ... words must occur at least this many times
+#   minLength ... minimum length of an eligible word
+#   prefix ... prefix for a variable that counts the number of 
+#              occurrences in each string
+# returns
+#   tibble containing the indicators.
+#
+# uses the quanteda package
+#
+text_indicators &lt;- function(text, minCount, minLength,
+                            prefix=&quot;X&quot;) {
+  library(quanteda)
+  
+  # --- extract the words -------------------------
+  tokens(text, remove_punct=TRUE, 
+               remove_numbers=TRUE, 
+               remove_symbols=TRUE)  %&gt;%
+  # --- remove English stopwords ------------------
+     tokens_remove(stopwords(&quot;en&quot;)) %&gt;% 
+  # --- find words stems --------------------------
+     tokens_wordstem() %&gt;%
+  # --- create indicators -------------------------
+     dfm() %&gt;%
+     as.matrix() %&gt;%
+     as_tibble() -&gt; mDF
+  # --- remove if too rare  -----------------------
+  mDF[, names(mDF)[apply(mDF, 2, sum) &gt;= minCount]] -&gt; mDF
+  # --- remove if too ahort -----------------------
+  mDF[, names(mDF)[str_length(names(mDF)) &gt;= minLength]] -&gt; mDF
+  # --- create variable names ---------------------
+  keywords &lt;- names(mDF) 
+  names(mDF) &lt;- paste(prefix, &quot;.&quot;, names(mDF), sep=&quot;&quot;) 
+  return( mDF)
+}</code></pre>
+<p>I will use the function to extract common words from the property description and construct indicator variables to show the number of times that the words occur in each description.</p>
+<pre class="r"><code># --- DF of indicators for commonly occurring words --------------------
+trainRawDF %&gt;%
+  mutate( description = ifelse( is.na(description), &quot;&quot;, description)) %&gt;%
+  { text_indicators(.[[&quot;description&quot;]], 
+                    200, 3, 
+                    prefix = &quot;desc&quot;)} %&gt;%
+  print() -&gt; indicatorDF</code></pre>
+<pre><code>## # A tibble: 10,000 x 394
+##    desc.best desc.agent desc.rare desc.view desc.lot desc.see desc.home desc.sit
+##        &lt;dbl&gt;      &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;
+##  1         1          2         1         1        1        1         2        1
+##  2         0          0         0         0        0        0         1        0
+##  3         0          0         0         0        0        0         1        0
+##  4         0          0         0         0        1        0         2        0
+##  5         0          0         0         0        0        0         1        0
+##  6         0          0         0         0        0        0         1        0
+##  7         0          0         0         1        1        1         3        0
+##  8         0          0         0         0        0        0         0        0
+##  9         0          1         0         0        1        0         3        0
+## 10         0          0         0         0        0        0         0        0
+## # ... with 9,990 more rows, and 386 more variables: `desc.cul-de-sac` &lt;dbl&gt;,
+## #   desc.back &lt;dbl&gt;, desc.stun &lt;dbl&gt;, desc.remodel &lt;dbl&gt;, desc.kitchen &lt;dbl&gt;,
+## #   desc.bathroom &lt;dbl&gt;, desc.master &lt;dbl&gt;, desc.suit &lt;dbl&gt;, desc.privat &lt;dbl&gt;,
+## #   desc.bath &lt;dbl&gt;, desc.huge &lt;dbl&gt;, desc.bedroom &lt;dbl&gt;, `desc.walk-in` &lt;dbl&gt;,
+## #   desc.closet &lt;dbl&gt;, desc.deck &lt;dbl&gt;, desc.pool &lt;dbl&gt;, desc.park &lt;dbl&gt;,
+## #   desc.tenni &lt;dbl&gt;, desc.court &lt;dbl&gt;, desc.high &lt;dbl&gt;, desc.well &lt;dbl&gt;,
+## #   desc.love &lt;dbl&gt;, desc.featur &lt;dbl&gt;, desc.live &lt;dbl&gt;, desc.area &lt;dbl&gt;,
+## #   desc.offic &lt;dbl&gt;, desc.car &lt;dbl&gt;, desc.garag &lt;dbl&gt;, desc.austin &lt;dbl&gt;,
+## #   desc.singl &lt;dbl&gt;, desc.famili &lt;dbl&gt;, desc.contain &lt;dbl&gt;, desc.built &lt;dbl&gt;,
+## #   desc.beauti &lt;dbl&gt;, desc.larg &lt;dbl&gt;, desc.tree &lt;dbl&gt;, desc.light &lt;dbl&gt;,
+## #   desc.spacious &lt;dbl&gt;, desc.dine &lt;dbl&gt;, desc.room &lt;dbl&gt;, desc.open &lt;dbl&gt;,
+## #   desc.floor &lt;dbl&gt;, desc.plan &lt;dbl&gt;, desc.layout &lt;dbl&gt;, desc.yard &lt;dbl&gt;,
+## #   desc.newli &lt;dbl&gt;, desc.patio &lt;dbl&gt;, `desc.built-in` &lt;dbl&gt;, desc.shed &lt;dbl&gt;,
+## #   desc.new &lt;dbl&gt;, desc.lamin &lt;dbl&gt;, desc.tile &lt;dbl&gt;, desc.throughout &lt;dbl&gt;,
+## #   desc.renov &lt;dbl&gt;, desc.upgrade &lt;dbl&gt;, desc.stainless &lt;dbl&gt;,
+## #   desc.applianc &lt;dbl&gt;, desc.washer &lt;dbl&gt;, desc.dryer &lt;dbl&gt;,
+## #   desc.laundri &lt;dbl&gt;, desc.util &lt;dbl&gt;, desc.recess &lt;dbl&gt;, desc.ceil &lt;dbl&gt;,
+## #   desc.fan &lt;dbl&gt;, desc.neighborhood &lt;dbl&gt;, desc.locat &lt;dbl&gt;,
+## #   desc.north &lt;dbl&gt;, desc.citi &lt;dbl&gt;, desc.south &lt;dbl&gt;, desc.first &lt;dbl&gt;,
+## #   desc.east &lt;dbl&gt;, desc.hill &lt;dbl&gt;, desc.design &lt;dbl&gt;, desc.oak &lt;dbl&gt;,
+## #   desc.wonder &lt;dbl&gt;, desc.bright &lt;dbl&gt;, desc.concept &lt;dbl&gt;, desc.vault &lt;dbl&gt;,
+## #   desc.formal &lt;dbl&gt;, desc.gorgeous &lt;dbl&gt;, desc.custom &lt;dbl&gt;, desc.wood &lt;dbl&gt;,
+## #   desc.cabinetri &lt;dbl&gt;, desc.quartz &lt;dbl&gt;, desc.countertop &lt;dbl&gt;,
+## #   desc.doubl &lt;dbl&gt;, desc.pantri &lt;dbl&gt;, desc.breakfast &lt;dbl&gt;,
+## #   desc.hardwood &lt;dbl&gt;, desc.fantast &lt;dbl&gt;, desc.exterior &lt;dbl&gt;,
+## #   desc.side &lt;dbl&gt;, desc.window &lt;dbl&gt;, desc.system &lt;dbl&gt;, desc.landscap &lt;dbl&gt;,
+## #   desc.contemporari &lt;dbl&gt;, desc.corner &lt;dbl&gt;, desc.entertain &lt;dbl&gt;,
+## #   desc.floorplan &lt;dbl&gt;, desc.attach &lt;dbl&gt;, ...</code></pre>
+<p>It would be interesting to know which words are associated with price. I will use a kruskal-wallis nonparameteric test to assess the association</p>
+<pre class="r"><code># --- kruskal-wallis test of counts vs priceRange ------------------
+trainRawDF %&gt;%
+  select( priceRange) %&gt;%
+  bind_cols(indicatorDF) %&gt;%
+  pivot_longer(starts_with(&quot;d&quot;), names_to=&quot;var&quot;, values_to=&quot;count&quot;) %&gt;%
+  group_by( var) %&gt;%
+  summarise( p = kruskal.test(count, priceRange)$p.value, .groups=&quot;drop&quot;) %&gt;%
+  filter( p &lt; 0.05) %&gt;% 
+  arrange( p ) %&gt;% 
+  print()             -&gt; keyVarDF</code></pre>
+<pre><code>## # A tibble: 293 x 2
+##    var                  p
+##    &lt;chr&gt;            &lt;dbl&gt;
+##  1 desc.view    1.47e-108
+##  2 desc.outdoor 2.32e- 94
+##  3 desc.hill    4.89e- 90
+##  4 desc.countri 1.84e- 88
+##  5 desc.spa     4.87e- 84
+##  6 desc.barton  7.02e- 74
+##  7 desc.pool    3.10e- 65
+##  8 desc.custom  9.91e- 58
+##  9 desc.gourmet 5.02e- 56
+## 10 desc.media   2.01e- 55
+## # ... with 283 more rows</code></pre>
+<p><code>indicatorDF</code> contains 394 words that occur at least 200 times in the property descriptions and <code>keyvarDF</code> contains 293 words that show a nominally significant relationship with <code>priceRange</code>.</p>
+</div>
+<div id="pre-processing" class="section level1">
+<h1>Pre-processing</h1>
+<p>I want to continue the theme from episode 10 and illustrate some more aspects of <code>mlr3</code>. In particular, I want to run the pre-process using <code>mlr3</code> rather than writing my own code as I usually do. My eventual plan for the analysis is to use a random forest model.</p>
+<p>The data cleaning will consist of</p>
+<ul>
+<li>convert <code>priceRange</code> from a character to a factor<br />
+</li>
+<li>if <code>description</code> is missing replace it with an empty string<br />
+</li>
+<li>convert the logical <code>hasSpa</code> to a numerical 0/1<br />
+</li>
+<li>encode the factors <code>city</code> and <code>hometype</code> as indicators (dummy variables)<br />
+</li>
+<li>encode the keywords from the <code>description</code></li>
+</ul>
+<p>Having cleaned the data, I plan to introduce a filter whereby I select the best keywords for inclusion in the predictive model. I will treat the number of keywords, n, as a hyperparameter and tune the model to find the best value of n.</p>
+<div id="data-cleaning" class="section level2">
+<h2>Data cleaning</h2>
+<p>First I perform those pre-processing steps that I judge will not change materially whether I run them on the full training data or a subset of it, i.e. I do not anticipate a problem of data leakage.</p>
+<pre class="r"><code>library(tidyverse)
+
+# --- set home directory -------------------------------
+home &lt;- &quot;C:/Projects/kaggle/sliced/s01-e11&quot;
+
+# --- read downloaded data -----------------------------
+trainRawDF &lt;- readRDS( file.path(home, &quot;data/rData/train.rds&quot;) ) %&gt;%
+                mutate( priceRange = factor(priceRange))
+
+testRawDF &lt;- readRDS( file.path(home, &quot;data/rData/test.rds&quot;) )
+
+# --- function to clean a data set ---------------------
+pre_process &lt;- function(thisDF) {
+   # --- median lat and long ---------------------------
+   mlat  &lt;- median(trainRawDF$latitude)
+   mlon  &lt;- median(trainRawDF$longitude)
+   # --- median lot size -------------------------------
+   mSize &lt;- median(trainRawDF$lotSizeSqFt)
+
+   thisDF %&gt;%
+      # --- city = Austin or Other ---------------------
+      mutate( city = factor(city==&quot;austin&quot;, levels=c(TRUE, FALSE),
+                           labels=c(&quot;Austin&quot;, &quot;Other&quot;)),
+      # --- combine multiple categories ----------------
+              homeType  = factor( 
+                          ifelse( homeType == &quot;MultiFamily&quot; | 
+                                  homeType == &quot;Multiple Occupancy&quot;, 
+                                  &quot;Multiple&quot;, homeType)),
+      # --- remove extreme lot sizes -------------------
+              lotSizeSqFt = ifelse(lotSizeSqFt &gt; 1000000 |
+                               lotSizeSqFt &lt; 300, mSize,
+                               lotSizeSqFt),
+      # --- missing description converted to &quot;&quot; --------
+              description = ifelse( is.na(description), &quot;&quot;,
+                                    description),
+      # --- hasSpa to numeric (0/1) --------------------
+              hasSpa = as.numeric(hasSpa),
+      # --- polar coordinates --------------------------
+              radius = sqrt( (latitude-mlat)^2 + (longitude-mlon)^2),
+              angle = atan((latitude-mlat)/(longitude-mlon)))  %&gt;%
+  return()
+}
+
+trainDF &lt;- pre_process(trainRawDF)
+
+# --- combine indicators with clean training data -----
+trainDF &lt;- bind_cols( trainDF %&gt;% 
+                      select( -description, -uid),
+                      indicatorDF)
+
+# --- remove the hyphens from the column names ------------
+names(trainDF) &lt;- str_replace_all(names(trainDF), &quot;-&quot;, &quot;_&quot;)
+
+trainDF</code></pre>
+<pre><code>## # A tibble: 10,000 x 410
+##    city  homeType latitude longitude garageSpaces hasSpa yearBuilt
+##    &lt;fct&gt; &lt;fct&gt;       &lt;dbl&gt;     &lt;dbl&gt;        &lt;dbl&gt;  &lt;dbl&gt;     &lt;dbl&gt;
+##  1 Aust~ Single ~     30.4     -97.8            0      0      1988
+##  2 Aust~ Single ~     30.2     -97.9            0      0      1997
+##  3 Aust~ Single ~     30.2     -97.7            0      0      1952
+##  4 Aust~ Single ~     30.2     -97.8            4      0      1976
+##  5 Aust~ Single ~     30.3     -97.8            2      0      1984
+##  6 Aust~ Single ~     30.2     -97.8            0      0      1964
+##  7 Aust~ Single ~     30.3     -97.9            0      0      2015
+##  8 Aust~ Multiple     30.3     -97.7            1      0      1967
+##  9 Aust~ Single ~     30.2     -97.8            2      0      1983
+## 10 Aust~ Single ~     30.4     -97.7            0      0      1972
+## # ... with 9,990 more rows, and 403 more variables:
+## #   numOfPatioAndPorchFeatures &lt;dbl&gt;, lotSizeSqFt &lt;dbl&gt;, avgSchoolRating &lt;dbl&gt;,
+## #   MedianStudentsPerTeacher &lt;dbl&gt;, numOfBathrooms &lt;dbl&gt;, numOfBedrooms &lt;dbl&gt;,
+## #   priceRange &lt;fct&gt;, radius &lt;dbl&gt;, angle &lt;dbl&gt;, desc.best &lt;dbl&gt;,
+## #   desc.agent &lt;dbl&gt;, desc.rare &lt;dbl&gt;, desc.view &lt;dbl&gt;, desc.lot &lt;dbl&gt;,
+## #   desc.see &lt;dbl&gt;, desc.home &lt;dbl&gt;, desc.sit &lt;dbl&gt;, desc.cul_de_sac &lt;dbl&gt;,
+## #   desc.back &lt;dbl&gt;, desc.stun &lt;dbl&gt;, desc.remodel &lt;dbl&gt;, desc.kitchen &lt;dbl&gt;,
+## #   desc.bathroom &lt;dbl&gt;, desc.master &lt;dbl&gt;, desc.suit &lt;dbl&gt;, desc.privat &lt;dbl&gt;,
+## #   desc.bath &lt;dbl&gt;, desc.huge &lt;dbl&gt;, desc.bedroom &lt;dbl&gt;, desc.walk_in &lt;dbl&gt;,
+## #   desc.closet &lt;dbl&gt;, desc.deck &lt;dbl&gt;, desc.pool &lt;dbl&gt;, desc.park &lt;dbl&gt;,
+## #   desc.tenni &lt;dbl&gt;, desc.court &lt;dbl&gt;, desc.high &lt;dbl&gt;, desc.well &lt;dbl&gt;,
+## #   desc.love &lt;dbl&gt;, desc.featur &lt;dbl&gt;, desc.live &lt;dbl&gt;, desc.area &lt;dbl&gt;,
+## #   desc.offic &lt;dbl&gt;, desc.car &lt;dbl&gt;, desc.garag &lt;dbl&gt;, desc.austin &lt;dbl&gt;,
+## #   desc.singl &lt;dbl&gt;, desc.famili &lt;dbl&gt;, desc.contain &lt;dbl&gt;, desc.built &lt;dbl&gt;,
+## #   desc.beauti &lt;dbl&gt;, desc.larg &lt;dbl&gt;, desc.tree &lt;dbl&gt;, desc.light &lt;dbl&gt;,
+## #   desc.spacious &lt;dbl&gt;, desc.dine &lt;dbl&gt;, desc.room &lt;dbl&gt;, desc.open &lt;dbl&gt;,
+## #   desc.floor &lt;dbl&gt;, desc.plan &lt;dbl&gt;, desc.layout &lt;dbl&gt;, desc.yard &lt;dbl&gt;,
+## #   desc.newli &lt;dbl&gt;, desc.patio &lt;dbl&gt;, desc.built_in &lt;dbl&gt;, desc.shed &lt;dbl&gt;,
+## #   desc.new &lt;dbl&gt;, desc.lamin &lt;dbl&gt;, desc.tile &lt;dbl&gt;, desc.throughout &lt;dbl&gt;,
+## #   desc.renov &lt;dbl&gt;, desc.upgrade &lt;dbl&gt;, desc.stainless &lt;dbl&gt;,
+## #   desc.applianc &lt;dbl&gt;, desc.washer &lt;dbl&gt;, desc.dryer &lt;dbl&gt;,
+## #   desc.laundri &lt;dbl&gt;, desc.util &lt;dbl&gt;, desc.recess &lt;dbl&gt;, desc.ceil &lt;dbl&gt;,
+## #   desc.fan &lt;dbl&gt;, desc.neighborhood &lt;dbl&gt;, desc.locat &lt;dbl&gt;,
+## #   desc.north &lt;dbl&gt;, desc.citi &lt;dbl&gt;, desc.south &lt;dbl&gt;, desc.first &lt;dbl&gt;,
+## #   desc.east &lt;dbl&gt;, desc.hill &lt;dbl&gt;, desc.design &lt;dbl&gt;, desc.oak &lt;dbl&gt;,
+## #   desc.wonder &lt;dbl&gt;, desc.bright &lt;dbl&gt;, desc.concept &lt;dbl&gt;, desc.vault &lt;dbl&gt;,
+## #   desc.formal &lt;dbl&gt;, desc.gorgeous &lt;dbl&gt;, desc.custom &lt;dbl&gt;, desc.wood &lt;dbl&gt;,
+## #   desc.cabinetri &lt;dbl&gt;, ...</code></pre>
+</div>
+</div>
+<div id="modelling" class="section level1">
+<h1>Modelling</h1>
+<div id="task-definition" class="section level3">
+<h3>Task definition</h3>
+<p>I will now switch to <code>mlr3</code>. The first job is to define the task, which in this case is to classify <code>priceRange</code> using <code>trainDF</code>.</p>
+<pre class="r"><code>library(mlr3verse)
+
+myTask &lt;- TaskClassif$new( 
+               id      = &quot;Austin housing&quot;,
+               backend = trainDF,
+               target  = &quot;priceRange&quot;)</code></pre>
+</div>
+<div id="pipeops" class="section level3">
+<h3>PipeOps</h3>
+<p>As I explain in my post "Methods: Pipelines in <code>mlr3</code>*. I do not like the names that <code>mlr3</code> gives to its helper functions; the names are to short for my taste and I keep forgetting what they do. So I have renamed them. You, of course, are free to use the original names.</p>
+<pre class="r"><code># === NEW NAMES FOR THE HELPER FUNCTIONS =======================
+
+# --- po() creates a pipe operator -----------------------------
+pipeOp &lt;- function(...) po(...)
+
+# --- lrn() creates an instance of learner ---------------------
+setModel &lt;- function(...) lrn(...)
+
+# --- rsmp() creates a resampler -------------------------------
+setSampler &lt;- function(...) rsmp(...)
+
+# --- msr() creates a measure ----------------------------------
+setMeasure &lt;- function(...) msr(...)
+
+# --- flt() creates a filter ----------------------------------
+setFilter &lt;- function(...) flt(...)</code></pre>
+<p>I want to convert the two factors (city and homeType) into dummy variables. I could have done this in <code>dplyr</code>, but it is a good example to start with, when explaining pre-processing in <code>mlr3</code>.</p>
+<p>I define two encoding <code>PipeOps</code> using <code>mlr3</code>s helper (sugar) function <code>po()</code>, renamed <code>pipeOp</code>. <code>treatment</code> encoding omits the first level of the factor, so I get a single numeric variable that is 0 for Austin and 1 for Other. homeType has 5 levels and I opt for <code>one-hot</code> encoding; this give 5 indicators one for each level.</p>
+<p>The two <code>PipeOps</code> are given the names <code>encCityOp</code> and <code>encHomeTypeOp</code>.</p>
+<pre class="r"><code># --- encode City ----------------------------------
+encCityOp = pipeOp(&quot;encode&quot;, 
+                   id             = &quot;encCity&quot;, 
+                   method         = &quot;treatment&quot;,
+                   affect_columns = selector_name(&quot;city&quot;))
+
+# --- encode HouseType -----------------------------
+encHomeTypeOp = pipeOp(&quot;encode&quot;, 
+                       id             = &quot;encHome&quot;, 
+                       method         = &quot;one-hot&quot;,
+                       affect_columns = selector_name(&quot;homeType&quot;))</code></pre>
+<p>Next I want to run a filter on the features, 394 is simply too many for a random forest and I am sure that most of them would not contribute. <code>mlr3</code> offers a wide range of filters. They are stored in a dictionary and we can list them</p>
+<pre class="r"><code>library(&quot;mlr3filters&quot;)
+
+mlr_filters</code></pre>
+<pre><code>## &lt;DictionaryFilter&gt; with 19 stored values
+## Keys: anova, auc, carscore, cmim, correlation, disr, find_correlation,
+##   importance, information_gain, jmi, jmim, kruskal_test, mim, mrmr,
+##   njmim, performance, permutation, relief, variance</code></pre>
+<p>I stick with the kruskal-wallis test that I used earlier and create a filter using the helper function <code>flt()</code> renamed to <code>setFilter()</code></p>
+<pre class="r"><code>kwFilter &lt;- setFilter(&quot;kruskal_test&quot;) </code></pre>
+<p>I need to put this filter into a PipeOp and then add it to the pipeline. To start with I will perform the K-W test and then pick the top 20 features.</p>
+<p>Individual <code>PipeOps</code> can operate on multiple tasks, but a pipeline always starts with a single set of data, so not need for a list() when I train a pipeline.</p>
+<pre class="r"><code>kwFilterOp &lt;- pipeOp(&quot;filter&quot;,
+                     filter       = kwFilter,
+                     filter.nfeat = 20)</code></pre>
+<p>Let’s see which features would get selected.</p>
+<pre class="r"><code>encCityOp %&gt;&gt;%
+  encHomeTypeOp %&gt;&gt;%
+  kwFilterOp     -&gt;   myPipeline
+
+myPipeline$train( myTask)</code></pre>
+<pre><code>## $kruskal_test.output
+## &lt;TaskClassif:Austin housing&gt; (10000 x 21)
+## * Target: priceRange
+## * Properties: multiclass
+## * Features (20):
+##   - dbl (20): MedianStudentsPerTeacher, angle, avgSchoolRating,
+##     desc.barton, desc.countri, desc.custom, desc.gourmet, desc.hill,
+##     desc.media, desc.outdoor, desc.pool, desc.spa, desc.view,
+##     garageSpaces, hasSpa, longitude, lotSizeSqFt, numOfBathrooms,
+##     numOfBedrooms, radius</code></pre>
+<p>Latitude does not make the top 20 features, which I find surprising. The likely reason is that <code>radius</code> was preferred.</p>
+<p>In the spirit of the demonstration of pieplines, I’ll suppose that I want to force <code>latitude</code> into the model. In fact, I go further and pick out all of the continuous variables and force them into the feature set and I’ll run the filter only on the indicator variables.</p>
+<p>Here are the names of the features that I will select from</p>
+<pre class="r"><code># --- description indicators ---------------------------------
+trainDF %&gt;%
+  select( starts_with(&quot;desc&quot;)) %&gt;%
+  names() %&gt;%
+  print() -&gt; descVars</code></pre>
+<pre><code>##   [1] &quot;desc.best&quot;         &quot;desc.agent&quot;        &quot;desc.rare&quot;        
+##   [4] &quot;desc.view&quot;         &quot;desc.lot&quot;          &quot;desc.see&quot;         
+##   [7] &quot;desc.home&quot;         &quot;desc.sit&quot;          &quot;desc.cul_de_sac&quot;  
+##  [10] &quot;desc.back&quot;         &quot;desc.stun&quot;         &quot;desc.remodel&quot;     
+##  [13] &quot;desc.kitchen&quot;      &quot;desc.bathroom&quot;     &quot;desc.master&quot;      
+##  [16] &quot;desc.suit&quot;         &quot;desc.privat&quot;       &quot;desc.bath&quot;        
+##  [19] &quot;desc.huge&quot;         &quot;desc.bedroom&quot;      &quot;desc.walk_in&quot;     
+##  [22] &quot;desc.closet&quot;       &quot;desc.deck&quot;         &quot;desc.pool&quot;        
+##  [25] &quot;desc.park&quot;         &quot;desc.tenni&quot;        &quot;desc.court&quot;       
+##  [28] &quot;desc.high&quot;         &quot;desc.well&quot;         &quot;desc.love&quot;        
+##  [31] &quot;desc.featur&quot;       &quot;desc.live&quot;         &quot;desc.area&quot;        
+##  [34] &quot;desc.offic&quot;        &quot;desc.car&quot;          &quot;desc.garag&quot;       
+##  [37] &quot;desc.austin&quot;       &quot;desc.singl&quot;        &quot;desc.famili&quot;      
+##  [40] &quot;desc.contain&quot;      &quot;desc.built&quot;        &quot;desc.beauti&quot;      
+##  [43] &quot;desc.larg&quot;         &quot;desc.tree&quot;         &quot;desc.light&quot;       
+##  [46] &quot;desc.spacious&quot;     &quot;desc.dine&quot;         &quot;desc.room&quot;        
+##  [49] &quot;desc.open&quot;         &quot;desc.floor&quot;        &quot;desc.plan&quot;        
+##  [52] &quot;desc.layout&quot;       &quot;desc.yard&quot;         &quot;desc.newli&quot;       
+##  [55] &quot;desc.patio&quot;        &quot;desc.built_in&quot;     &quot;desc.shed&quot;        
+##  [58] &quot;desc.new&quot;          &quot;desc.lamin&quot;        &quot;desc.tile&quot;        
+##  [61] &quot;desc.throughout&quot;   &quot;desc.renov&quot;        &quot;desc.upgrade&quot;     
+##  [64] &quot;desc.stainless&quot;    &quot;desc.applianc&quot;     &quot;desc.washer&quot;      
+##  [67] &quot;desc.dryer&quot;        &quot;desc.laundri&quot;      &quot;desc.util&quot;        
+##  [70] &quot;desc.recess&quot;       &quot;desc.ceil&quot;         &quot;desc.fan&quot;         
+##  [73] &quot;desc.neighborhood&quot; &quot;desc.locat&quot;        &quot;desc.north&quot;       
+##  [76] &quot;desc.citi&quot;         &quot;desc.south&quot;        &quot;desc.first&quot;       
+##  [79] &quot;desc.east&quot;         &quot;desc.hill&quot;         &quot;desc.design&quot;      
+##  [82] &quot;desc.oak&quot;          &quot;desc.wonder&quot;       &quot;desc.bright&quot;      
+##  [85] &quot;desc.concept&quot;      &quot;desc.vault&quot;        &quot;desc.formal&quot;      
+##  [88] &quot;desc.gorgeous&quot;     &quot;desc.custom&quot;       &quot;desc.wood&quot;        
+##  [91] &quot;desc.cabinetri&quot;    &quot;desc.quartz&quot;       &quot;desc.countertop&quot;  
+##  [94] &quot;desc.doubl&quot;        &quot;desc.pantri&quot;       &quot;desc.breakfast&quot;   
+##  [97] &quot;desc.hardwood&quot;     &quot;desc.fantast&quot;      &quot;desc.exterior&quot;    
+## [100] &quot;desc.side&quot;         &quot;desc.window&quot;       &quot;desc.system&quot;      
+## [103] &quot;desc.landscap&quot;     &quot;desc.contemporari&quot; &quot;desc.corner&quot;      
+## [106] &quot;desc.entertain&quot;    &quot;desc.floorplan&quot;    &quot;desc.attach&quot;      
+## [109] &quot;desc.door&quot;         &quot;desc.wall&quot;         &quot;desc.outdoor&quot;     
+## [112] &quot;desc.spa&quot;          &quot;desc.invit&quot;        &quot;desc.countri&quot;     
+## [115] &quot;desc.much&quot;         &quot;desc.use&quot;          &quot;desc.full&quot;        
+## [118] &quot;desc.multipl&quot;      &quot;desc.like&quot;         &quot;desc.upgrad&quot;      
+## [121] &quot;desc.must&quot;         &quot;desc.minut&quot;        &quot;desc.away&quot;        
+## [124] &quot;desc.great&quot;        &quot;desc.restaur&quot;      &quot;desc.shop&quot;        
+## [127] &quot;desc.easi&quot;         &quot;desc.access&quot;       &quot;desc.unit&quot;        
+## [130] &quot;desc.bed&quot;          &quot;desc.amaz&quot;         &quot;desc.texa&quot;        
+## [133] &quot;desc.boast&quot;        &quot;desc.central&quot;      &quot;desc.2nd&quot;         
+## [136] &quot;desc.along&quot;        &quot;desc.loft&quot;         &quot;desc.space&quot;       
+## [139] &quot;desc.mopac&quot;        &quot;desc.pleas&quot;        &quot;desc.call&quot;        
+## [142] &quot;desc.show&quot;         &quot;desc.owner&quot;        &quot;desc.work&quot;        
+## [145] &quot;desc.properti&quot;     &quot;desc.walk&quot;         &quot;desc.distanc&quot;     
+## [148] &quot;desc.creek&quot;        &quot;desc.cozi&quot;         &quot;desc.fireplac&quot;    
+## [151] &quot;desc.make&quot;         &quot;desc.perfect&quot;      &quot;desc.granit&quot;      
+## [154] &quot;desc.steel&quot;        &quot;desc.cabinet&quot;      &quot;desc.size&quot;        
+## [157] &quot;desc.updat&quot;        &quot;desc.vaniti&quot;       &quot;desc.4th&quot;         
+## [160] &quot;desc.play&quot;         &quot;desc.complet&quot;      &quot;desc.backyard&quot;    
+## [163] &quot;desc.extend&quot;       &quot;desc.last&quot;         &quot;desc.long&quot;        
+## [166] &quot;desc.readi&quot;        &quot;desc.front&quot;        &quot;desc.allow&quot;       
+## [169] &quot;desc.separ&quot;        &quot;desc.flow&quot;         &quot;desc.garden&quot;      
+## [172] &quot;desc.domain&quot;       &quot;desc.hous&quot;         &quot;desc.greenbelt&quot;   
+## [175] &quot;desc.trail&quot;        &quot;desc.solar&quot;        &quot;desc.panel&quot;       
+## [178] &quot;desc.white&quot;        &quot;desc.carpet&quot;       &quot;desc.look&quot;        
+## [181] &quot;desc.outsid&quot;       &quot;desc.energi&quot;       &quot;desc.effici&quot;      
+## [184] &quot;desc.offer&quot;        &quot;desc.price&quot;        &quot;desc.just&quot;        
+## [187] &quot;desc.downtown&quot;     &quot;desc.near&quot;         &quot;desc.ton&quot;         
+## [190] &quot;desc.plenti&quot;       &quot;desc.guest&quot;        &quot;desc.cover&quot;       
+## [193] &quot;desc.porch&quot;        &quot;desc.miss&quot;         &quot;desc.opportun&quot;    
+## [196] &quot;desc.situat&quot;       &quot;desc.enjoy&quot;        &quot;desc.natur&quot;       
+## [199] &quot;desc.includ&quot;       &quot;desc.roof&quot;         &quot;desc.hvac&quot;        
+## [202] &quot;desc.water&quot;        &quot;desc.heater&quot;       &quot;desc.paint&quot;       
+## [205] &quot;desc.move_in&quot;      &quot;desc.one&quot;          &quot;desc.list&quot;        
+## [208] &quot;desc.avail&quot;        &quot;desc.three&quot;        &quot;desc.main&quot;        
+## [211] &quot;desc.finish&quot;       &quot;desc.interior&quot;     &quot;desc.ideal&quot;       
+## [214] &quot;desc.style&quot;        &quot;desc.gourmet&quot;      &quot;desc.neighbor&quot;    
+## [217] &quot;desc.game&quot;         &quot;desc.bar&quot;          &quot;desc.everi&quot;       
+## [220] &quot;desc.heat&quot;         &quot;desc.buyer&quot;        &quot;desc.desir&quot;       
+## [223] &quot;desc.zone&quot;         &quot;desc.close&quot;        &quot;desc.center&quot;      
+## [226] &quot;desc.market&quot;       &quot;desc.amaze&quot;        &quot;desc.quiet&quot;       
+## [229] &quot;desc.everyth&quot;      &quot;desc.take&quot;         &quot;desc.lead&quot;        
+## [232] &quot;desc.stori&quot;        &quot;desc.brand&quot;        &quot;desc.min&quot;         
+## [235] &quot;desc.sprinkler&quot;    &quot;desc.ranch&quot;        &quot;desc.street&quot;      
+## [238] &quot;desc.place&quot;        &quot;desc.year&quot;         &quot;desc.touch&quot;       
+## [241] &quot;desc.french&quot;       &quot;desc.convey&quot;       &quot;desc.hot&quot;         
+## [244] &quot;desc.tub&quot;          &quot;desc.coffe&quot;        &quot;desc.charm&quot;       
+## [247] &quot;desc.heart&quot;        &quot;desc.plumb&quot;        &quot;desc.electr&quot;      
+## [250] &quot;desc.mani&quot;         &quot;desc.modern&quot;       &quot;desc.backsplash&quot;  
+## [253] &quot;desc.old&quot;          &quot;desc.gem&quot;          &quot;desc.maintain&quot;    
+## [256] &quot;desc.sought&quot;       &quot;desc.top&quot;          &quot;desc.school&quot;      
+## [259] &quot;desc.amen&quot;         &quot;desc.surround&quot;     &quot;desc.replac&quot;      
+## [262] &quot;desc.fulli&quot;        &quot;desc.storag&quot;       &quot;desc.brick&quot;       
+## [265] &quot;desc.counter&quot;      &quot;desc.sink&quot;         &quot;desc.conveni&quot;     
+## [268] &quot;desc.crown&quot;        &quot;desc.mold&quot;         &quot;desc.dual&quot;        
+## [271] &quot;desc.level&quot;        &quot;desc.set&quot;          &quot;desc.fresh&quot;       
+## [274] &quot;desc.elementari&quot;   &quot;desc.shade&quot;        &quot;desc.condo&quot;       
+## [277] &quot;desc.communiti&quot;    &quot;desc.nestl&quot;        &quot;desc.fabul&quot;       
+## [280] &quot;desc.fenc&quot;         &quot;desc.within&quot;       &quot;desc.block&quot;       
+## [283] &quot;desc.quick&quot;        &quot;desc.barton&quot;       &quot;desc.acr&quot;         
+## [286] &quot;desc.creat&quot;        &quot;desc.feel&quot;         &quot;desc.abund&quot;       
+## [289] &quot;desc.upstair&quot;      &quot;desc.island&quot;       &quot;desc.matur&quot;       
+## [292] &quot;desc.less&quot;         &quot;desc.mile&quot;         &quot;desc.concret&quot;     
+## [295] &quot;desc.second&quot;       &quot;desc.two&quot;          &quot;desc.bike&quot;        
+## [298] &quot;desc.lake&quot;         &quot;desc.balconi&quot;      &quot;desc.uniqu&quot;       
+## [301] &quot;desc.squar&quot;        &quot;desc.build&quot;        &quot;desc.need&quot;        
+## [304] &quot;desc.addit&quot;        &quot;desc.want&quot;         &quot;desc.privaci&quot;     
+## [307] &quot;desc.downstair&quot;    &quot;desc.major&quot;        &quot;desc.apple&quot;       
+## [310] &quot;desc.round&quot;        &quot;desc.rock&quot;         &quot;desc.isd&quot;         
+## [313] &quot;desc.short&quot;        &quot;desc.golf&quot;         &quot;desc.insid&quot;       
+## [316] &quot;desc.soar&quot;         &quot;desc.dream&quot;        &quot;desc.luxuri&quot;      
+## [319] &quot;desc.nearbi&quot;       &quot;desc.studi&quot;        &quot;desc.welcom&quot;      
+## [322] &quot;desc.stone&quot;        &quot;desc.relax&quot;        &quot;desc.shower&quot;      
+## [325] &quot;desc.extra&quot;        &quot;desc.friend&quot;       &quot;desc.grill&quot;       
+## [328] &quot;desc.fridg&quot;        &quot;desc.step&quot;         &quot;desc.gas&quot;         
+## [331] &quot;desc.rang&quot;         &quot;desc.plus&quot;         &quot;desc.low&quot;         
+## [334] &quot;desc.chef&quot;         &quot;desc.instal&quot;       &quot;desc.come&quot;        
+## [337] &quot;desc.appeal&quot;       &quot;desc.update&quot;       &quot;desc.glass&quot;       
+## [340] &quot;desc.entri&quot;        &quot;desc.fixtur&quot;       &quot;desc.nice&quot;        
+## [343] &quot;desc.hike&quot;         &quot;desc.retreat&quot;      &quot;desc.airport&quot;     
+## [346] &quot;desc.origin&quot;       &quot;desc.dishwash&quot;     &quot;desc.hoa&quot;         
+## [349] &quot;desc.expans&quot;       &quot;desc.overs&quot;        &quot;desc.provid&quot;      
+## [352] &quot;desc.oasi&quot;         &quot;desc.oven&quot;         &quot;desc.big&quot;         
+## [355] &quot;desc.hard&quot;         &quot;desc.commun&quot;       &quot;desc.media&quot;       
+## [358] &quot;desc.recent&quot;       &quot;desc.overlook&quot;     &quot;desc.can&quot;         
+## [361] &quot;desc.clean&quot;        &quot;desc.line&quot;         &quot;desc.detail&quot;      
+## [364] &quot;desc.also&quot;         &quot;desc.marbl&quot;        &quot;desc.drive&quot;       
+## [367] &quot;desc.construct&quot;    &quot;desc.shelv&quot;        &quot;desc.bonus&quot;       
+## [370] &quot;desc.district&quot;     &quot;desc.middl&quot;        &quot;desc.screen&quot;      
+## [373] &quot;desc.popular&quot;      &quot;desc.peac&quot;         &quot;desc.playground&quot;  
+## [376] &quot;desc.ampl&quot;         &quot;desc.end&quot;          &quot;desc.gate&quot;        
+## [379] &quot;desc.lush&quot;         &quot;desc.secondari&quot;    &quot;desc.move&quot;        
+## [382] &quot;desc.green&quot;        &quot;desc.steiner&quot;      &quot;desc.around&quot;      
+## [385] &quot;desc.mueller&quot;      &quot;desc.flex&quot;         &quot;desc.shutter&quot;     
+## [388] &quot;desc.find&quot;         &quot;desc.spring&quot;       &quot;desc.meadow&quot;      
+## [391] &quot;desc.half&quot;         &quot;desc.refriger&quot;     &quot;desc.rate&quot;        
+## [394] &quot;desc.detach&quot;</code></pre>
+<p>Here is my plan. I’ll duplicate the data, from one copy I’ll extract the continuous features and scale them (using median and MAD), from the other copy of the data I’ll extract the description features and then I’ll run the filter on them selecting the top 20. Finally, I’ll combine the two sets of selected features.</p>
+<p>Several of the PipeOps are defined in place when I create the pipeline.</p>
+<pre class="r"><code># --- PipeOp to select non-description variables -------------------
+selectOrigOp &lt;- pipeOp(&quot;select&quot;, 
+                       id       = &quot;selectOriginal&quot;,
+                       selector = selector_invert(selector_name(descVars)))
+
+# --- PipeOp to select description variables --------------
+selectDescOp &lt;- pipeOp(&quot;select&quot;, 
+                       id       = &quot;selectDescOp&quot;,
+                       selector = selector_name(descVars))
+
+# --- Create a branched pipeline ---------------------------------
+encCityOp %&gt;&gt;%
+encHomeTypeOp %&gt;&gt;%
+pipeOp(&quot;copy&quot;, outnum = 2) %&gt;&gt;%
+gunion(list( 
+  # --- branch 1 ----
+  selectOrigOp %&gt;&gt;%
+    pipeOp(&quot;scale&quot;, robust=TRUE),
+  # --- branch 2 ----
+  selectDescOp %&gt;&gt;%
+    kwFilterOp )
+  ) %&gt;&gt;%
+pipeOp(&quot;featureunion&quot;) -&gt; myPipeline
+
+# --- Plot the pipeline ------------------------------------------
+plot(myPipeline)</code></pre>
+<p><img src="/post/zillow/Zillow_files/figure-html/unnamed-chunk-31-1.png" width="528" style="display: block; margin: auto;" /></p>
+<pre class="r"><code># --- train the pipeline -----------------------------------------
+myPipeline$train(myTask)</code></pre>
+<pre><code>## $featureunion.output
+## &lt;TaskClassif:Austin housing&gt; (10000 x 44)
+## * Target: priceRange
+## * Properties: multiclass
+## * Features (43):
+##   - dbl (43): MedianStudentsPerTeacher, angle, avgSchoolRating, city,
+##     desc.acr, desc.barton, desc.countri, desc.custom, desc.design,
+##     desc.gourmet, desc.guest, desc.hill, desc.lake, desc.lamin,
+##     desc.level, desc.main, desc.media, desc.offic, desc.outdoor,
+##     desc.paint, desc.pool, desc.spa, desc.stun, desc.view,
+##     garageSpaces, hasSpa, homeType.Apartment, homeType.Condo,
+##     homeType.Mobile...Manufactured, homeType.Multiple, homeType.Other,
+##     homeType.Residential, homeType.Single.Family, homeType.Townhouse,
+##     homeType.Vacant.Land, latitude, longitude, lotSizeSqFt,
+##     numOfBathrooms, numOfBedrooms, numOfPatioAndPorchFeatures, radius,
+##     yearBuilt</code></pre>
+<p>We now have 43 features, the 23 features from the original data that I forced into the feature set and the best 20 of the description variables as selected by the filter.</p>
+<p>The last step is to add a learner to the pipeline. I have decided to use the <code>randomForest</code> package. As it happens, this is not one of <code>mlr3</code> standard set of learners, so I need to load the package <code>mlr3extralearners</code>, which contains details of many more, including <code>randomForest</code>. Importantly, it is relatively easy to add your own learners if the one you want is not in the package.</p>
+<p>I would not usually build a pipeline by first saving the constituent PipOps, but rather I would define them all in place. So I’ll rewrite the pipeline in that style</p>
+<pre class="r"><code># --- load the extra learners --------------------------
+library(mlr3extralearners)
+
+# --- factor encoding ----------------------------
+pipeOp(&quot;encode&quot;, 
+       id             = &quot;encCity&quot;, 
+       method         = &quot;treatment&quot;,
+       affect_columns = selector_name(&quot;city&quot;)) %&gt;&gt;%
+pipeOp(&quot;encode&quot;, 
+       id             = &quot;encHome&quot;, 
+       method         = &quot;one-hot&quot;,
+       affect_columns = selector_name(&quot;homeType&quot;)) %&gt;&gt;%
+# --- make two copies of the data ----------------
+pipeOp(&quot;copy&quot;, outnum = 2) %&gt;&gt;%
+gunion(list( 
+  # --- branch 1 ----
+  # --- Select original predictors ---------------
+  pipeOp(&quot;select&quot;, 
+         id       = &quot;selectOriginal&quot;,
+         selector = selector_invert(selector_name(descVars))) %&gt;&gt;%
+  # --- scale robustly ---------------------------
+  pipeOp(&quot;scale&quot;, robust=TRUE),
+  # --- branch 2 ----
+  # --- select description predictors ------------
+  pipeOp(&quot;select&quot;, 
+         id       = &quot;selectDescOp&quot;,
+         selector = selector_name(descVars)) %&gt;&gt;%
+  # --- filter using Kruskal-Wallis --------------
+  pipeOp(&quot;filter&quot;,
+         filter       = setFilter(&quot;kruskal_test&quot;),
+         filter.nfeat = 20) 
+  ) ) %&gt;&gt;%
+# --- join the two branches ----------------------
+pipeOp(&quot;featureunion&quot;) %&gt;&gt;%
+# --- add the learner ----------------------------
+pipeOp(&quot;learner&quot;, 
+       learner = setModel(&quot;classif.randomForest&quot;)) -&gt; myPipeline</code></pre>
+<p>I want to treat this entire pipeline as a giant learner, what <code>mlr3</code> calls a <code>graph learner</code>.</p>
+<pre class="r"><code># --- treat the whole pipeline as a learner -------------------
+myAnalysis = as_learner(myPipeline)</code></pre>
+<p>Now I can treat <code>myAnalysis</code> in the same way I would any other learner. For example, I can run cross-validation to see how well the model would perform. The calculation is quite slow, even though the folds run in parallel, so I save the result in a folder called <code>dataStore</code>.</p>
+<p>The prediction type has to be set to probability rather than a price category so that we will be able to calculate the multi-class logloss.</p>
+<pre class="r"><code># --- cross-validate the full pipeline ---------------------
+
+# --- use multiple sessions --------------------------------
+future::plan(&quot;multisession&quot;)
+
+# --- define the cross-validation design -------------------
+cvDesign &lt;- setSampler(&quot;cv&quot;, folds=5)
+
+# --- create the folds -------------------------------------
+set.seed(9822)
+cvDesign$instantiate(myTask)
+
+# --- predict probabilities so that logloss can be found ---
+myAnalysis$predict_type &lt;- &quot;prob&quot;
+
+# --- run the cross-validation -----------------------------
+resample( task       = myTask,
+          learner    = myAnalysis,
+          resampling = cvDesign)  %&gt;%
+   saveRDS(file.path(home, &quot;data/dataStore/cv_rf.rds&quot;))
+
+# --- switch off session -------------------------------
+future::plan(&quot;sequential&quot;)</code></pre>
+<p>Read the results and calculate the logloss.</p>
+<pre class="r"><code># --- read cross-validation results -------------------------
+cvRF &lt;- readRDS(file.path(home, &quot;data/dataStore/cv_rf.rds&quot;))
+
+# --- select logloss as the performance measure -------------
+myMeasure &lt;- setMeasure(&quot;classif.logloss&quot;)
+
+# --- performance in each fold ------------------------------
+cvRF$score(myMeasure)</code></pre>
+<pre><code>##                 task        task_id            learner
+## 1: &lt;TaskClassif[47]&gt; Austin housing &lt;GraphLearner[35]&gt;
+## 2: &lt;TaskClassif[47]&gt; Austin housing &lt;GraphLearner[35]&gt;
+## 3: &lt;TaskClassif[47]&gt; Austin housing &lt;GraphLearner[35]&gt;
+## 4: &lt;TaskClassif[47]&gt; Austin housing &lt;GraphLearner[35]&gt;
+## 5: &lt;TaskClassif[47]&gt; Austin housing &lt;GraphLearner[35]&gt;
+##                                                                                               learner_id
+## 1: encCity.encHome.copy.selectOriginal.selectDescOp.scale.kruskal_test.featureunion.classif.randomForest
+## 2: encCity.encHome.copy.selectOriginal.selectDescOp.scale.kruskal_test.featureunion.classif.randomForest
+## 3: encCity.encHome.copy.selectOriginal.selectDescOp.scale.kruskal_test.featureunion.classif.randomForest
+## 4: encCity.encHome.copy.selectOriginal.selectDescOp.scale.kruskal_test.featureunion.classif.randomForest
+## 5: encCity.encHome.copy.selectOriginal.selectDescOp.scale.kruskal_test.featureunion.classif.randomForest
+##            resampling resampling_id iteration              prediction
+## 1: &lt;ResamplingCV[19]&gt;            cv         1 &lt;PredictionClassif[19]&gt;
+## 2: &lt;ResamplingCV[19]&gt;            cv         2 &lt;PredictionClassif[19]&gt;
+## 3: &lt;ResamplingCV[19]&gt;            cv         3 &lt;PredictionClassif[19]&gt;
+## 4: &lt;ResamplingCV[19]&gt;            cv         4 &lt;PredictionClassif[19]&gt;
+## 5: &lt;ResamplingCV[19]&gt;            cv         5 &lt;PredictionClassif[19]&gt;
+##    classif.logloss
+## 1:       0.9434772
+## 2:       0.9021294
+## 3:       0.9348306
+## 4:       0.9482985
+## 5:       0.9441742</code></pre>
+<pre class="r"><code># --- overall performance -----------------------------------
+cvRF$aggregate(myMeasure)</code></pre>
+<pre><code>## classif.logloss 
+##        0.934582</code></pre>
+<p>The whole pipeline has been cross-validated. So when the filter is run, the kruskal-wallis test is run on the current estimation set, which means that the 5 models might be using different sets of predictors.</p>
+<p>A logloss of 0.934 is not great; the leader in the <em>Sliced</em> competition scored 0.87 on the test data; a logloss of 0.934 would put the model around 20th.</p>
+<p>However, we have made no attempt to tune the model. I’m sceptical, but let’s see if it makes a difference. Perhaps, the number of trees will need to be changed. So far I have relied on the default hyperparameter values.</p>
+</div>
+</div>
+<div id="tuning" class="section level1">
+<h1>Tuning</h1>
+<p>Let’s look at the parameters that are available for tuning</p>
+<pre class="r"><code>myAnalysis$param_set</code></pre>
+<pre><code>## &lt;ParamSetCollection&gt;
+##                                   id    class lower upper nlevels
+##  1:                   encCity.method ParamFct    NA    NA       5
+##  2:           encCity.affect_columns ParamUty    NA    NA     Inf
+##  3:                   encHome.method ParamFct    NA    NA       5
+##  4:           encHome.affect_columns ParamUty    NA    NA     Inf
+##  5:          selectOriginal.selector ParamUty    NA    NA     Inf
+##  6:    selectOriginal.affect_columns ParamUty    NA    NA     Inf
+##  7:                     scale.center ParamLgl    NA    NA       2
+##  8:                      scale.scale ParamLgl    NA    NA       2
+##  9:                     scale.robust ParamLgl    NA    NA       2
+## 10:             scale.affect_columns ParamUty    NA    NA     Inf
+## 11:            selectDescOp.selector ParamUty    NA    NA     Inf
+## 12:      selectDescOp.affect_columns ParamUty    NA    NA     Inf
+## 13:        kruskal_test.filter.nfeat ParamInt     0   Inf     Inf
+## 14:         kruskal_test.filter.frac ParamDbl     0     1     Inf
+## 15:       kruskal_test.filter.cutoff ParamDbl  -Inf   Inf     Inf
+## 16:     kruskal_test.filter.permuted ParamInt     1   Inf     Inf
+## 17:           kruskal_test.na.action ParamFct    NA    NA       4
+## 18:      kruskal_test.affect_columns ParamUty    NA    NA     Inf
+## 19:       classif.randomForest.ntree ParamInt     1   Inf     Inf
+## 20:        classif.randomForest.mtry ParamInt     1   Inf     Inf
+## 21:     classif.randomForest.replace ParamLgl    NA    NA       2
+## 22:     classif.randomForest.classwt ParamUty    NA    NA     Inf
+## 23:      classif.randomForest.cutoff ParamUty    NA    NA     Inf
+## 24:      classif.randomForest.strata ParamUty    NA    NA     Inf
+## 25:    classif.randomForest.sampsize ParamUty    NA    NA     Inf
+## 26:    classif.randomForest.nodesize ParamInt     1   Inf     Inf
+## 27:    classif.randomForest.maxnodes ParamInt     1   Inf     Inf
+## 28:  classif.randomForest.importance ParamFct    NA    NA       4
+## 29:    classif.randomForest.localImp ParamLgl    NA    NA       2
+## 30:   classif.randomForest.proximity ParamLgl    NA    NA       2
+## 31:    classif.randomForest.oob.prox ParamLgl    NA    NA       2
+## 32:  classif.randomForest.norm.votes ParamLgl    NA    NA       2
+## 33:    classif.randomForest.do.trace ParamLgl    NA    NA       2
+## 34: classif.randomForest.keep.forest ParamLgl    NA    NA       2
+## 35:  classif.randomForest.keep.inbag ParamLgl    NA    NA       2
+## 36: classif.randomForest.predict.all ParamLgl    NA    NA       2
+## 37:       classif.randomForest.nodes ParamLgl    NA    NA       2
+##                                   id    class lower upper nlevels
+##            default         value
+##  1: &lt;NoDefault[3]&gt;     treatment
+##  2:  &lt;Selector[1]&gt; &lt;Selector[1]&gt;
+##  3: &lt;NoDefault[3]&gt;       one-hot
+##  4:  &lt;Selector[1]&gt; &lt;Selector[1]&gt;
+##  5: &lt;NoDefault[3]&gt; &lt;Selector[1]&gt;
+##  6:  &lt;Selector[1]&gt;              
+##  7:           TRUE              
+##  8:           TRUE              
+##  9: &lt;NoDefault[3]&gt;          TRUE
+## 10:  &lt;Selector[1]&gt;              
+## 11: &lt;NoDefault[3]&gt; &lt;Selector[1]&gt;
+## 12:  &lt;Selector[1]&gt;              
+## 13: &lt;NoDefault[3]&gt;            20
+## 14: &lt;NoDefault[3]&gt;              
+## 15: &lt;NoDefault[3]&gt;              
+## 16: &lt;NoDefault[3]&gt;              
+## 17:        na.omit              
+## 18:  &lt;Selector[1]&gt;              
+## 19:            500              
+## 20: &lt;NoDefault[3]&gt;              
+## 21:           TRUE              
+## 22:                             
+## 23: &lt;NoDefault[3]&gt;              
+## 24: &lt;NoDefault[3]&gt;              
+## 25: &lt;NoDefault[3]&gt;              
+## 26:              1              
+## 27: &lt;NoDefault[3]&gt;              
+## 28:          FALSE              
+## 29:          FALSE              
+## 30:          FALSE              
+## 31: &lt;NoDefault[3]&gt;              
+## 32:           TRUE              
+## 33:          FALSE              
+## 34:           TRUE              
+## 35:          FALSE              
+## 36:          FALSE              
+## 37:          FALSE              
+##            default         value</code></pre>
+<p>I can tune any aspect of the pipeline.</p>
+<p>I’ll pick 3 hyperparameters, <code>nfeat</code>, the number of features taken from the filter and <code>mtry</code> and <code>ntrees</code> from <code>randomForest</code> and I set limits on the search space. <code>mlr3</code> knows when a parameter has to be an integer.</p>
+<pre class="r"><code># --- set hyperparameters -----------------------------------
+myAnalysis$param_set$values$kruskal_test.filter.nfeat  &lt;- to_tune(10, 100)
+myAnalysis$param_set$values$classif.randomForest.mtry  &lt;- to_tune(10, 30)
+myAnalysis$param_set$values$classif.randomForest.ntree &lt;- to_tune(250, 750)</code></pre>
+<p>In the interests of time I take 10 random combinations of hyperparameters within the specified ranges. Of course, <code>mlr3</code> offers a lot of different search strategies. In fact, compared with other strategies, random search usually does better that you might suspect.</p>
+<p>The tuning is slow, so I save the result in the dataStore.</p>
+<pre class="r"><code># --- use multiple sessions -----------------------------
+future::plan(&quot;multisession&quot;)
+
+# --- run tuning ----------------------------------------
+set.seed(9830)
+tune(
+  method     = &quot;random_search&quot;,
+  task       = myTask,
+  learner    = myAnalysis,
+  resampling = cvDesign,
+  measure    = myMeasure,
+  term_evals = 10,
+  batch_size = 5 
+) %&gt;%
+saveRDS(file.path(home, &quot;data/dataStore/tune_rf.rds&quot;))
+
+# --- switch off sessions -------------------------------
+future::plan(&quot;sequential&quot;)</code></pre>
+<p>Look at the results of the tuning</p>
+<pre class="r"><code># --- inspect result ----------------------------------------
+readRDS( file.path(home, &quot;data/dataStore/tune_rf.rds&quot;)) %&gt;%
+  print()</code></pre>
+<pre><code>## &lt;TuningInstanceSingleCrit&gt;
+## * State:  Optimized
+## * Objective: &lt;ObjectiveTuning:encCity.encHome.copy.selectOriginal.selectDescOp.scale.kruskal_test.featureunion.classif.randomForest_on_Austin
+##   housing&gt;
+## * Search Space:
+## &lt;ParamSet&gt;
+##                            id    class lower upper nlevels        default value
+## 1:  kruskal_test.filter.nfeat ParamInt    10   100      91 &lt;NoDefault[3]&gt;      
+## 2: classif.randomForest.ntree ParamInt   250   750     501 &lt;NoDefault[3]&gt;      
+## 3:  classif.randomForest.mtry ParamInt    10    30      21 &lt;NoDefault[3]&gt;      
+## * Terminator: &lt;TerminatorEvals&gt;
+## * Terminated: TRUE
+## * Result:
+##    kruskal_test.filter.nfeat classif.randomForest.ntree
+## 1:                        70                        712
+##    classif.randomForest.mtry learner_param_vals  x_domain classif.logloss
+## 1:                        29         &lt;list[10]&gt; &lt;list[3]&gt;       0.9300459
+## * Archive:
+## &lt;ArchiveTuning&gt;
+##     kruskal_test.filter.nfeat classif.randomForest.ntree
+##  1:                        86                        487
+##  2:                        19                        458
+##  3:                        18                        572
+##  4:                        43                        344
+##  5:                        70                        712
+##  6:                        96                        508
+##  7:                        22                        509
+##  8:                        70                        512
+##  9:                        65                        526
+## 10:                        32                        386
+##     classif.randomForest.mtry classif.logloss           timestamp batch_nr
+##  1:                        14            0.95 2021-11-14 11:58:25        1
+##  2:                        22            0.98 2021-11-14 11:58:25        1
+##  3:                        21            0.99 2021-11-14 11:58:25        1
+##  4:                        15            0.96 2021-11-14 11:58:25        1
+##  5:                        29            0.93 2021-11-14 11:58:25        1
+##  6:                        10            0.96 2021-11-14 12:04:16        2
+##  7:                        22            0.97 2021-11-14 12:04:16        2
+##  8:                        22            0.94 2021-11-14 12:04:16        2
+##  9:                        14            0.95 2021-11-14 12:04:16        2
+## 10:                        20            0.98 2021-11-14 12:04:16        2</code></pre>
+<p>Not a great result given that the best result is 0.930 and without tuning we got 0.934 and our target is 0.87</p>
+<p>The best result is achieved when <code>nfeat</code>is 70, <code>mtry</code> is 29 and <code>ntree</code>is 712. Both <code>ntree</code> and <code>mtry</code> are close to the top of the range that I allowed so perhaps I should try larger values. WHat stops me is the fact that the improvement has been so small. I think that the real message is that the hyperparameters make little difference.</p>
+<div id="submission" class="section level2">
+<h2>Submission</h2>
+<p>I have a terrible model, none the less I’ll make a submission. I am sure that the model will perform poorly, but I want to show how <code>mlr3</code> handles the test data.</p>
+<pre class="r"><code># --- pre-process the test data -------------------------
+testDF &lt;- pre_process(testRawDF)
+
+# --- set text indicators -----------------------------
+testIndDF &lt;- NULL
+testDF$description &lt;- tolower(testDF$description)
+
+for( v in names(indicatorDF) ) {
+  word &lt;- str_replace(v, &quot;desc.&quot;, &quot;&quot;)
+  testIndDF[[ v]] &lt;- as.double(str_count(testDF$description, word))
+}
+as_tibble(testIndDF)</code></pre>
+<pre><code>## # A tibble: 4,961 x 394
+##    desc.best desc.agent desc.rare desc.view desc.lot desc.see desc.home desc.sit
+##        &lt;dbl&gt;      &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;
+##  1         0          0         0         0        0        0         0        0
+##  2         0          0         0         0        2        0         0        0
+##  3         0          0         0         0        0        0         1        0
+##  4         0          0         0         0        1        0         0        0
+##  5         0          0         0         0        0        0         2        0
+##  6         0          0         0         0        0        0         1        1
+##  7         0          0         0         0        0        0         3        0
+##  8         0          0         0         0        0        0         1        0
+##  9         0          0         0         1        1        0         1        0
+## 10         0          0         0         0        0        0         1        0
+## # ... with 4,951 more rows, and 386 more variables: `desc.cul-de-sac` &lt;dbl&gt;,
+## #   desc.back &lt;dbl&gt;, desc.stun &lt;dbl&gt;, desc.remodel &lt;dbl&gt;, desc.kitchen &lt;dbl&gt;,
+## #   desc.bathroom &lt;dbl&gt;, desc.master &lt;dbl&gt;, desc.suit &lt;dbl&gt;, desc.privat &lt;dbl&gt;,
+## #   desc.bath &lt;dbl&gt;, desc.huge &lt;dbl&gt;, desc.bedroom &lt;dbl&gt;, `desc.walk-in` &lt;dbl&gt;,
+## #   desc.closet &lt;dbl&gt;, desc.deck &lt;dbl&gt;, desc.pool &lt;dbl&gt;, desc.park &lt;dbl&gt;,
+## #   desc.tenni &lt;dbl&gt;, desc.court &lt;dbl&gt;, desc.high &lt;dbl&gt;, desc.well &lt;dbl&gt;,
+## #   desc.love &lt;dbl&gt;, desc.featur &lt;dbl&gt;, desc.live &lt;dbl&gt;, desc.area &lt;dbl&gt;,
+## #   desc.offic &lt;dbl&gt;, desc.car &lt;dbl&gt;, desc.garag &lt;dbl&gt;, desc.austin &lt;dbl&gt;,
+## #   desc.singl &lt;dbl&gt;, desc.famili &lt;dbl&gt;, desc.contain &lt;dbl&gt;, desc.built &lt;dbl&gt;,
+## #   desc.beauti &lt;dbl&gt;, desc.larg &lt;dbl&gt;, desc.tree &lt;dbl&gt;, desc.light &lt;dbl&gt;,
+## #   desc.spacious &lt;dbl&gt;, desc.dine &lt;dbl&gt;, desc.room &lt;dbl&gt;, desc.open &lt;dbl&gt;,
+## #   desc.floor &lt;dbl&gt;, desc.plan &lt;dbl&gt;, desc.layout &lt;dbl&gt;, desc.yard &lt;dbl&gt;,
+## #   desc.newli &lt;dbl&gt;, desc.patio &lt;dbl&gt;, `desc.built-in` &lt;dbl&gt;, desc.shed &lt;dbl&gt;,
+## #   desc.new &lt;dbl&gt;, desc.lamin &lt;dbl&gt;, desc.tile &lt;dbl&gt;, desc.throughout &lt;dbl&gt;,
+## #   desc.renov &lt;dbl&gt;, desc.upgrade &lt;dbl&gt;, desc.stainless &lt;dbl&gt;,
+## #   desc.applianc &lt;dbl&gt;, desc.washer &lt;dbl&gt;, desc.dryer &lt;dbl&gt;,
+## #   desc.laundri &lt;dbl&gt;, desc.util &lt;dbl&gt;, desc.recess &lt;dbl&gt;, desc.ceil &lt;dbl&gt;,
+## #   desc.fan &lt;dbl&gt;, desc.neighborhood &lt;dbl&gt;, desc.locat &lt;dbl&gt;,
+## #   desc.north &lt;dbl&gt;, desc.citi &lt;dbl&gt;, desc.south &lt;dbl&gt;, desc.first &lt;dbl&gt;,
+## #   desc.east &lt;dbl&gt;, desc.hill &lt;dbl&gt;, desc.design &lt;dbl&gt;, desc.oak &lt;dbl&gt;,
+## #   desc.wonder &lt;dbl&gt;, desc.bright &lt;dbl&gt;, desc.concept &lt;dbl&gt;, desc.vault &lt;dbl&gt;,
+## #   desc.formal &lt;dbl&gt;, desc.gorgeous &lt;dbl&gt;, desc.custom &lt;dbl&gt;, desc.wood &lt;dbl&gt;,
+## #   desc.cabinetri &lt;dbl&gt;, desc.quartz &lt;dbl&gt;, desc.countertop &lt;dbl&gt;,
+## #   desc.doubl &lt;dbl&gt;, desc.pantri &lt;dbl&gt;, desc.breakfast &lt;dbl&gt;,
+## #   desc.hardwood &lt;dbl&gt;, desc.fantast &lt;dbl&gt;, desc.exterior &lt;dbl&gt;,
+## #   desc.side &lt;dbl&gt;, desc.window &lt;dbl&gt;, desc.system &lt;dbl&gt;, desc.landscap &lt;dbl&gt;,
+## #   desc.contemporari &lt;dbl&gt;, desc.corner &lt;dbl&gt;, desc.entertain &lt;dbl&gt;,
+## #   desc.floorplan &lt;dbl&gt;, desc.attach &lt;dbl&gt;, ...</code></pre>
+<pre class="r"><code># --- combine indicators with clean test data -----
+testDF &lt;- bind_cols( testDF %&gt;% 
+                        select( -description),
+                      as_tibble(testIndDF))
+
+# --- remove the hyphens from the column names ------------
+names(testDF) &lt;- str_replace_all(names(testDF), &quot;-&quot;, &quot;_&quot;)
+
+testDF</code></pre>
+<pre><code>## # A tibble: 4,961 x 410
+##      uid city  homeType latitude longitude garageSpaces hasSpa yearBuilt
+##    &lt;dbl&gt; &lt;fct&gt; &lt;fct&gt;       &lt;dbl&gt;     &lt;dbl&gt;        &lt;dbl&gt;  &lt;dbl&gt;     &lt;dbl&gt;
+##  1  4070 Aust~ Single ~     30.2     -97.7            2      0      2006
+##  2  5457 Aust~ Single ~     30.2     -97.8            2      0      1954
+##  3  2053 Aust~ Single ~     30.2     -97.8            2      0      2005
+##  4  4723 Aust~ Single ~     30.2     -97.9            4      0      2006
+##  5  5417 Aust~ Single ~     30.2     -97.8            3      0      1969
+##  6  7231 Aust~ Single ~     30.1     -97.8            0      0      2008
+##  7  9222 Aust~ Single ~     30.3     -97.8            3      0      1927
+##  8  8795 Aust~ Single ~     30.4     -97.7            0      0      1984
+##  9  3088 Aust~ Single ~     30.4     -97.8            2      0      1978
+## 10  8194 Aust~ Single ~     30.5     -97.7            2      0      1994
+## # ... with 4,951 more rows, and 402 more variables:
+## #   numOfPatioAndPorchFeatures &lt;dbl&gt;, lotSizeSqFt &lt;dbl&gt;, avgSchoolRating &lt;dbl&gt;,
+## #   MedianStudentsPerTeacher &lt;dbl&gt;, numOfBathrooms &lt;dbl&gt;, numOfBedrooms &lt;dbl&gt;,
+## #   radius &lt;dbl&gt;, angle &lt;dbl&gt;, desc.best &lt;dbl&gt;, desc.agent &lt;dbl&gt;,
+## #   desc.rare &lt;dbl&gt;, desc.view &lt;dbl&gt;, desc.lot &lt;dbl&gt;, desc.see &lt;dbl&gt;,
+## #   desc.home &lt;dbl&gt;, desc.sit &lt;dbl&gt;, desc.cul_de_sac &lt;dbl&gt;, desc.back &lt;dbl&gt;,
+## #   desc.stun &lt;dbl&gt;, desc.remodel &lt;dbl&gt;, desc.kitchen &lt;dbl&gt;,
+## #   desc.bathroom &lt;dbl&gt;, desc.master &lt;dbl&gt;, desc.suit &lt;dbl&gt;, desc.privat &lt;dbl&gt;,
+## #   desc.bath &lt;dbl&gt;, desc.huge &lt;dbl&gt;, desc.bedroom &lt;dbl&gt;, desc.walk_in &lt;dbl&gt;,
+## #   desc.closet &lt;dbl&gt;, desc.deck &lt;dbl&gt;, desc.pool &lt;dbl&gt;, desc.park &lt;dbl&gt;,
+## #   desc.tenni &lt;dbl&gt;, desc.court &lt;dbl&gt;, desc.high &lt;dbl&gt;, desc.well &lt;dbl&gt;,
+## #   desc.love &lt;dbl&gt;, desc.featur &lt;dbl&gt;, desc.live &lt;dbl&gt;, desc.area &lt;dbl&gt;,
+## #   desc.offic &lt;dbl&gt;, desc.car &lt;dbl&gt;, desc.garag &lt;dbl&gt;, desc.austin &lt;dbl&gt;,
+## #   desc.singl &lt;dbl&gt;, desc.famili &lt;dbl&gt;, desc.contain &lt;dbl&gt;, desc.built &lt;dbl&gt;,
+## #   desc.beauti &lt;dbl&gt;, desc.larg &lt;dbl&gt;, desc.tree &lt;dbl&gt;, desc.light &lt;dbl&gt;,
+## #   desc.spacious &lt;dbl&gt;, desc.dine &lt;dbl&gt;, desc.room &lt;dbl&gt;, desc.open &lt;dbl&gt;,
+## #   desc.floor &lt;dbl&gt;, desc.plan &lt;dbl&gt;, desc.layout &lt;dbl&gt;, desc.yard &lt;dbl&gt;,
+## #   desc.newli &lt;dbl&gt;, desc.patio &lt;dbl&gt;, desc.built_in &lt;dbl&gt;, desc.shed &lt;dbl&gt;,
+## #   desc.new &lt;dbl&gt;, desc.lamin &lt;dbl&gt;, desc.tile &lt;dbl&gt;, desc.throughout &lt;dbl&gt;,
+## #   desc.renov &lt;dbl&gt;, desc.upgrade &lt;dbl&gt;, desc.stainless &lt;dbl&gt;,
+## #   desc.applianc &lt;dbl&gt;, desc.washer &lt;dbl&gt;, desc.dryer &lt;dbl&gt;,
+## #   desc.laundri &lt;dbl&gt;, desc.util &lt;dbl&gt;, desc.recess &lt;dbl&gt;, desc.ceil &lt;dbl&gt;,
+## #   desc.fan &lt;dbl&gt;, desc.neighborhood &lt;dbl&gt;, desc.locat &lt;dbl&gt;,
+## #   desc.north &lt;dbl&gt;, desc.citi &lt;dbl&gt;, desc.south &lt;dbl&gt;, desc.first &lt;dbl&gt;,
+## #   desc.east &lt;dbl&gt;, desc.hill &lt;dbl&gt;, desc.design &lt;dbl&gt;, desc.oak &lt;dbl&gt;,
+## #   desc.wonder &lt;dbl&gt;, desc.bright &lt;dbl&gt;, desc.concept &lt;dbl&gt;, desc.vault &lt;dbl&gt;,
+## #   desc.formal &lt;dbl&gt;, desc.gorgeous &lt;dbl&gt;, desc.custom &lt;dbl&gt;, desc.wood &lt;dbl&gt;,
+## #   desc.cabinetri &lt;dbl&gt;, desc.quartz &lt;dbl&gt;, ...</code></pre>
+<p>Create the pipeline with nfeat=20.</p>
+<pre class="r"><code># --- factor encoding ----------------------------
+pipeOp(&quot;encode&quot;, 
+       id             = &quot;encCity&quot;, 
+       method         = &quot;treatment&quot;,
+       affect_columns = selector_name(&quot;city&quot;)) %&gt;&gt;%
+pipeOp(&quot;encode&quot;, 
+       id             = &quot;encHome&quot;, 
+       method         = &quot;one-hot&quot;,
+       affect_columns = selector_name(&quot;homeType&quot;)) %&gt;&gt;%
+# --- make two copies of the data ----------------
+pipeOp(&quot;copy&quot;, outnum = 2) %&gt;&gt;%
+gunion(list( 
+  # --- branch 1 ----
+  # --- Select original predictors ---------------
+  pipeOp(&quot;select&quot;, 
+         id       = &quot;selectOriginal&quot;,
+         selector = selector_invert(selector_name(descVars))) %&gt;&gt;%
+  # --- scale robustly ---------------------------
+  pipeOp(&quot;scale&quot;, robust=TRUE),
+  # --- branch 2 ----
+  # --- select description predictors ------------
+  pipeOp(&quot;select&quot;, 
+         id       = &quot;selectDescOp&quot;,
+         selector = selector_name(descVars)) %&gt;&gt;%
+  # --- filter using Kruskal-Wallis --------------
+  pipeOp(&quot;filter&quot;,
+         filter       = setFilter(&quot;kruskal_test&quot;),
+         filter.nfeat = 20) 
+  ) ) %&gt;&gt;%
+# --- join the two branches ----------------------
+pipeOp(&quot;featureunion&quot;) %&gt;&gt;%
+# --- add the learner ----------------------------
+pipeOp(&quot;learner&quot;, 
+       learner = setModel(&quot;classif.randomForest&quot;)) -&gt; myPipeline
+
+myAnalysis = as_learner(myPipeline)
+myAnalysis$predict_type &lt;- &quot;prob&quot;
+
+# --- fit the model to the training data -------------------
+myAnalysis$train(myTask)
+
+# --- create predictions for test set ----------------------
+myPredictions &lt;- myAnalysis$predict_newdata(testDF)
+
+# --- create submission ------------------------------------
+myPredictions$print() %&gt;%
+  cbind( testDF %&gt;% select(uid)) %&gt;%
+  as_tibble() %&gt;%
+  select( uid, starts_with(&quot;prob&quot;)) %&gt;%
+  rename( `0-250000` = `prob.0-250000`,
+          `250000-350000` = `prob.250000-350000`,
+          `350000-450000` = `prob.350000-450000`,
+          `450000-650000` = `prob.450000-650000`,
+          `650000+` = `prob.650000+`) %&gt;%
+  write_csv( file.path(home, &quot;temp/submission1.csv&quot;))</code></pre>
+<pre><code>## &lt;PredictionClassif&gt; for 4961 observations:
+##     row_ids truth      response prob.0-250000 prob.250000-350000
+##           1  &lt;NA&gt;      0-250000         0.868              0.116
+##           2  &lt;NA&gt; 250000-350000         0.060              0.480
+##           3  &lt;NA&gt; 250000-350000         0.132              0.608
+## ---                                                             
+##        4959  &lt;NA&gt; 250000-350000         0.292              0.614
+##        4960  &lt;NA&gt; 250000-350000         0.086              0.750
+##        4961  &lt;NA&gt; 350000-450000         0.004              0.204
+##     prob.350000-450000 prob.450000-650000 prob.650000+
+##                  0.010              0.006        0.000
+##                  0.220              0.168        0.072
+##                  0.226              0.030        0.004
+## ---                                                   
+##                  0.092              0.002        0.000
+##                  0.148              0.016        0.000
+##                  0.564              0.222        0.006</code></pre>
+<p>This model scores 0.923, which is rather disappointing. No, it is not disappointing, it is terrible. The question is, why?</p>
+<p>I have been pre-occupied with creating a pipeline in <code>mlr3</code>, so perhaps I have taken my eye off the main target, which is, of course, creating a good predictive model.</p>
+<p>Although not reported, I did try <code>xgboost</code> in place of <code>randomForest</code> and I got a very similar cross-validated logloss. So the problem appears to lie in the feature selection rather than in the model. The <code>mlr3</code> team is working on a package called <code>mlr3ordinal</code>, which ought to be ideal for this problem, but unfortunately it has not been released yet (<a href="https://github.com/mlr-org/mlr3ordinal" class="uri">https://github.com/mlr-org/mlr3ordinal</a>).</p>
+</div>
+</div>
+<div id="what-we-have-learned-from-this-example" class="section level1">
+<h1>What we have learned from this example</h1>
+<p>I have used these data to demonstrate pipelines in <code>mlr3</code> and at the end, I produced a poorly performing model. The question is, to what extent is this the fault of pipelines? I am not suggesting that the problem is in <code>mlr3</code>s implementation of pipelines, but rather in the very idea of setting up a pipeline.</p>
+<p>My prejudice is that black box methods tend to lead to poor analyses because the analyst is discouraged from checking the intermediate stages. Perhaps errors creep in unnoticed or unusual aspects of the data that require special treatment are missed.</p>
+<p>In the case of the Zillow data, the pipeline was quite simple but I did not check the distributions of the scaled variables and I did not investigate which of the words from the description made it into the model. Of course, there are other decisions that I made outside of the pipeline, that in retrospect I could have checked more carefully. Was it sensible to recode City into Austin and not Austin? Did I recode home type in an appropriate way? What was the effect of including both latitude and longitude and their polar coordinate equivalents?</p>
+<p>I must not blame pipelines for my own failings, but I remain convinced of two things,</p>
+<ul>
+<li>involvement of the analyst in all stages of the analysis lead to better models<br />
+</li>
+<li>pipelines discourage analyst involvement in the intermediate steps</li>
+</ul>
+<p>Perhaps, the problem is not pipelines but in the way that I use them. There ought to be a way of working that takes advantage of the efficiencies of a pipeline, without losing the essential feel for what is going on.</p>
+<p>I like <code>mlr3</code>’s design and the logical way in which it is programmed. It is possible for the user to extend the options by writing their own learner, measure or pipe operator. I think that it would help if there were a PipeOp that wrote information to file whenever the pipeline passed through that operation. So, for example, after filtering I could insert a PipeOp that would write the names of selected features and their selection statistics to a file; either creating a series of rds files or appending to a single text file as I felt appropriate. This would enable easier checking of intermediate steps.</p>
+<p>I cannot leave the model in its current unsatisfactory state. I don’t know if I have made a silly error, or I have missed an important aspect of the data or if random forests were a poor choice of algorithm or if some other decision that I made was inappropriate. I need to look more closely at the problem, but I am already over 3,000 words, which is more than enough.</p>
+<p>My plan is to return to the <em>Sliced</em> datasets and to analyse each of them in a different way. Currently, I have in mind a series on Bayesian models, a series on modelling in Julia and a series on neural networks. So I will return to these data in the future. I hope with better results.</p>
+</div>

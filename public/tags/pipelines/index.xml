@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>pipelines on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/pipelines/</link>
+    <description>Recent content in pipelines on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Mon, 01 Nov 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/pipelines/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Methods: Introduction to mlr3</title>
+      <link>https://modelling-with-r.netlify.app/mlr3/</link>
+      <pubDate>Mon, 01 Nov 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/mlr3/</guid>
+      <description>IntroductionThis post introduces the ecosystem of packages known as mlr3. It is an alternative to tidymodels and one of my reasons for trying mlr3 was to compare the two.
+mlr3 is built on R6. a package that enables Object Oriented Programming (OOP) in R. To understand the way that mlr3 works, it is helpful to know a little about OOP and R6, so that is where I will start.</description>
+    </item>
+    
+  </channel>
+</rss>
