@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>mean absolute error on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/mean-absolute-error/</link>
+    <description>Recent content in mean absolute error on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Mon, 06 Dec 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/mean-absolute-error/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Sliced Episode 12: Loan Defaults</title>
+      <link>https://modelling-with-r.netlify.app/loan_defaults/</link>
+      <pubDate>Mon, 06 Dec 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/loan_defaults/</guid>
+      <description>SummaryBackground: In the final (episode 12) of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on bank loans. The aim was to predict the size of the default on the loan (usually zero). The metric for evaluation was the mean absolute error.
+My approach: I explored the data and decided to build two models, one to predict whether or not the customer would default and the other to predict the size of the default in customers who defaulted.</description>
+    </item>
+    
+  </channel>
+</rss>

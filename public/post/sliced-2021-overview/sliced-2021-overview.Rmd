@@ -17,9 +17,9 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Introduction
+# Introduction 
 
-Sliced is a data science competition hosted by Nick Wan and Meg Risdal on twitch ( https://www.twitch.tv/nickwan_datasci ). In each episode, 4 data scientists with very different backgrounds are given the same dataset and in 2 hours they must explore the data and build a predictive model. As well as the training data, they are given a test set that lacks the variable to be predicted. The model that best predicts in the test data according to a specified metric, wins the prediction element of the competition, but other points are available for data visualization, golden features and popularity as voted for by chat.
+Sliced is a data science competition hosted by Nick Wan and Meg Risdal on twitch ( https://www.twitch.tv/nickwan_datasci ). In each episode, 4 data scientists with very different backgrounds are given the same dataset and in 2 hours they must explore the data and build a predictive model. As well as the training data, they are given a test set that lacks the variable to be predicted. The model that best predicts in the test data according to a specified metric, wins the prediction element of the competition, but other points are available for data visualization, golden features and popularity as voted for by chat. 
 
 The datasets are all available on kaggle and while the competition is live on twitch, members of the audience can run their own analyses and submit them so that they are assessed alongside the models of the competitors. Afterwards, anyone can download the data and submit a late entry, but it will not be added to the leaderboard.
 
@@ -376,31 +376,60 @@ Within `mlr3` I use `xgboost` to model each animal type and I run cross-validati
 The model produced by my analysis does moderately well in comparison to the model on the leaderboard, but this is not the primary aim of the analysis. More important for me, is to illustrate the use of `mlr3` and to make its potential better-known. At the end, I give my opinion on the relative merits of `mlr3` and `tidymodels`. The fact that I have not used `tidymodels` for any of my analyses will give you a good clue as to which I prefer. 
 
 
-## Episode 10:Animal adoption
+## Episode 11: Austin House Prices
 
 ### Keywords
 
-mlr3; xgboost; cross-validation; hyperparameter tuning;
+mlr3; pipelines; pipe operators; tables; random forests; cross-validation; hyperparameter tuning;
 
 ### Packages
 
-tidyverse; mlr3; mlr3verse; xgboost;  
+tidyverse; mlr3; mlr3verse; randomForest; janitor; kableExtra; quanteda;  
 
 ### The data 
 
-The data for this episode can be downloaded from https://www.kaggle.com/c/sliced-s01e10-playoffs-2/overview/description. 
+The data for this episode can be downloaded from https://www.kaggle.com/c/sliced-s01e11-semifinals/. 
 
 ## The problem
 
-The data describe the fates of 54,408 animals abandoned or rescued between 7th Nov 2015 and 1 Feb 2018 in, I think, USA. The objective is to predict whether the animal was adopted, transferred to another facility or put down. Evaluation was by logloss.
+The data consist of the prices of 10,000 properties from the area around Austin, Texas that were advertised by the on-line estate agent, Zillow. The house prices where categorised into 5 price bands and the objective was to predict the price band from variables that describe the property. Evaluation was by multiclass logloss.
 
 ## My Analysis 
 
-I decided to use these data to illustrate the use of the `mlr3` ecosystem of packages. Although, `tidymodels` is well-known and much used, `mlr3`, which does much the same job, is hardly known at all outside of a small group of enthusiasts. This is a great shame because in many respects `mlr3` is better than `tidymodels`.  
+I decided to use these data to continue my demonstration of the `mlr3` ecosystem of packages that I started in Episode 10. For this analysis I concentrated on the production of analysis pipelines.
 
-In my analysis I analyse cats, dogs and other animals separately since it seems to me that the predictors that are relevant to the adoption of cats will be very different to those that are important for bats or squirrels.  
+For the exploratory analysis, I decided to use descriptive tables in place of my more usual graphical visualizations. For many problems tables of counts or tables of means are the best way of conveying the data structure. It is my impression that tables are under-used in exploratory analyses.
 
-Within `mlr3` I use `xgboost` to model each animal type and I run cross-validations to estimate the likely performance of each model. I also demonstrate how `mlr3` can be used to tune the hyperparameters of `xgboost`, even though I am not convinced that this is a sensible thing to do.  
+The property descriptors include a piece of free text produced by the estate agents to summarise the appeal of the property. I used the package `quanteda` to extract keywords from the free text and then developed am `mlr3` pipeline in which the other property descriptors were scaled while a filter was applied to the keywords so that those most significant in a Kruskal-Wallis test were kept. The combined set of scaled variables and filtered variables was then used in a random forest.  
 
-The model produced by my analysis does moderately well in comparison to the model on the leaderboard, but this is not the primary aim of the analysis. More important for me, is to illustrate the use of `mlr3` and to make its potential better-known. At the end, I give my opinion on the relative merits of `mlr3` and `tidymodels`. The fact that I have not used `tidymodels` for any of my analyses will give you a good clue as to which I prefer. 
+The entire pipeline was used in a cross-validation and I simultaneously tuned the number of filtered keywords and the hyperparameters of the random forest.  
+
+The analysis is a good example of the use of pipelines but it proved to be poor at predicting house price categories. I discuss why this might be.
+
+
+## Episode 12: Loan Defaults
+
+### Keywords
+
+tables; xgboost; two-stage modelling; 
+
+### Packages
+
+xgboost; kableExtra;  
+
+### The data 
+
+The data for this episode can be downloaded from www.kaggle.com/c/sliced-s01e12-championship/overview. 
+
+## The problem
+
+The data contain information on 83,656 bank loans made to US businesses. The objective was to predict the amount of any default. Evaluation was by mean absolute error.
+
+## My Analysis 
+
+I carried out a routine exploratory analysis based on tables and graphs and as a result I decided to create two models; one for the probability of a default and the other for the size of the default in those businesses that defaulted. For the second model, I took the size of the default as a proportion of the original loan as the response. Both models were based on `xgboost`. 
+
+My predictions for the size of the default were based on the second model but with the estimated default replaced by zero when the first model predicted that the business would not default. The approach is similar to that taken by zero-inflated models. I suspected that this approach would work better than directly modelling the size of the default and this hunch proved correct, even though neither of my models used the mean absolute error is its loss function.  
+
+One nice spin-off from the analysis is a demonstration of how to insert a blank line in a table to represent rows that you do not want to show.
 

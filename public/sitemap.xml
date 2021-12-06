@@ -3,24 +3,54 @@
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
     <loc>https://modelling-with-r.netlify.app/</loc>
-    <lastmod>2021-11-02T00:00:00+00:00</lastmod>
+    <lastmod>2021-12-06T00:00:00+00:00</lastmod>
   </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/mlr3/</loc>
-    <lastmod>2021-11-02T00:00:00+00:00</lastmod>
+    <loc>https://modelling-with-r.netlify.app/tags/kable/</loc>
+    <lastmod>2021-12-06T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/mean-absolute-error/</loc>
+    <lastmod>2021-12-06T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/post/</loc>
-    <lastmod>2021-11-02T00:00:00+00:00</lastmod>
+    <lastmod>2021-12-06T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/sliced/</loc>
-    <lastmod>2021-11-02T00:00:00+00:00</lastmod>
+    <lastmod>2021-12-06T00:00:00+00:00</lastmod>
   </url><url>
-    <loc>https://modelling-with-r.netlify.app/animal_adoption/</loc>
-    <lastmod>2021-11-02T00:00:00+00:00</lastmod>
+    <loc>https://modelling-with-r.netlify.app/loan_defaults/</loc>
+    <lastmod>2021-12-06T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/tables/</loc>
+    <lastmod>2021-12-06T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/</loc>
-    <lastmod>2021-11-02T00:00:00+00:00</lastmod>
+    <lastmod>2021-12-06T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/xgboost/</loc>
+    <lastmod>2021-12-06T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/mlr3/</loc>
+    <lastmod>2021-11-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/pipe-ops/</loc>
+    <lastmod>2021-11-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/random-forest/</loc>
+    <lastmod>2021-11-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/zillow/</loc>
+    <lastmod>2021-11-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/tabyl/</loc>
+    <lastmod>2021-11-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/mlr3_preprocessing/</loc>
+    <lastmod>2021-11-10T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/mlr3-pipelines/</loc>
+    <lastmod>2021-11-10T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/animal_adoption/</loc>
     <lastmod>2021-11-02T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/hyperparameter-tuning/</loc>

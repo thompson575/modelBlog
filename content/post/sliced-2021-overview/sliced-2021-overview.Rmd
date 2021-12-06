@@ -392,7 +392,7 @@ The data for this episode can be downloaded from https://www.kaggle.com/c/sliced
 
 ## The problem
 
-The data consist of the prices of 10,000 properties from the area around Austin, Texas that were advertised by the on-line estate agent, Zillow. The house prices where categorised into 5 price bands and the objective was to predict the price band from variables that describe the property. Evaluation was by multicalss logloss.
+The data consist of the prices of 10,000 properties from the area around Austin, Texas that were advertised by the on-line estate agent, Zillow. The house prices where categorised into 5 price bands and the objective was to predict the price band from variables that describe the property. Evaluation was by multiclass logloss.
 
 ## My Analysis 
 
@@ -405,4 +405,31 @@ The property descriptors include a piece of free text produced by the estate age
 The entire pipeline was used in a cross-validation and I simultaneously tuned the number of filtered keywords and the hyperparameters of the random forest.  
 
 The analysis is a good example of the use of pipelines but it proved to be poor at predicting house price categories. I discuss why this might be.
+
+
+## Episode 12: Loan Defaults
+
+### Keywords
+
+tables; xgboost; two-stage modelling; 
+
+### Packages
+
+xgboost; kableExtra;  
+
+### The data 
+
+The data for this episode can be downloaded from www.kaggle.com/c/sliced-s01e12-championship/overview. 
+
+## The problem
+
+The data contain information on 83,656 bank loans made to US businesses. The objective was to predict the amount of any default. Evaluation was by mean absolute error.
+
+## My Analysis 
+
+I carried out a routine exploratory analysis based on tables and graphs and as a result I decided to create two models; one for the probability of a default and the other for the size of the default in those businesses that defaulted. For the second model, I took the size of the default as a proportion of the original loan as the response. Both models were based on `xgboost`. 
+
+My predictions for the size of the default were based on the second model but with the estimated default replaced by zero when the first model predicted that the business would not default. The approach is similar to that taken by zero-inflated models. I suspected that this approach would work better than directly modelling the size of the default and this hunch proved correct, even though neither of my models used the mean absolute error is its loss function.  
+
+One nice spin-off from the analysis is a demonstration of how to insert a blank line in a table to represent rows that you do not want to show.
 

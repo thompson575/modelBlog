@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>mlr3 pipelines on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/mlr3-pipelines/</link>
+    <description>Recent content in mlr3 pipelines on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Wed, 10 Nov 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/mlr3-pipelines/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Methods: PipeOps in mlr3</title>
+      <link>https://modelling-with-r.netlify.app/mlr3_preprocessing/</link>
+      <pubDate>Wed, 10 Nov 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/mlr3_preprocessing/</guid>
+      <description>IntroductionI’ll use the Boardgame Rating data from episode 1 of Sliced to illustrate the use of mlr3 for pre-processing. The challenge for that episode is to predict the scores given to boardgames by the boardgamegeek website (https://boardgamegeek.com/) using predictors that describe the game.
+This post is a continuation of Methods: Introduction to mlr3. If you are new to mlr3 you ought to start with that earlier post.</description>
+    </item>
+    
+  </channel>
+</rss>

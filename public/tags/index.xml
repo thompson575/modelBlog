@@ -6,31 +6,94 @@
     <description>Recent content in Tags on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Tue, 02 Nov 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Mon, 06 Dec 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/index.xml" rel="self" type="application/rss+xml" />
     <item>
-      <title>mlr3</title>
-      <link>https://modelling-with-r.netlify.app/tags/mlr3/</link>
-      <pubDate>Tue, 02 Nov 2021 00:00:00 +0000</pubDate>
+      <title>kable</title>
+      <link>https://modelling-with-r.netlify.app/tags/kable/</link>
+      <pubDate>Mon, 06 Dec 2021 00:00:00 +0000</pubDate>
       
-      <guid>https://modelling-with-r.netlify.app/tags/mlr3/</guid>
+      <guid>https://modelling-with-r.netlify.app/tags/kable/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>mean absolute error</title>
+      <link>https://modelling-with-r.netlify.app/tags/mean-absolute-error/</link>
+      <pubDate>Mon, 06 Dec 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/mean-absolute-error/</guid>
       <description></description>
     </item>
     
     <item>
       <title>Sliced</title>
       <link>https://modelling-with-r.netlify.app/tags/sliced/</link>
-      <pubDate>Tue, 02 Nov 2021 00:00:00 +0000</pubDate>
+      <pubDate>Mon, 06 Dec 2021 00:00:00 +0000</pubDate>
       
       <guid>https://modelling-with-r.netlify.app/tags/sliced/</guid>
       <description></description>
     </item>
     
     <item>
+      <title>tables</title>
+      <link>https://modelling-with-r.netlify.app/tags/tables/</link>
+      <pubDate>Mon, 06 Dec 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/tables/</guid>
+      <description></description>
+    </item>
+    
+    <item>
       <title>xgboost</title>
       <link>https://modelling-with-r.netlify.app/tags/xgboost/</link>
-      <pubDate>Tue, 02 Nov 2021 00:00:00 +0000</pubDate>
+      <pubDate>Mon, 06 Dec 2021 00:00:00 +0000</pubDate>
       
       <guid>https://modelling-with-r.netlify.app/tags/xgboost/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>mlr3</title>
+      <link>https://modelling-with-r.netlify.app/tags/mlr3/</link>
+      <pubDate>Fri, 12 Nov 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/mlr3/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>pipe ops</title>
+      <link>https://modelling-with-r.netlify.app/tags/pipe-ops/</link>
+      <pubDate>Fri, 12 Nov 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/pipe-ops/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>random forest</title>
+      <link>https://modelling-with-r.netlify.app/tags/random-forest/</link>
+      <pubDate>Fri, 12 Nov 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/random-forest/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>tabyl</title>
+      <link>https://modelling-with-r.netlify.app/tags/tabyl/</link>
+      <pubDate>Fri, 12 Nov 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/tabyl/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>mlr3 pipelines</title>
+      <link>https://modelling-with-r.netlify.app/tags/mlr3-pipelines/</link>
+      <pubDate>Wed, 10 Nov 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/mlr3-pipelines/</guid>
       <description></description>
     </item>
     

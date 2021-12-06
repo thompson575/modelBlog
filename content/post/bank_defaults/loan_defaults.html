@@ -1,0 +1,1396 @@
+---
+title: "Sliced Episode 12: Loan Defaults"
+author: "John Thompson"
+date: "2021-12-06"
+layout: post
+tags:
+- Sliced
+- xgboost
+- mean absolute error
+- tables
+- kable
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+<script src="/rmarkdown-libs/kePrint/kePrint.js"></script>
+<link href="/rmarkdown-libs/lightable/lightable.css" rel="stylesheet" />
+
+
+<div id="summary" class="section level1">
+<h1>Summary</h1>
+<p><strong>Background:</strong> In the final (episode 12) of the 2021 series of <em>Sliced</em>, the competitors were given two hours in which to analyse a set of data on bank loans. The aim was to predict the size of the default on the loan (usually zero). The metric for evaluation was the mean absolute error.<br />
+<strong>My approach:</strong> I explored the data and decided to build two models, one to predict whether or not the customer would default and the other to predict the size of the default in customers who defaulted. The size of the default is obviously related to the amount loaned, so for the second model I predicted the proportion of the loan that was defaulted. Both models were fitted using <code>xgboost</code>.
+<strong>Result:</strong> Predictions for the size of the default were taken from the second model, but were replaced by zero if the first model suggested that the customer would not default. The resulting predictions would have come top of the leaderboard by a relatively large margin.<br />
+<strong>Conclusion:</strong> In the previous two episodes I had experimented with <code>mlr3</code>, but for this analysis I reverted to <code>dplyr</code> plus base R code. I felt closer to the data and I think that this helped me to find the best model. The alternative approach of directly minimising mean absolute error in an automatic algorithm does not perform well.</p>
+</div>
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>The data for the final of <em>Sliced 2021</em> can be downloaded from www.kaggle.com/c/sliced-s01e12-championship/overview. The organisers selected a set of data on business loans made by a bank and asked the finalists to predict the size of any default, evaluating the models by mean absolute error.</p>
+<p>The choice of mean absolute error was an interesting one, not because it is particularly appropriate to the problem, but more because it moved the competitors out of their comfort zone.</p>
+</div>
+<div id="reading-the-data" class="section level1">
+<h1>Reading the data</h1>
+<p>It is my practice to read the data asis and to immediately save it in rds format within a directory called data/rData. For details of the way that I organise my analyses you should read my post called <code>Sliced Methods Overview</code>.</p>
+<pre class="r"><code># --- setup: libraries &amp; options ------------------------
+library(tidyverse)
+
+theme_set( theme_light())
+
+# --- set home directory -------------------------------
+home &lt;- &quot;C:/Projects/kaggle/sliced/s01-e12&quot;
+
+# --- read downloaded data -----------------------------
+trainRawDF &lt;- readRDS( file.path(home, &quot;data/rData/train.rds&quot;) )
+
+testRawDF &lt;- readRDS( file.path(home, &quot;data/rData/test.rds&quot;) )</code></pre>
+</div>
+<div id="data-exploration" class="section level1">
+<h1>Data Exploration</h1>
+<p>I usually start by summarising the training data with the <code>skimr</code> package and as always, I hide the output because of its length.</p>
+<pre class="r"><code># --- summarise the training set -----------------------
+skimr::skim(trainRawDF)</code></pre>
+<p>From <code>skim()</code> I learn that there are 83,656 loans and only 16 missing values, all for the variable <code>NewExist</code>, which measures whether the loan was to a new or an existing business.</p>
+</div>
+<div id="the-response" class="section level1">
+<h1>The Response</h1>
+<p>The response is the <code>default_amount</code>, which I tabulate using <code>kable</code>.</p>
+<pre class="r"><code>library(kableExtra)
+
+trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE), 
+                           labels=c(&quot;Repaid&quot;, &quot;Defaulted&quot;))) %&gt;%
+  group_by( default) %&gt;%
+  summarise( n      = n(),
+             mean   = mean(default_amount),
+             median = median(default_amount),
+             min    = min(default_amount),
+             max    = max(default_amount),
+                      .groups=&quot;drop&quot;) %&gt;%
+  mutate( pct = round(100*n/sum(n),1) ) %&gt;%
+  select( default, n, pct, mean, median, min, max) %&gt;%
+  kable(caption=&quot;Amount defaulted&quot;) %&gt;%
+  kable_classic(full_width=FALSE)</code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-3">Table 1: </span>Amount defaulted
+</caption>
+<thead>
+<tr>
+<th style="text-align:left;">
+default
+</th>
+<th style="text-align:right;">
+n
+</th>
+<th style="text-align:right;">
+pct
+</th>
+<th style="text-align:right;">
+mean
+</th>
+<th style="text-align:right;">
+median
+</th>
+<th style="text-align:right;">
+min
+</th>
+<th style="text-align:right;">
+max
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+Repaid
+</td>
+<td style="text-align:right;">
+64457
+</td>
+<td style="text-align:right;">
+77.1
+</td>
+<td style="text-align:right;">
+0.00
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Defaulted
+</td>
+<td style="text-align:right;">
+19199
+</td>
+<td style="text-align:right;">
+22.9
+</td>
+<td style="text-align:right;">
+62879.67
+</td>
+<td style="text-align:right;">
+27552
+</td>
+<td style="text-align:right;">
+5
+</td>
+<td style="text-align:right;">
+1895579
+</td>
+</tr>
+</tbody>
+</table>
+<p>77% of loans are not defaulted, but defaults can be up be anything from $5 to $1.9 million</p>
+<p>Here is a histogram of the non-zero defaults.</p>
+<pre class="r"><code># --- non-zero defaults ----------------------------
+trainRawDF %&gt;%
+  filter( default_amount &gt; 0 ) %&gt;%
+  ggplot( aes(x=default_amount)) +
+  geom_histogram( bins=100, fill=&quot;steelblue&quot;) +
+  labs(x = &quot;Amount defaulted&quot;,
+       title = &quot;Size of default when loan not repaid&quot;)</code></pre>
+<p><img src="/post/bank_defaults/loan_defaults_files/figure-html/unnamed-chunk-4-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The amounts defaulted are very skew, so they are better viewed on a log scale</p>
+<pre class="r"><code># --- log10 non-zero defaults ----------------------
+trainRawDF %&gt;%
+  filter( default_amount &gt; 0 ) %&gt;%
+  ggplot( aes(x=log10(default_amount))) +
+  geom_histogram( bins=100, fill=&quot;steelblue&quot;) +
+  labs(x = &quot;log10(Amount defaulted)&quot;,
+       title = &quot;Size of default when loan not repaid&quot;)</code></pre>
+<p><img src="/post/bank_defaults/loan_defaults_files/figure-html/unnamed-chunk-5-1.png" width="528" style="display: block; margin: auto;" /></p>
+</div>
+<div id="the-predictors" class="section level1">
+<h1>The Predictors</h1>
+<p>I consider each of the predictors starting with the business sector.</p>
+<div id="sector" class="section level3">
+<h3>Sector</h3>
+<p>The rate of defaulting varies by business sector, from about 10% in Agriculture and Management to a rate that is 3 times higher in Finance and Real Estate.</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;default&quot;))) %&gt;%
+  group_by(Sector, default) %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider( values_from=n, names_from=default) %&gt;%
+  mutate( pct = 100*default/(default+repaid))</code></pre>
+<pre><code>## # A tibble: 20 x 4
+##    Sector                                                   repaid default   pct
+##    &lt;chr&gt;                                                     &lt;int&gt;   &lt;int&gt; &lt;dbl&gt;
+##  1 Accommodation and food services                            5865    1878 24.3 
+##  2 Administrative and support and waste management and rem~   2904    1103 27.5 
+##  3 Agriculture, forestry, fishing and hunting                  788      86  9.84
+##  4 Arts, entertainment, and recreation                        1291     389 23.2 
+##  5 Construction                                               5892    2142 26.7 
+##  6 Educational services                                        612     232 27.5 
+##  7 Finance and insurance                                       837     395 32.1 
+##  8 Health care and social assistance                          5869     759 11.5 
+##  9 Information                                                1031     396 27.8 
+## 10 Management of companies and enterprises                      27       3 10   
+## 11 Manufacturing                                              6386    1318 17.1 
+## 12 Mining, quarrying, and oil and gas extraction               147      20 12.0 
+## 13 Other services (except public administration)              6954    1970 22.1 
+## 14 Professional, scientific, and technical services           6805    1874 21.6 
+## 15 Public administration                                        26       5 16.1 
+## 16 Real estate and rental and leasing                         1128     578 33.9 
+## 17 Retail trade                                              11553    3853 25.0 
+## 18 Transportation and warehousing                             1791     873 32.8 
+## 19 Utilities                                                    60       9 13.0 
+## 20 Wholesale trade                                            4491    1316 22.7</code></pre>
+</div>
+<div id="naics" class="section level3">
+<h3>NAICS</h3>
+<p>North American Industry Classification System (NAICS) is a numerical system for coding industries. The full code has 6 digits, but the first 2 digits are often used for a less detailed breakdown. The first two digits correspond very closely to <code>Sector</code>, the feature that I have just looked at.</p>
+<p>As an example, I take NAICS 541940. 54 refers to all “Professional, Scientific, and Technical Services” and 541940 refers to “Vets”</p>
+<p>You can check the codes at www.census.gov/naics</p>
+<p>Here are the 6 digit codes with the highest and lowest default rates.</p>
+<pre class="r"><code># --- NAICS industry classification -----------------------
+#
+options(knitr.kable.NA = &#39;..&#39;)
+
+trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;defaulted&quot;))) %&gt;%
+  group_by(NAICS, default) %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider( values_from=n, names_from=default, values_fill=0 ) %&gt;%
+  mutate( Percent = round(100*defaulted/(defaulted+repaid),1)) %&gt;%
+  # --- at least 50 loans in this sector ------------------
+  filter( repaid + defaulted &gt; 50) %&gt;%
+  # --- top and bottom 3 ----------------------------------
+  arrange( Percent ) %&gt;%
+  filter(row_number() &gt; max(row_number()) - 3 | 
+           row_number() &lt;= 3) %&gt;%
+  add_row( Percent = 20)  %&gt;%
+  arrange( Percent) %&gt;%
+  mutate( Percent = ifelse(Percent == 20, NA, Percent)) %&gt;%
+  kable(caption=&quot;NAICS codes with the highest and lowest default rates&quot;) %&gt;%
+  kable_classic(full_width=FALSE) </code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-7">Table 2: </span>NAICS codes with the highest and lowest default rates
+</caption>
+<thead>
+<tr>
+<th style="text-align:right;">
+NAICS
+</th>
+<th style="text-align:right;">
+repaid
+</th>
+<th style="text-align:right;">
+defaulted
+</th>
+<th style="text-align:right;">
+Percent
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right;">
+514210
+</td>
+<td style="text-align:right;">
+54
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+1.8
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+421830
+</td>
+<td style="text-align:right;">
+211
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:right;">
+2.8
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+421930
+</td>
+<td style="text-align:right;">
+66
+</td>
+<td style="text-align:right;">
+2
+</td>
+<td style="text-align:right;">
+2.9
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+..
+</td>
+<td style="text-align:right;">
+..
+</td>
+<td style="text-align:right;">
+..
+</td>
+<td style="text-align:right;">
+..
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+522310
+</td>
+<td style="text-align:right;">
+127
+</td>
+<td style="text-align:right;">
+157
+</td>
+<td style="text-align:right;">
+55.3
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+488999
+</td>
+<td style="text-align:right;">
+39
+</td>
+<td style="text-align:right;">
+52
+</td>
+<td style="text-align:right;">
+57.1
+</td>
+</tr>
+<tr>
+<td style="text-align:right;">
+236116
+</td>
+<td style="text-align:right;">
+37
+</td>
+<td style="text-align:right;">
+53
+</td>
+<td style="text-align:right;">
+58.9
+</td>
+</tr>
+</tbody>
+</table>
+<p>51 is the information sector and 23 is construction.</p>
+</div>
+<div id="location" class="section level3">
+<h3>Location</h3>
+<p>You can look separately at the State of the loanee and the State of the bank. The ranges of default rates are surprising to me, but this is probably a reflection of not living in the USA.</p>
+<p>The key message seems to be, don’t loan to businesses based in Florida</p>
+<pre class="r"><code># --- state of loanee --------------------------------
+# --- top 3 and bottom 3 rates -----------------------
+trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;default&quot;))) %&gt;%
+  group_by(State, default) %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider( values_from=n, names_from=default, values_fill=0 ) %&gt;%
+  mutate( Percent = round(100*default/(default+repaid),1)) %&gt;%
+  # --- at least 50 loans in this sector ------------------
+  filter( repaid + default &gt; 50) %&gt;%
+  # --- top and bottom 3 ----------------------------------
+  arrange( Percent ) %&gt;%
+  filter(row_number() &gt; max(row_number()) - 3 | 
+           row_number() &lt;= 3) %&gt;%
+  add_row( Percent = 20)  %&gt;%
+  arrange( Percent) %&gt;%
+  mutate( Percent = ifelse(Percent == 20, NA, Percent)) %&gt;%
+  kable(caption=&quot;Home State of the Loanee&quot;) %&gt;%
+  kable_classic(full_width=FALSE) </code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-8">Table 3: </span>Home State of the Loanee
+</caption>
+<thead>
+<tr>
+<th style="text-align:left;">
+State
+</th>
+<th style="text-align:right;">
+repaid
+</th>
+<th style="text-align:right;">
+default
+</th>
+<th style="text-align:right;">
+Percent
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+ND
+</td>
+<td style="text-align:right;">
+204
+</td>
+<td style="text-align:right;">
+10
+</td>
+<td style="text-align:right;">
+4.7
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+MT
+</td>
+<td style="text-align:right;">
+541
+</td>
+<td style="text-align:right;">
+46
+</td>
+<td style="text-align:right;">
+7.8
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+WY
+</td>
+<td style="text-align:right;">
+137
+</td>
+<td style="text-align:right;">
+12
+</td>
+<td style="text-align:right;">
+8.1
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+..
+</td>
+<td style="text-align:right;">
+..
+</td>
+<td style="text-align:right;">
+..
+</td>
+<td style="text-align:right;">
+..
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+GA
+</td>
+<td style="text-align:right;">
+1340
+</td>
+<td style="text-align:right;">
+649
+</td>
+<td style="text-align:right;">
+32.6
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+DC
+</td>
+<td style="text-align:right;">
+121
+</td>
+<td style="text-align:right;">
+60
+</td>
+<td style="text-align:right;">
+33.1
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+FL
+</td>
+<td style="text-align:right;">
+2869
+</td>
+<td style="text-align:right;">
+1573
+</td>
+<td style="text-align:right;">
+35.4
+</td>
+</tr>
+</tbody>
+</table>
+<p>Don’t borrow from a bank in Virginia (unless plan to default).</p>
+<pre class="r"><code># --- state of  Bank --------------------------------
+# --- top 3 and bottom 3 rates -----------------------
+trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;default&quot;))) %&gt;%
+  group_by(BankState, default) %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider( values_from=n, names_from=default, values_fill=0 ) %&gt;%
+  mutate( Percent = round(100*default/(default+repaid),1)) %&gt;%
+  # --- at least 50 loans in this sector ------------------
+  filter( repaid + default &gt; 50) %&gt;%
+  # --- top and bottom 3 ----------------------------------
+  arrange( Percent ) %&gt;%
+  filter(row_number() &gt; max(row_number()) - 3 | 
+           row_number() &lt;= 3) %&gt;%
+  add_row( Percent = 20)  %&gt;%
+  arrange( Percent) %&gt;%
+  mutate( Percent = ifelse(Percent == 20, NA, Percent)) %&gt;%
+  kable(caption=&quot;Home State of the Bank&quot;) %&gt;%
+  kable_classic(full_width=FALSE) </code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-9">Table 4: </span>Home State of the Bank
+</caption>
+<thead>
+<tr>
+<th style="text-align:left;">
+BankState
+</th>
+<th style="text-align:right;">
+repaid
+</th>
+<th style="text-align:right;">
+default
+</th>
+<th style="text-align:right;">
+Percent
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+ME
+</td>
+<td style="text-align:right;">
+163
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+2.4
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+DC
+</td>
+<td style="text-align:right;">
+197
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:right;">
+3.0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+AZ
+</td>
+<td style="text-align:right;">
+300
+</td>
+<td style="text-align:right;">
+11
+</td>
+<td style="text-align:right;">
+3.5
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+..
+</td>
+<td style="text-align:right;">
+..
+</td>
+<td style="text-align:right;">
+..
+</td>
+<td style="text-align:right;">
+..
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+DE
+</td>
+<td style="text-align:right;">
+2268
+</td>
+<td style="text-align:right;">
+900
+</td>
+<td style="text-align:right;">
+28.4
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+NC
+</td>
+<td style="text-align:right;">
+6841
+</td>
+<td style="text-align:right;">
+3447
+</td>
+<td style="text-align:right;">
+33.5
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+VA
+</td>
+<td style="text-align:right;">
+2123
+</td>
+<td style="text-align:right;">
+1663
+</td>
+<td style="text-align:right;">
+43.9
+</td>
+</tr>
+</tbody>
+</table>
+<p>An interesting feature is whether the business borrowed from a local bank, by which I mean a bank in its own state.</p>
+<pre class="r"><code># --- local (in-state) loans ------------------------------
+trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;default&quot;))) %&gt;%
+  mutate( inState = factor(State == BankState,
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;No&quot;, &quot;Yes&quot;))) %&gt;%
+  group_by(inState, default) %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider( values_from=n, names_from=default, values_fill=0 ) %&gt;%
+  mutate( pct = 100*default/(default+repaid)) %&gt;%
+  arrange( pct )</code></pre>
+<pre><code>## # A tibble: 2 x 4
+##   inState repaid default   pct
+##   &lt;fct&gt;    &lt;int&gt;   &lt;int&gt; &lt;dbl&gt;
+## 1 Yes      28827    3961  12.1
+## 2 No       35630   15238  30.0</code></pre>
+<p>Borrowing out of state is more common and is more likely to result in a default.</p>
+</div>
+<div id="urbanrural" class="section level3">
+<h3>Urban/Rural</h3>
+<p>We also know whether the company is urban or rural.</p>
+<pre class="r"><code># --- urban=1 or rural=2 or undefined=0 ----------------
+trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;default&quot;))) %&gt;%
+  mutate( UrbanRural = factor(UrbanRural,
+                           levels=0:2,
+                           labels=c(&quot;Undefined&quot;, &quot;Urban&quot;, &quot;Rural&quot;))) %&gt;%
+  group_by(UrbanRural, default) %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider( values_from=n, names_from=default, values_fill=0 ) %&gt;%
+  mutate( pct = 100*default/(default+repaid)) %&gt;%
+  arrange( pct )</code></pre>
+<pre><code>## # A tibble: 3 x 4
+##   UrbanRural repaid default   pct
+##   &lt;fct&gt;       &lt;int&gt;   &lt;int&gt; &lt;dbl&gt;
+## 1 Undefined   15196     998  6.16
+## 2 Rural        7951    2288 22.3 
+## 3 Urban       41310   15913 27.8</code></pre>
+</div>
+<div id="bank" class="section level3">
+<h3>Bank</h3>
+<p>There are over 300 different banks. Here are the top 5 and the bottom 5 for defaults.</p>
+<pre class="r"><code># --- state of  Bank --------------------------------
+trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;default&quot;))) %&gt;%
+  group_by(Bank, default) %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider( values_from=n, names_from=default, values_fill=0 ) %&gt;%
+  mutate( Percent = round(100*default/(default+repaid),1)) %&gt;%
+  # --- at least 50 loans in this sector ------------------
+  filter( repaid + default &gt; 50) %&gt;%
+  # --- top and bottom 3 ----------------------------------
+  arrange( Percent ) %&gt;%
+  filter(row_number() &gt; max(row_number()) - 5 | 
+           row_number() &lt;= 5) %&gt;%
+  add_row( Percent = 20)  %&gt;%
+  arrange( Percent) %&gt;%
+  mutate( Percent = ifelse(Percent == 20, NA, Percent)) %&gt;%
+  kable(caption=&quot;Best and Worst Banks&quot;) %&gt;%
+  kable_classic(full_width=FALSE) </code></pre>
+<table class=" lightable-classic" style="font-family: &quot;Arial Narrow&quot;, &quot;Source Sans Pro&quot;, sans-serif; width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+<span id="tab:unnamed-chunk-12">Table 5: </span>Best and Worst Banks
+</caption>
+<thead>
+<tr>
+<th style="text-align:left;">
+Bank
+</th>
+<th style="text-align:right;">
+repaid
+</th>
+<th style="text-align:right;">
+default
+</th>
+<th style="text-align:right;">
+Percent
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+BAY AREA EMPLOYMENT DEVEL CO
+</td>
+<td style="text-align:right;">
+73
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0.0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+BUSINESS DEVEL FINAN CORP
+</td>
+<td style="text-align:right;">
+108
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0.0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+BUSINESS FINANCE GROUP, INC.
+</td>
+<td style="text-align:right;">
+97
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0.0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+CALIFORNIA STATEWIDE CERT. DEV
+</td>
+<td style="text-align:right;">
+124
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0.0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+CAPITAL ACCESS GROUP, INC.
+</td>
+<td style="text-align:right;">
+58
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0.0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+..
+</td>
+<td style="text-align:right;">
+..
+</td>
+<td style="text-align:right;">
+..
+</td>
+<td style="text-align:right;">
+..
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+HSBC BK USA NATL ASSOC
+</td>
+<td style="text-align:right;">
+343
+</td>
+<td style="text-align:right;">
+264
+</td>
+<td style="text-align:right;">
+43.5
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+BANCO POPULAR NORTH AMERICA
+</td>
+<td style="text-align:right;">
+499
+</td>
+<td style="text-align:right;">
+461
+</td>
+<td style="text-align:right;">
+48.0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+BBCN BANK
+</td>
+<td style="text-align:right;">
+1294
+</td>
+<td style="text-align:right;">
+2092
+</td>
+<td style="text-align:right;">
+61.8
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+SUPERIOR FINANCIAL GROUP, LLC
+</td>
+<td style="text-align:right;">
+162
+</td>
+<td style="text-align:right;">
+473
+</td>
+<td style="text-align:right;">
+74.5
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+CAPITAL ONE BK (USA) NATL ASSO
+</td>
+<td style="text-align:right;">
+8
+</td>
+<td style="text-align:right;">
+53
+</td>
+<td style="text-align:right;">
+86.9
+</td>
+</tr>
+</tbody>
+</table>
+<p>Some of these rates are so poor that it is hard to credit. How can they still be in business? The data comes from the years 1990-2010 so perhaps these data reflect the impact of the 2008 financial crisis. Even so!</p>
+</div>
+<div id="year-of-loan" class="section level3">
+<h3>Year of Loan</h3>
+<p>The plot of default rate by financial year confirms the importance of the 2007-2008 crisis. It is interesting that these data make it look as though the financial crisis was predictable in 2005.</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;default&quot;))) %&gt;%
+  group_by(ApprovalFY, default) %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider( values_from=n, names_from=default, values_fill=0 ) %&gt;%
+  mutate( pct = 100*default/(default+repaid)) %&gt;%
+  arrange( pct ) %&gt;%
+  ggplot( aes(x=ApprovalFY, y=pct)) +
+  geom_line() +
+  labs( x= &quot;Year loan approaved&quot;,
+        y = &quot;Percent defaulting&quot;,
+        title = &quot;Pattern of defaults over time&quot;)</code></pre>
+<p><img src="/post/bank_defaults/loan_defaults_files/figure-html/unnamed-chunk-13-1.png" width="528" style="display: block; margin: auto;" /></p>
+</div>
+<div id="new-and-existing-businesses" class="section level3">
+<h3>New and Existing Businesses</h3>
+<p>The coding is, 1 for an existing business and 2 for a new business. There are 16 missing codes and 60 businesses coded as 0. Zero codes are not mentioned in the data dictionary.</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;default&quot;))) %&gt;%
+  mutate( NewExist = factor(NewExist),
+          NewExist = fct_explicit_na(NewExist)) %&gt;%
+  group_by(NewExist, default) %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider( values_from=n, names_from=default, values_fill=0 ) %&gt;%
+  mutate( pct = 100*default/(default+repaid)) %&gt;%
+  arrange( pct )</code></pre>
+<pre><code>## # A tibble: 4 x 4
+##   NewExist  repaid default   pct
+##   &lt;fct&gt;      &lt;int&gt;   &lt;int&gt; &lt;dbl&gt;
+## 1 0             56       4  6.67
+## 2 (Missing)     14       2 12.5 
+## 3 1          47694   13951 22.6 
+## 4 2          16693    5242 23.9</code></pre>
+<p>I think that it would make sense to merge missing and zero.</p>
+</div>
+<div id="size-of-the-company" class="section level3">
+<h3>Size of the Company</h3>
+<p>Companies with many employees are less likely to default.</p>
+<pre class="r"><code># --- number of employees -----------------------
+trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;default&quot;))) %&gt;%
+  mutate( NoEmp = cut(NoEmp, breaks=c(0, 1, 5, 10, 100, 10000 ), include.lowest=TRUE, dig.lab=5)) %&gt;%
+  group_by(NoEmp, default) %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider( values_from=n, names_from=default, values_fill=0 ) %&gt;%
+  mutate( pct = 100*default/(default+repaid)) </code></pre>
+<pre><code>## # A tibble: 5 x 4
+##   NoEmp       repaid default   pct
+##   &lt;fct&gt;        &lt;int&gt;   &lt;int&gt; &lt;dbl&gt;
+## 1 [0,1]        12372    5032 28.9 
+## 2 (1,5]        26738    9110 25.4 
+## 3 (5,10]       11087    2908 20.8 
+## 4 (10,100]     13813    2124 13.3 
+## 5 (100,10000]    447      25  5.30</code></pre>
+<p><code>CreateJob</code> measures the number of new jobs created by the loan. When the number is large the default rate is lower. Of course, this factor will not be independent of the original size of the company.</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;default&quot;))) %&gt;%
+  mutate( CreateJob = cut(CreateJob, breaks=c(0, 1, 5, 10, 2000 ), include.lowest=TRUE, dig.lab=4)) %&gt;%
+  group_by(CreateJob, default) %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider( values_from=n, names_from=default, values_fill=0 ) %&gt;%
+  mutate( pct = 100*default/(default+repaid)) </code></pre>
+<pre><code>## # A tibble: 4 x 4
+##   CreateJob repaid default   pct
+##   &lt;fct&gt;      &lt;int&gt;   &lt;int&gt; &lt;dbl&gt;
+## 1 [0,1]      48165   13758  22.2
+## 2 (1,5]      10391    4166  28.6
+## 3 (5,10]      3048     764  20.0
+## 4 (10,2000]   2853     511  15.2</code></pre>
+<p>Loans that help companies retain jobs are more likely to be repaid.</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;default&quot;))) %&gt;%
+  mutate( RetainedJob = cut(RetainedJob, 
+                            breaks=c(0, 1, 5, 10, 100, 5000 ),
+                            include.lowest=TRUE, dig.lab=4)) %&gt;%
+  group_by(RetainedJob, default) %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider( values_from=n, names_from=default, values_fill=0 ) %&gt;%
+  mutate( pct = 100*default/(default+repaid)) </code></pre>
+<pre><code>## # A tibble: 5 x 4
+##   RetainedJob repaid default   pct
+##   &lt;fct&gt;        &lt;int&gt;   &lt;int&gt; &lt;dbl&gt;
+## 1 [0,1]        32486    6760 17.2 
+## 2 (1,5]        17317    7885 31.3 
+## 3 (5,10]        7001    2635 27.3 
+## 4 (10,100]      7463    1899 20.3 
+## 5 (100,5000]     190      20  9.52</code></pre>
+</div>
+<div id="franchise" class="section level3">
+<h3>Franchise</h3>
+<p>The Franchise code is undefined in the data dictionary. We are told that 0 and 1 correspond to businesses that are not franchises. So I’ll just consider Franchise Yes/No.</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;default&quot;))) %&gt;%
+  mutate( Franchise = factor(FranchiseCode &gt; 1,
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;No&quot;, &quot;Yes&quot;))) %&gt;%
+  group_by(Franchise, default) %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider( values_from=n, names_from=default, values_fill=0 ) %&gt;%
+  mutate( pct = 100*default/(default+repaid)) %&gt;%
+  arrange( pct )</code></pre>
+<pre><code>## # A tibble: 2 x 4
+##   Franchise repaid default   pct
+##   &lt;fct&gt;      &lt;int&gt;   &lt;int&gt; &lt;dbl&gt;
+## 1 Yes         3201     809  20.2
+## 2 No         61256   18390  23.1</code></pre>
+<p>So franchises are the minority and they are slightly less likely to default.</p>
+</div>
+<div id="size-of-the-loan" class="section level3">
+<h3>Size of the loan</h3>
+<p>Disbursement refers to the amount loaned.</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;default&quot;))) %&gt;%
+  mutate( Disbursement = cut(DisbursementGross,
+      breaks=c(0, quantile(DisbursementGross, 
+                           probs=seq(0.1, 1.0, by=0.1))),
+      dig.lab=7)) %&gt;%
+  group_by(Disbursement, default) %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;) %&gt;%
+  pivot_wider( values_from=n, names_from=default, values_fill=0 ) %&gt;%
+  mutate( pct = 100*default/(default+repaid)) %&gt;%
+  arrange( pct )</code></pre>
+<pre><code>## # A tibble: 10 x 4
+##    Disbursement     repaid default   pct
+##    &lt;fct&gt;             &lt;int&gt;   &lt;int&gt; &lt;dbl&gt;
+##  1 (480659,5294366]   7638     728  8.70
+##  2 (255000,480659]    7380     944 11.3 
+##  3 (157108,255000]    7014    1393 16.6 
+##  4 (110000,157108]    6632    1677 20.2 
+##  5 (80000,110000]     6408    2007 23.9 
+##  6 (54472,80000]      6254    2118 25.3 
+##  7 (25000,41211.5]    6101    2172 26.3 
+##  8 (41211.5,54472]    5866    2500 29.9 
+##  9 (15000,25000]      5343    2351 30.6 
+## 10 (0,15000]          5821    3309 36.2</code></pre>
+<p>Businesses are more likely to default if the loan is small. Presumably, banks are less risk adverse when the amount is small.</p>
+<p>When companies do default the size of the default is linked to the size of the loan</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  filter( default_amount&gt; 0) %&gt;%
+  ggplot( aes(x=DisbursementGross, y=default_amount) ) +
+  geom_point() +
+  geom_abline() +
+  geom_smooth() +
+  labs( x = &quot;Size of the loan (disbursement)&quot;,
+        y = &quot;Size of the default&quot;,
+        title = &quot;Amount defaulted and the size of the loan&quot;)</code></pre>
+<p><img src="/post/bank_defaults/loan_defaults_files/figure-html/unnamed-chunk-20-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Alternatively, we can look at the percentage of the loan that is defaulted. Presumably the numbers over 100% refer to businesses that run up interest that they do not repay. On average, companies default on about 60% of the loan.</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  filter( default_amount&gt; 0) %&gt;%
+  ggplot( aes(x=DisbursementGross, y=100*default_amount/DisbursementGross) ) +
+  geom_point() +
+  geom_smooth() +
+    labs( x = &quot;Size of the loan (disbursment)&quot;,
+        y = &quot;Percent of loan defaulted&quot;,
+        title = &quot;Percent defaulted and the size of the loan&quot;)</code></pre>
+<p><img src="/post/bank_defaults/loan_defaults_files/figure-html/unnamed-chunk-21-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>GrAppv measures the amount that the bank originally approved. In most cases it is very similar to the Disbursement.</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  ggplot( aes(x=GrAppv/100000, y=DisbursementGross/100000) ) +
+  geom_point() +
+  geom_abline()  +
+    labs( y = &quot;Size of the loan (disbursment)&quot;,
+        x = &quot;Amount originally approved&quot;,
+        title = &quot;Amount approved and amount eventually loaned in units of $100,000&quot;)</code></pre>
+<p><img src="/post/bank_defaults/loan_defaults_files/figure-html/unnamed-chunk-22-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>SBA_Appv is the amount guaranteed by the SBA (Small Business Administration), an organisation created to help small businesses</p>
+<pre class="r"><code>trainRawDF %&gt;%
+  filter( SBA_Appv &gt; 0 ) %&gt;%
+  ggplot( aes(y=SBA_Appv/100000, x=GrAppv/100000) ) +
+  geom_point() +
+  geom_abline() +
+  labs( y = &quot;SBA Guarantee ($100,000)&quot;,
+        x = &quot;Amount Approved ($100,000)&quot;,
+        title = &quot;SBA Guarantees&quot;)</code></pre>
+<p><img src="/post/bank_defaults/loan_defaults_files/figure-html/unnamed-chunk-23-1.png" width="528" style="display: block; margin: auto;" /></p>
+</div>
+</div>
+<div id="data-cleaning" class="section level1">
+<h1>Data Cleaning</h1>
+<p>There are multiple codes for Bank, State, BankState and NAICS, so I have decided to use three digits of NAICS and to lump the smaller categories into an ‘Other’ category.</p>
+<p>I have also decided to drop <code>Sector</code> as it duplicates NAICS and to ignore <code>Zip</code> code and <code>City</code>. <code>Name</code> is the name of the business and I’ve dropped that as well.</p>
+<pre class="r"><code>trainRawDF %&gt;%
+   mutate( NewExist = factor(ifelse( is.na(NewExist), 
+                                     0, NewExist)),
+           inState  = as.numeric( State == BankState),
+           Bank     = factor(Bank),
+           Bank     = fct_lump_prop(Bank, prop=0.001),
+           State    = factor(State),
+           State    = fct_lump_prop(State, prop=0.01),
+           BankState = factor(BankState),
+           BankState = fct_lump_prop(BankState, prop=0.01),
+           FranchiseCode = ifelse( FranchiseCode &lt;= 1, 0, 1),
+           UrbanRural = factor(UrbanRural),
+           NAICS      = factor(floor(NAICS/1000)),
+           NAICS     = fct_lump_prop(NAICS, prop=0.001)) %&gt;%
+  select( -LoanNr_ChkDgt, -Name, -Sector, -City, -Zip ) -&gt; trainDF</code></pre>
+<p>The test data must be coded in the same way. That is, I must use the levels of the training data after lumping and not lump the test data.</p>
+<pre class="r"><code>testRawDF %&gt;%
+   mutate( NewExist = factor(ifelse( is.na(NewExist), 0, NewExist)),
+           inState  = as.numeric( State == BankState),
+           Bank     = factor(Bank,
+                             levels=levels(trainDF$Bank)),
+           Bank     = fct_explicit_na(Bank, na_level=&quot;Other&quot;),
+           State    = factor(State,
+                             levels=levels(trainDF$State)),
+           State    = fct_explicit_na(State, na_level=&quot;Other&quot;),
+           BankState     = factor(BankState,
+                             levels=levels(trainDF$BankState)),
+           BankState     = fct_explicit_na(BankState,
+                                           na_level=&quot;Other&quot;),
+           FranchiseCode = ifelse( FranchiseCode &lt;= 1, 0, 1),
+           UrbanRural = factor(UrbanRural),
+           NAICS      = factor(floor(NAICS/1000),
+                               levels=levels(trainDF$NAICS)),
+           NAICS     = fct_explicit_na(NAICS,
+                                           na_level=&quot;Other&quot;) ) %&gt;%
+  select( -Name, -Sector, -City, -Zip ) -&gt; testDF</code></pre>
+<p>I plan to use xgboost so I need to convert the factors into indicators, I’ll do that with my add_dummy() functions (see Appendix)</p>
+<pre class="r"><code># --- Add indicators to training set ------------------------
+trainDF %&gt;%
+  add_dummy( Bank, &quot;B&quot;) %&gt;%
+  add_dummy( State, &quot;S&quot;) %&gt;%
+  add_dummy( UrbanRural, &quot;U&quot;) %&gt;%
+  add_dummy( NewExist, &quot;E&quot;) %&gt;%
+  add_dummy( NAICS, &quot;N&quot;) %&gt;%
+  add_dummy( BankState, &quot;T&quot;) %&gt;%
+  select( -Bank, -State, -BankState, -UrbanRural,
+          -NewExist, -NAICS) -&gt; trainDF
+
+# --- Add indicators to test set ----------------------------
+testDF %&gt;%
+  add_dummy( Bank, &quot;B&quot;) %&gt;%
+  add_dummy( State, &quot;S&quot;) %&gt;%
+  add_dummy( UrbanRural, &quot;U&quot;) %&gt;%
+  add_dummy( NewExist, &quot;E&quot;) %&gt;%
+  add_dummy( NAICS, &quot;N&quot;) %&gt;%
+  add_dummy( BankState, &quot;T&quot;) %&gt;%
+  select( -Bank, -State, -BankState, -UrbanRural,
+          -NewExist, -NAICS) -&gt; testDF</code></pre>
+</div>
+<div id="model-building" class="section level1">
+<h1>Model Building</h1>
+<p>I want to create two models, one for the probability of defaulting and the other for the amount defaulted when companies do default.</p>
+<p>I’ll create an estimation and validation set so that I can assess performance.</p>
+<pre class="r"><code># --- Split into estimation and validation --------------
+set.seed(7028)
+split &lt;- sample(1:83656, size=20000, replace=FALSE)
+
+estimateDF &lt;- trainDF[-split, ]
+validateDF &lt;- trainDF[ split, ]</code></pre>
+<div id="probability-of-a-default" class="section level2">
+<h2>Probability of a Default</h2>
+<p>First save the features and response in a matrix and vector.</p>
+<pre class="r"><code>library(xgboost)
+
+# --- Estimation data to matrices ------------------------
+estimateDF %&gt;%
+  select( -default_amount) %&gt;%
+  as.matrix() -&gt; X
+
+estimateDF %&gt;%
+  mutate(y = as.numeric(default_amount&gt;0)) %&gt;%
+  pull(y) -&gt; Y
+
+dtrain &lt;- xgb.DMatrix(data = X, label = Y)
+
+# --- Validation data to matrices ------------------------
+validateDF %&gt;%
+  select( -default_amount) %&gt;%
+  as.matrix() -&gt; XV
+
+validateDF %&gt;% 
+  mutate(y = as.numeric(default_amount&gt;0)) %&gt;%
+  pull(y) -&gt; YV
+
+dtest &lt;- xgb.DMatrix(data = XV, label=YV)</code></pre>
+<p>Next I’ll investigate how many rounds are needed by fitting an xgboost model with what I hope is too many rounds.</p>
+<pre class="r"><code># --- fit the xgboost model -----------------------------
+xgb.train(data=dtrain, 
+        watchlist=list(train=dtrain, test=dtest),
+        objective=&quot;binary:logistic&quot;,
+        nrounds=200, verbose=0) -&gt; xgmod</code></pre>
+<p>We can picture the performance as I did for the airbnb analysis.</p>
+<pre class="r"><code># --- function to show train &amp; validation metrics -------
+xgmod$evaluation_log %&gt;%
+    ggplot( aes(x=iter, y=train_error)) +
+    geom_line(colour=&quot;blue&quot;) +
+    geom_line( aes(y=test_error), colour=&quot;red&quot;) +
+    labs(x=&quot;Iteration&quot;, y=&quot;loss&quot;, 
+         title=&quot;In-sample and out-of-sample loss&quot;)</code></pre>
+<p><img src="/post/bank_defaults/loan_defaults_files/figure-html/unnamed-chunk-31-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The 100 iterations looks reasonable. The loss here is the misclassification error, so we are misclassifying 18.5% of the businesses.</p>
+<p>I’ll rerun with 100 rounds.</p>
+<pre class="r"><code># --- fit the xgboost model -----------------------------
+xgb.train(data=dtrain, 
+        watchlist=list(train=dtrain, test=dtest),
+        objective=&quot;binary:logistic&quot;,
+        nrounds=100, verbose=0) -&gt; xgmod</code></pre>
+<p>and look at the predictions.</p>
+<pre class="r"><code># --- Performance in the Validation set -----------------
+validateDF %&gt;%
+  mutate( default = factor(default_amount&gt; 0, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;defaulted&quot;))) %&gt;%
+  mutate( p = predict(xgmod, newdata=XV)) %&gt;%
+  mutate( predDefault = factor(p &gt; 0.5, 
+                           levels=c(FALSE, TRUE),
+                           labels=c(&quot;repaid&quot;, &quot;defaulted&quot;))) %&gt;%
+  group_by( default, predDefault)  %&gt;%
+  summarise( n = n(), .groups=&quot;drop&quot;)</code></pre>
+<pre><code>## # A tibble: 4 x 3
+##   default   predDefault     n
+##   &lt;fct&gt;     &lt;fct&gt;       &lt;int&gt;
+## 1 repaid    repaid      14543
+## 2 repaid    defaulted     902
+## 3 defaulted repaid       2771
+## 4 defaulted defaulted    1784</code></pre>
+<p>The model misclassifies 902 (6%) of those who actually repaid their loan and 2771 (61%) of those who default. Not that great.</p>
+<p>Out of interest I look at the importance.</p>
+<pre class="r"><code>xgb.importance(model=xgmod) %&gt;%
+  as_tibble() </code></pre>
+<pre><code>## # A tibble: 217 x 4
+##    Feature             Gain  Cover Frequency
+##    &lt;chr&gt;              &lt;dbl&gt;  &lt;dbl&gt;     &lt;dbl&gt;
+##  1 ApprovalFY        0.376  0.0754   0.104  
+##  2 SBA_Appv          0.105  0.0350   0.0860 
+##  3 DisbursementGross 0.0754 0.0299   0.148  
+##  4 B13               0.0524 0.0128   0.00773
+##  5 inState           0.0387 0.0124   0.0145 
+##  6 GrAppv            0.0252 0.0143   0.0599 
+##  7 NoEmp             0.0219 0.0137   0.0705 
+##  8 CreateJob         0.0174 0.0175   0.0525 
+##  9 RetainedJob       0.0160 0.0138   0.0534 
+## 10 N64               0.0150 0.0140   0.00676
+## # ... with 207 more rows</code></pre>
+<p>Year the loan approved is most important, reflecting the impact of the financial crisis.</p>
+</div>
+<div id="amount-of-the-default" class="section level2">
+<h2>Amount of the default</h2>
+<p>As before I extract the data into matrices. I will predict the proportion of the disbursement.</p>
+<pre class="r"><code># --- Extract the Estimation data ---------------------
+estimateDF %&gt;%
+  filter( default_amount &gt; 0 ) %&gt;%
+  select( -default_amount) %&gt;%
+  as.matrix() -&gt; X2
+
+estimateDF %&gt;%
+  filter( default_amount &gt; 0 ) %&gt;%
+  mutate( y = default_amount/DisbursementGross) %&gt;%
+  pull(y) -&gt; Y2
+
+dtrain &lt;- xgb.DMatrix(data = X2, label = Y2)
+
+# --- Extract the Validation data ---------------------
+validateDF %&gt;%
+  filter( default_amount &gt; 0 ) %&gt;%
+  select( -default_amount) %&gt;%
+  as.matrix() -&gt; XV2
+
+validateDF %&gt;% 
+  filter( default_amount &gt; 0 ) %&gt;%
+  mutate( y = default_amount/DisbursementGross) %&gt;%
+  pull(y) -&gt; YV2
+
+dtest &lt;- xgb.DMatrix(data = XV2, label=YV2)</code></pre>
+<p>I’ll predict using xgboost with the mse criterion even though the final metric will be the mean absolute error.</p>
+<p>First I investigate the number of rounds</p>
+<pre class="r"><code># --- Model for proportion defaulted -----------------
+xgb.train(data=dtrain, 
+        watchlist=list(train=dtrain, test=dtest),
+         objective=&quot;reg:squarederror&quot;,
+        nrounds=200, verbose=0) -&gt; xgmod2
+
+xgmod2$evaluation_log %&gt;%
+    ggplot( aes(x=iter, y=train_rmse)) +
+    geom_line(colour=&quot;blue&quot;) +
+    geom_line( aes(y=test_rmse), colour=&quot;red&quot;) +
+    labs(x=&quot;Iteration&quot;, y=&quot;loss&quot;, 
+         title=&quot;In-sample and out-of-sample loss&quot;)</code></pre>
+<p><img src="/post/bank_defaults/loan_defaults_files/figure-html/unnamed-chunk-36-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>25 iterations would be enough.</p>
+<pre class="r"><code># --- refit with 25 rounds --------------------------
+xgb.train(data=dtrain, 
+        watchlist=list(train=dtrain, test=dtest),
+         objective=&quot;reg:squarederror&quot;,
+        nrounds=25, verbose=0) -&gt; xgmod2</code></pre>
+</div>
+<div id="prediction" class="section level2">
+<h2>Prediction</h2>
+<p>I’ll predict for the full data set, making a prediction of the probability of default and of the amount. The final prediction will be zero if we predict no default and the predicted amount if we predict a default.</p>
+<pre class="r"><code>validateDF %&gt;%
+  mutate( p     = predict(xgmod, newdata=XV ) ) %&gt;%
+  mutate( yhat =  DisbursementGross*predict(xgmod2, newdata=XV )) %&gt;%
+  mutate( finalPrediction = (p&gt;0.5)*yhat  ) %&gt;%
+  summarise( mean(abs(default_amount-finalPrediction)))</code></pre>
+<pre><code>## # A tibble: 1 x 1
+##   `mean(abs(default_amount - finalPrediction))`
+##                                           &lt;dbl&gt;
+## 1                                        13200.</code></pre>
+<p>A mean absolute error (MAE) of 13,200. This promising because the leading model at the time of the competition scored 13,395 and David Robinson won the final with 13993.</p>
+</div>
+</div>
+<div id="submission" class="section level1">
+<h1>Submission</h1>
+<p>I refit these models to the full training data.</p>
+<pre class="r"><code># --- Probability of Default ---------------------
+
+# --- Training data to matrices ------------------
+trainDF %&gt;%
+  select( -default_amount) %&gt;%
+  as.matrix() -&gt; X
+
+trainDF %&gt;%
+  mutate(y = as.numeric(default_amount&gt;0)) %&gt;%
+  pull(y) -&gt; Y
+
+dtrain &lt;- xgb.DMatrix(data = X, label = Y)
+
+# --- Model probability of default ---------------
+xgb.train(data=dtrain, 
+         objective=&quot;binary:logistic&quot;,
+        nrounds=100) -&gt; xgmod
+
+# --- Size of Default ----------------------------
+
+# --- Training data to matrices ------------------
+trainDF %&gt;%
+  filter( default_amount &gt; 0 ) %&gt;%
+  select( -default_amount) %&gt;%
+  as.matrix() -&gt; X
+
+trainDF %&gt;%
+  filter( default_amount &gt; 0 ) %&gt;%
+  mutate( y = default_amount/DisbursementGross) %&gt;%
+  pull(y) -&gt; Y
+
+dtrain &lt;- xgb.DMatrix(data = X, label = Y)
+
+# --- Model size of default ---------------------
+xgb.train(data=dtrain, 
+         objective=&quot;reg:squarederror&quot;,
+        nrounds=25) -&gt; xgmod2</code></pre>
+<p>Now the predictions</p>
+<pre class="r"><code># --- set the test data ---------------------------
+testDF %&gt;%
+  select( -LoanNr_ChkDgt) %&gt;%
+  as.matrix() -&gt; XT
+
+# --- Make two-stage predictions ------------------
+testDF %&gt;%
+  mutate( p     = predict(xgmod, newdata=XT ) ) %&gt;%
+  mutate( yhat =  DisbursementGross*predict(xgmod2, newdata=XT )) %&gt;%
+  mutate( default_amount = (p&gt;0.5)*yhat  ) %&gt;%
+  select( LoanNr_ChkDgt, default_amount ) %&gt;%
+  write_csv( file.path(home, &quot;temp/submission1.csv&quot;))</code></pre>
+<p>13145 top!! without any tuning other than the number of iterations.</p>
+</div>
+<div id="what-i-learned-from-this-analysis" class="section level1">
+<h1>What I learned from this analysis</h1>
+<p>The main point to come out of this analysis is that the head-on approach of fitting a model that directly minimises the mean absolute error does not work well. I have not shown the results because the post is already too long, but I did try it as a secondary analysis. The dream of machine learning is that the data are fed into a giant algorithm that makes highly accurate predictions without any human input. This is just a dream and for the foreseeable future, it is likely to remain so. We are a long way from algorithms with the intelligence that would realise that the bank default problem could be split in two; whether there is a default and the proportion of the default.</p>
+<p>The second thing that strikes me is the contrast between this analysis and an analysis based on a machine learning pipeline. In my previous two posts, I used <code>mlr3</code>, an ecosystem for organising machine learning projects and creating analysis pipelines. It is similar in its aim to <code>tidymodels</code>, although I think that <code>mlr3</code> is better. This time, I reverted to my usual way of working and it felt like I had been set free. Having completed the analysis, I could now turn it into a pipeline, but I doubt if I would have produced such a successful analysis had I tried to develop it from scratch in <code>mlr3</code> or <code>tidymodels</code>.</p>
+<p>Of course, you would be justified in being a little wary of these opinions. I was trained as a statistician and it is hard to break with those traditions. I taught my students the importance of the analyst’s skill when developing a good model and so I cling to the idea that computers will never quite replace humans. History is against me.</p>
+</div>
+<div id="appendix" class="section level1">
+<h1>Appendix</h1>
+<p>Function for creating indicator variables</p>
+<pre class="r"><code>add_dummy &lt;- function(thisDF, col, prefix=&quot;X&quot;) {
+  j &lt;- 0
+  sCol &lt;- deparse(substitute(col))
+  for( v in levels(thisDF[[sCol]])) {
+    j &lt;- j + 1
+    dumName &lt;- paste(prefix, j, sep=&quot;&quot;)
+    thisDF[[dumName]] &lt;- as.numeric(thisDF[[sCol]] == v )
+  }
+  return(thisDF)
+}</code></pre>
+</div>

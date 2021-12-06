@@ -410,6 +410,58 @@
 <p>Within <code>mlr3</code> I use <code>xgboost</code> to model each animal type and I run cross-validations to estimate the likely performance of each model. I also demonstrate how <code>mlr3</code> can be used to tune the hyperparameters of <code>xgboost</code>, even though I am not convinced that this is a sensible thing to do.</p>
 <p>The model produced by my analysis does moderately well in comparison to the model on the leaderboard, but this is not the primary aim of the analysis. More important for me, is to illustrate the use of <code>mlr3</code> and to make its potential better-known. At the end, I give my opinion on the relative merits of <code>mlr3</code> and <code>tidymodels</code>. The fact that I have not used <code>tidymodels</code> for any of my analyses will give you a good clue as to which I prefer.</p>
 </div>
+<div id="episode-11-austin-house-prices" class="section level2">
+<h2>Episode 11: Austin House Prices</h2>
+<div id="keywords-10" class="section level3">
+<h3>Keywords</h3>
+<p>mlr3; pipelines; pipe operators; tables; random forests; cross-validation; hyperparameter tuning;</p>
+</div>
+<div id="packages-10" class="section level3">
+<h3>Packages</h3>
+<p>tidyverse; mlr3; mlr3verse; randomForest; janitor; kableExtra; quanteda;</p>
+</div>
+<div id="the-data-10" class="section level3">
+<h3>The data</h3>
+<p>The data for this episode can be downloaded from <a href="https://www.kaggle.com/c/sliced-s01e11-semifinals/" class="uri">https://www.kaggle.com/c/sliced-s01e11-semifinals/</a>.</p>
+</div>
+</div>
+<div id="the-problem-10" class="section level2">
+<h2>The problem</h2>
+<p>The data consist of the prices of 10,000 properties from the area around Austin, Texas that were advertised by the on-line estate agent, Zillow. The house prices where categorised into 5 price bands and the objective was to predict the price band from variables that describe the property. Evaluation was by multiclass logloss.</p>
+</div>
+<div id="my-analysis-10" class="section level2">
+<h2>My Analysis</h2>
+<p>I decided to use these data to continue my demonstration of the <code>mlr3</code> ecosystem of packages that I started in Episode 10. For this analysis I concentrated on the production of analysis pipelines.</p>
+<p>For the exploratory analysis, I decided to use descriptive tables in place of my more usual graphical visualizations. For many problems tables of counts or tables of means are the best way of conveying the data structure. It is my impression that tables are under-used in exploratory analyses.</p>
+<p>The property descriptors include a piece of free text produced by the estate agents to summarise the appeal of the property. I used the package <code>quanteda</code> to extract keywords from the free text and then developed am <code>mlr3</code> pipeline in which the other property descriptors were scaled while a filter was applied to the keywords so that those most significant in a Kruskal-Wallis test were kept. The combined set of scaled variables and filtered variables was then used in a random forest.</p>
+<p>The entire pipeline was used in a cross-validation and I simultaneously tuned the number of filtered keywords and the hyperparameters of the random forest.</p>
+<p>The analysis is a good example of the use of pipelines but it proved to be poor at predicting house price categories. I discuss why this might be.</p>
+</div>
+<div id="episode-12-loan-defaults" class="section level2">
+<h2>Episode 12: Loan Defaults</h2>
+<div id="keywords-11" class="section level3">
+<h3>Keywords</h3>
+<p>tables; xgboost; two-stage modelling;</p>
+</div>
+<div id="packages-11" class="section level3">
+<h3>Packages</h3>
+<p>xgboost; kableExtra;</p>
+</div>
+<div id="the-data-11" class="section level3">
+<h3>The data</h3>
+<p>The data for this episode can be downloaded from www.kaggle.com/c/sliced-s01e12-championship/overview.</p>
+</div>
+</div>
+<div id="the-problem-11" class="section level2">
+<h2>The problem</h2>
+<p>The data contain information on 83,656 bank loans made to US businesses. The objective was to predict the amount of any default. Evaluation was by mean absolute error.</p>
+</div>
+<div id="my-analysis-11" class="section level2">
+<h2>My Analysis</h2>
+<p>I carried out a routine exploratory analysis based on tables and graphs and as a result I decided to create two models; one for the probability of a default and the other for the size of the default in those businesses that defaulted. For the second model, I took the size of the default as a proportion of the original loan as the response. Both models were based on <code>xgboost</code>.</p>
+<p>My predictions for the size of the default were based on the second model but with the estimated default replaced by zero when the first model predicted that the business would not default. The approach is similar to that taken by zero-inflated models. I suspected that this approach would work better than directly modelling the size of the default and this hunch proved correct, even though neither of my models used the mean absolute error is its loss function.</p>
+<p>One nice spin-off from the analysis is a demonstration of how to insert a blank line in a table to represent rows that you do not want to show.</p>
+</div>
 </div>
 
   

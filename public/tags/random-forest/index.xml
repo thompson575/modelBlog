@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>random forest on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/random-forest/</link>
+    <description>Recent content in random forest on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Fri, 12 Nov 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/random-forest/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Sliced Episode 11: Austin House Prices</title>
+      <link>https://modelling-with-r.netlify.app/zillow/</link>
+      <pubDate>Fri, 12 Nov 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/zillow/</guid>
+      <description>Summary:Background: In episode 11 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on properties in the Austin area that were advertised on Zillow. The aim was to predict the house price, lumped into 5 categories.
+My approach: I decided to use these data to illustrate the use of pipelines in mlr3. I identify commonly used words from the estate agents description of the property and use a pipeline to filter them and combine the selected keywords with the numerical descriptors of the property.</description>
+    </item>
+    
+  </channel>
+</rss>

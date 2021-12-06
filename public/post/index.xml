@@ -6,7 +6,37 @@
     <description>Recent content in Posts on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Tue, 02 Nov 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Mon, 06 Dec 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Sliced Episode 12: Loan Defaults</title>
+      <link>https://modelling-with-r.netlify.app/loan_defaults/</link>
+      <pubDate>Mon, 06 Dec 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/loan_defaults/</guid>
+      <description>SummaryBackground: In the final (episode 12) of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on bank loans. The aim was to predict the size of the default on the loan (usually zero). The metric for evaluation was the mean absolute error.
+My approach: I explored the data and decided to build two models, one to predict whether or not the customer would default and the other to predict the size of the default in customers who defaulted.</description>
+    </item>
+    
+    <item>
+      <title>Sliced Episode 11: Austin House Prices</title>
+      <link>https://modelling-with-r.netlify.app/zillow/</link>
+      <pubDate>Fri, 12 Nov 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/zillow/</guid>
+      <description>Summary:Background: In episode 11 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on properties in the Austin area that were advertised on Zillow. The aim was to predict the house price, lumped into 5 categories.
+My approach: I decided to use these data to illustrate the use of pipelines in mlr3. I identify commonly used words from the estate agents description of the property and use a pipeline to filter them and combine the selected keywords with the numerical descriptors of the property.</description>
+    </item>
+    
+    <item>
+      <title>Methods: PipeOps in mlr3</title>
+      <link>https://modelling-with-r.netlify.app/mlr3_preprocessing/</link>
+      <pubDate>Wed, 10 Nov 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/mlr3_preprocessing/</guid>
+      <description>IntroductionI’ll use the Boardgame Rating data from episode 1 of Sliced to illustrate the use of mlr3 for pre-processing. The challenge for that episode is to predict the scores given to boardgames by the boardgamegeek website (https://boardgamegeek.com/) using predictors that describe the game.
+This post is a continuation of Methods: Introduction to mlr3. If you are new to mlr3 you ought to start with that earlier post.</description>
+    </item>
+    
     <item>
       <title>Sliced Episode 10: Animal adoption</title>
       <link>https://modelling-with-r.netlify.app/animal_adoption/</link>

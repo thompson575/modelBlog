@@ -1,11 +1,12 @@
 ---
 title: "Methods: PipeOps in mlr3"
 author: "John Thompson"
-date: "2002-11-10"
+date: "2021-11-10"
 layout: post
 tags:
 - mlr3
 - pipe ops
+- mlr3 pipelines
 output:
     html_document:
     keep_md: true
