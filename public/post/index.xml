@@ -6,7 +6,17 @@
     <description>Recent content in Posts on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Mon, 06 Dec 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Thu, 10 Feb 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Methods: Introduction to Bayesian Analysis</title>
+      <link>https://modelling-with-r.netlify.app/methods_bayes_basics/</link>
+      <pubDate>Thu, 10 Feb 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/methods_bayes_basics/</guid>
+      <description>IntroductionSo far, my posts have analysed the Sliced datasets using a mixture of traditional statistical models and machine learning methods, but a New Year brings a new approach. In this series of posts, I will return to those same datasets and reanalyse them using what statisticians call Bayesian models and data scientists sometimes call Probabilistic Programming Languages (PPLs).
+When I reanalyse the data, I want to concentrate on the models and the R code without repeatedly explaining the logic of Bayes theorem or the ideas behind the various Markov Chain Monte Carlo (MCMC) algorithms.</description>
+    </item>
+    
     <item>
       <title>Sliced Episode 12: Loan Defaults</title>
       <link>https://modelling-with-r.netlify.app/loan_defaults/</link>

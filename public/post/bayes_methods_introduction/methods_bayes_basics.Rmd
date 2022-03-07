@@ -1,5 +1,5 @@
 ---
-title: "Methods: Introduction to the Bayesian Analyses"
+title: "Methods: Introduction to Bayesian Analysis"
 author: "John Thompson"
 date: "2022-02-10"
 layout: post
