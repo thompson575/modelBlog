@@ -1,0 +1,999 @@
+---
+title: "Methods: R Software for Bayesian Analysis"
+author: "John Thompson"
+date: "2022-03-12"
+layout: post
+tags:
+- BUGS
+- OpenBUGS
+- R2OpenBUGS
+- stan
+- rstan
+- nimble
+- greta
+- Poisson regression
+- parallel computation
+- furrr
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align='center', warning=FALSE, message=FALSE)
+```
+
+# Introduction
+
+Probabilistic Programming Languages (PPLs) provide a way of specifying a Bayesian model and a choice of samplers that can be used to simulate parameter values from the model's joint posterior. The Wikipedia page on Probabilitic Programming (https://en.wikipedia.org/wiki/Probabilistic_programming) lists about 40 such languages, of which a handful can be run in, or via, R.
+
+As the name suggests, *BUGS* (Bayesian Inference using Gibbs Sampling) is a PPL that uses Gibbs sampling. It was one of the first PPLs and its language for specifying the model has been widely copied and adapted. The *BUGS* project dates from 1989 when Classic BUGS was released. This was followed by *WinBUGS*, *OpenBUGS* and most recently *MultiBUGS*. The homepage for the project is https://www.mrc-bsu.cam.ac.uk/software/bugs/.
+
+The *BUGS* language has been adopted by *JAGS* (Just Another Gibbs Sampler) and by an R-based project called *nimble*. In fact, for speed, *nimble* translates the R code into C++ and compiles it before it is run, but to the user, the appearance is of working with R code. *nimble* provides a wider range of samplers than *BUGS* and gives the user finer control over those samplers. It also makes it easy for the user to create their own samplers, or to define their own distributions.
+
+*Stan* (https://mc-stan.org/) differs from *BUGS* in that it uses Hamiltonian Monte Carlo (HMC) rather than Gibbs Sampling. HMC is a derivative-based Markov chain Monte Carlo (MCMC) algorithm; calculation of the partial derivatives of the log-posterior increases the time needed for each iteration, but the resulting samples usually have lower autocorrelation, so far fewer iterations are needed compared with Gibbs Sampling. The net result is that HMC is often very efficient.
+
+The *Stan* language is similar to the *BUGS* language, but it has more built-in functions and in requires slightly more structuring of the code. For increased speed, the user's model is translated into C++ and compiled before it is run.
+
+HMC requires exact derivatives, which for complex models can be difficult to obtain. The Tensorflow project (https://www.tensorflow.org/) provides scalable open source tools for Machine Learning that include automatic differentiation. The *greta* project (https://greta-stats.org/) has used the tensorflow library to create an HMC based PPL that, like *nimble*, can be programmed directly in R.
+
+*nimble* and *greta* are fully integrated into R and can be run by downloading the appropriate packages. *Stan*, *BUGS* and *JAGS* are standalone programs that can be run from within R by using interface packages. `rstan` is the most integrated into R. The various flavours of BUGS require the user to download the free external software before interfacing with it from within R. These interface packages include `rjags`, `R2WinBUGS`, `R2OpenBUGS` and `R2MultiBUGS`. There is, however, a degree of duplication with other user groups creating alternative interface packages, such as `RBugs` and `runjags`. 
+
+As well as these PPLs, R also has a range of packages for fitting very specific Bayesian models, but in this post my interest is purely in the mechanics of using `BUGS`, `Stan`, `nimble` and `greta`; these are the PPLs that I will rely on when I re-analyse the *Sliced* datasets. 
+
+A full list of R packages for Bayesian analysis is available on the CRAN task view (https://cran.r-project.org/web/views/Bayesian.html).
+
+
+# Overview of this Post
+
+In this post, I will take a simple Bayesian Poisson regression model and fit it using flavours of `BUGS`, `nimble`, `Stan` and `greta`. The emphasis will be on the code rather than the model, so I will not try to interpret the output or even ensure that the algorithms have converged. There is a companion methods post in which I look at ways of interpreting the MCMC output; these methods are essentially the same regardless of the software used to fit the model.
+
+# The data
+
+I have chosen to model ONS (Office of National Statistics) data on deaths due to alcohol in the UK. The data can be downloaded as an Excel workbook from https://www.ons.gov.uk/peoplepopulationandcommunity/healthandsocialcare/causesofdeath/datasets/alcoholspecificdeathsintheukmaindataset. 
+
+I will analyse data from table 2 of the Excel workbook that gives numbers of deaths and death rates by age, gender and year. The code that reads the data and prepares it for analysis is given in the appendix; it uses standard R functions and is not crucial to my main task. That code saves the clean data frame in a file called `alc.rds`.
+
+```{r}
+library(tidyverse)
+
+# --- paths on my desktop --------------------------------------
+home     <- "C:/Projects/kaggle/sliced/methods/methods_bayes_software"
+filename <- "data/rData/alc.rds"
+
+# --- read the clean data that is to be analysed ---------------
+alcDF <- readRDS( file.path(home, filename))
+```
+
+Here is a traditional likelihood analysis of a Poisson regression model that incorporates a linear increase in the rate per 100,000 over time plus categorical age and gender effects, but no interactions.
+```{r}
+library(broom)
+
+# --- Poisson regression in glm() -----------------------------------
+glm(deaths ~ year + age + gender, 
+    offset = log(pop), 
+    family = "poisson", 
+    data   = alcDF %>% mutate(year = year - 2001)) %>%
+  tidy()
+```
+
+The baseline category (intercept) is women aged 20-24 in 2001. 
+
+According to the model, the rate per 100,000 in the baseline group is exp(-1.68)=0.19. The downloaded excel file does not give the measured rate for this group as there was only 1 death in women aged 20-24 in 2001 and the ONS consider the rate unreliable, but in 2002 women aged 20-24 had a rate of 0.2 per 100,000 very much in line with the intercept.
+
+The model suggests that the rate of alcohol deaths is increasing over time, the rate is higher in men than in women and it is highest in middle aged people. Everything is off-the-scale significant.
+
+Of course, there is still much to do, even in a non-Bayesian analysis. I ought to look at model fit, check for over-dispersion, question the linearity over time and look for interactions. However, in this post, all I want to do is reproduce this analysis using Bayesian software. In my companion post, I will look more closely at the inspection of Bayesian results.
+
+# BUGS Code
+
+The best way to learn the BUGS language is to copy and adapt other people's code and in that spirit, the BUGS project provides a lot of examples. They can be accessed, either from the help facilities of the specific implementations of BUGS, or via the BUGS book that is online at https://www.mrc-bsu.cam.ac.uk/software/bugs/the-bugs-project-the-bugs-book/bugs-book-examples/. 
+
+The OpenBUGS manual can be downloaded as a pdf from https://www.openbugs.net/w/Manuals and provides a useful reference to the language and the available functions and distributions. Other flavours of BUGS may have slightly more, or slightly fewer functions, but the language remains much the same.
+
+The BUGS language provides a way of specifying the structure of the model together with the priors. Calculations are denoted by `<-`, as they are in R, and distributions are denoted by `~`. Vector processing is not provided and so BUGS code tends to include a lot of loops, which use the same structure as in R. Here is the BUGS code for the likelihood part of the Poisson regression model.
+
+```{r eval=FALSE}
+for( i in 1:560 ) {
+  log(mu[i]) <- b0 + b1*year[i] + b2[age[i]] + b3*gender[i] + offset[i]
+  deaths[i] ~ dpois(mu[i])
+}
+```
+
+This code assumes that `deaths`, `year`, `age`, `gender` and `offset` are provided as data. It is usually best to perform any preliminary data manipulation in R before sending the data to BUGS. Notice how BUGS allows the log function to be placed on the left hand side of the calculation.
+
+To complete the code, we must specify our priors for b0, b1, the vector b2, and b3. For illustration, I use very vague priors.
+```{r eval=FALSE}
+b0 ~ dnorm(0, 0.0001)
+b1 ~ dnorm(0, 0.0001)
+b2[1] <- 0
+for(j in 2:14) {
+  b2[j] ~ dnorm(0, 0.0001)
+}
+b3 ~ dnorm(0, 0.0001)
+```
+
+Age is a factor with 14 levels, which I parameterise in the usual glm() style by setting the coefficient of the first level to zero.
+
+In BUGS, the normal distribution is parameterised by the mean and the precision (1/variance). A precision of 0.0001 is equivalent to a variance of 10000 and a standard deviation of 100, so the prior on the intercept says that I believe with 95% probability that it is a value in the range -200 to 200. Since the intercept represents the log rate per 100,000 people in the baseline group, this is like saying that I expect between exp(-200) and exp(200) cases per 100,000 in 2001 amongst women aged 20-24. With a little thought I could certainly narrow done this range. Perhaps I could look up the rates in earlier years, or the rates in other developed countries, or just use common sense; the rate is unlikely to be less that 0.01 (1 in 10million) and it is unlikely to be over 100 (1 in 1,000). This would give a range for the log rate of -4.5 to +4.5, so a zero-centred normal distribution with a standard deviation of 2 (variance 4, precision 0.25) would not be unreasonable.
+
+Specifying a good prior is an important, but neglected, part of a Bayesian analysis, but my aim here is to concentrate on the PPLs, so I'll not pursue this. Here is my full BUGS model code.
+```{r eval=FALSE}
+model {
+  for( i in 1:560 ) {
+    mu[i] <- b0 + b1*year[i] + b2[age[i]] + b3*gender[i] + offset[i]
+    deaths[i] ~ dpois(mu[i])
+  }
+  b0 ~ dnorm(0, 0.0001)
+  b1 ~ dnorm(0, 0.0001)
+  b2[1] <- 0.0
+  for(j in 2:14) {
+    b2[j] ~ dnorm(0, 0.0001)
+  }
+  b3 ~ dnorm(0, 0.0001)
+}
+```
+
+BUGS is implemented as an external program and to run an analysis the essential components, that is, the model code, data, initial values and run specification (number of iterations etc) are each created in R then written to text files in a format that can be read by the external program. Most of this is done automatically by the interface package.
+
+For this example, I use `OpenBUGS` together with the R interface package `R2OpenBUGS`.
+
+To get the model code into a file, one could type it directly to a text editor such as the RStudio Editor, but it is more reproducible if it is entered in R code. `write.model()` is a functions provided by `R2OpenBUGS` that takes the code stored in a function and writes it to a text file.
+
+```{r}
+library(R2OpenBUGS)
+
+# --- function that stores the model code ---------------------------
+modelFunc <- function() {
+  for( i in 1:560 ) {
+    log(mu[i]) <- b0 + b1*year[i] + b2[age[i]] + b3*gender[i] + offset[i]
+    deaths[i] ~ dpois(mu[i])
+  }
+  b0 ~ dnorm(0, 0.0001)
+  b1 ~ dnorm(0, 0.0001)
+  b2[1] <- 0.0
+  for(j in 2:14) {
+    b2[j] ~ dnorm(0, 0.0001)
+  }
+  b3 ~ dnorm(0, 0.0001)
+}
+
+# --- R2OpenBUGS function that exports the code ---------------------
+write.model(modelFunc, file.path(home, "bugs/alcModel.txt"))
+```
+
+I organise my work by saving the model code in a folder called `bugs` and by using a `temp` folder as my working directory.
+
+## Preparing the data
+
+All of the data that is used by the model must be saved in a single R list. This is also written to a text file, but it is done behind the scenes by the `R2OpenBUGS`.
+```{r}
+bugsData <- list( deaths = alcDF$deaths,
+                  offset = log(alcDF$pop),
+                  year   = alcDF$year - 2001,
+                  gender = as.numeric( alcDF$gender == "male"),
+                  age    = as.numeric( alcDF$age))
+```
+
+## Initial values
+
+Gibbs sampling requires a starting point. The chosen initial values are also placed in a list. This can be done in two ways; as a function, or as a list of lists.
+
+```{r}
+# --- 1: initial values as a function --------------------------
+bugsInits <- function() {
+  list( b0=0, b1=0, b2=c(NA, rep(0,13)), b3=0)
+}
+
+# --- 2: initial values as a list of lists ---------------------
+bugsInits <- list(
+  list( b0=0, b1=0, b2=c(NA, rep(0,13)), b3=0)
+)
+```
+
+Making a list containing a list may, at first sight, look redundant, but often we will want to run multiple chains, in which case each set of initial values is placed in a separate internal list.
+
+Notice that the first level of b2, which I set to zero in my model code, is specified as missing in the initial values.
+
+## Model fitting in OpenBUGS
+
+Here is the code that fits the model using `OpenBUGS`. I use the `system.time()` function for timing. The options are more or less self-explanatory, but details are given in the help file.
+
+```{r eval=FALSE}
+library(R2OpenBUGS)
+
+# --- path to OpenBUGS on my computer ---------------------------
+openbugsExe <- "C:/Software/OpenBUGS/OpenBUGS323/OpenBUGS.exe"
+
+# --- fit model using OpenBUGS ----------------------------------
+bugs( data       = bugsData, 
+      inits      = bugsInits, 
+      parameters = c("b0", "b1", "b2", "b3"), 
+      model.file = file.path(home, "bugs/alcModel.txt"),
+      n.chains   = 1, 
+      n.iter     = 1500, 
+      n.burnin   = 500,
+      n.thin     = 1, 
+      DIC        = FALSE, 
+      bugs.seed  = 6,
+      OpenBUGS   = openbugsExe,
+      working.directory = file.path(home, "temp")
+    ) %>%
+  saveRDS( file.path( home, "data/dataStore/alcBugs01.rds")) %>%
+  system.time
+```
+
+On my computer this code took 7.3 seconds to run.  
+
+## Accessing the Results in R
+
+The structure returned by the `bugs()` function is quite complex as we can see using `str()`.
+
+```{r}
+# --- read the save bugs() results -----------------------------------
+results <- readRDS( file.path( home, "data/dataStore/alcBugs01.rds"))
+
+# --- inspect the structure of the object ----------------------------
+str(results)
+```
+
+`R2OpenBUGS` defines a version of the `print()` function for bugs objects that summarises the results.
+```{r}
+print(results, digits=2)
+```
+
+However, I find it helpful to have the simulations in a data frame with one column for each parameter and one row for each iteration. My function, `bugs_to_df()`, extracts the simulations and adds columns denoting the chain number and iteration number. The code for this function is given in the appendix. I have placed `bugs_to_df()` in a package called `MyPackage`.
+
+```{r}
+library(MyPackage)
+
+# --- results into a tibble ----------------------------------------
+simDF <- bugs_to_df(results)
+
+# --- show the tibble ----------------------------------------------
+print(simDF)
+```
+
+Obviously this is just the beginning. Now I need to assess whether the chain has converged and if it has, I need to summarise the results, but that is for another time. 
+
+## Multiple Chains
+
+To run multiple chains in `OpenBUGS`, we just need to alter the n.chains argument in the bugs() call. However, this will run the chains one after the other, there is no built-in parallel processing. 
+
+I want to run the chains from different starting positions in order to see if they converge to the same solution. One option is to set the initial values randomly. Here all of the values are drawn from N(0, 0.5) distributions. With random initial values, it is important to set a seed for reproducibility.
+```{r eval=FALSE}
+set.seed(8992)
+
+bugsInits <- function() {
+  list( b0=rnorm(1, 0, sd=0.5), 
+        b1=rnorm(1, 0, sd=0.5), 
+        b2=c(NA, rnorm(13, 0, sd=0.5)), 
+        b3=rnorm(1, 0, sd=0.5))
+}
+```
+
+Alternatively, I could choose the initial values with a list of lists. Here are my initial values for 3 chains. 
+```{r eval=FALSE}
+bugsInits <- list(
+  list( b0=-1, b1=-0.1, b2=c(NA, rep(0,13)), b3= 1),
+  list( b0= 0, b1= 0.0, b2=c(NA, rep(0,13)), b3= 0),
+  list( b0= 1, b1= 0.1, b2=c(NA, rep(0,13)), b3=-1)
+)
+```
+
+It is trivial to change `n.chains` and re-run the `bugs()` function, so I'll omit it to save space.
+
+## Parallel Processing
+
+The are two levels of parallel processing. The simpler form just runs the chains on separate cores. The more complex form also parallelises the tasks required for the calculations within a single chain.
+
+### MultiBUGS
+
+`MultiBUGS` is a project to create the complex form of parallel processing. `MultiBUGS` is still under development, but a beta version is available for download. It is accompanied by an R package `R2MultiBUGS` that mirrors `R2OpenBUGS`, so the structure of a `MultiBUGS` run in R uses almost identical code to the `OpenBUGS` example.
+
+To install `MultiBUGS` go to https://github.com/MultiBUGS/MultiBUGS#installation and to install `R2MultiBUGS` go to https://github.com/MultiBUGS/R2MultiBUGS
+
+When I experimented with `MultiBUGS`, the program ran, but fell foul of my virus checker (McAfee on Windows). McAfee closes `MultiBUGS` and quarantines the executable. As yet, I have not found a way around this problem.
+
+### Multiple Cores
+
+If you search the internet, you will find some old blog posts that show how to set up a multi-core BUGS analysis using the `snow` package. `snow` is rather dated and I will show a more modern method based on the `furrr` package, which produces reproducible runs.
+
+I use Windows, so I have to run each chain in a separate R session. These sessions are completely independent of one another, for instance they must all have their own copy of the data. Such independence requires a separate working directory for each chain. `R2OpenBUGS` works by writing the data, initial values etc. to text files. If the different processes were to use the same working directory, these files would over-write one another.  
+
+I want to create 3 simultaneous `OpenBUGS` chains using 3 of my processor's cores and so I start by creating three temporary working directories.
+```{r  eval=FALSE}
+# --- Create 3 working directories ---------------------------------
+for( i in 1:3 ) {
+  # --- address of the working directory ---------------------------
+  folder <- file.path( home, paste("temp/chain", i, sep=""))
+  # --- delete if it already exists -----------------------------
+  if( dir.exists(folder)) {
+    unlink(folder, recursive=TRUE)
+  }
+  # --- create the working directory -------------------------------
+  dir.create(folder)
+}
+```
+
+Next I set up a tibble that describes the 3 runs that I want to complete.
+
+```{r}
+# --- save the bugs data in an rds file --------------------------
+saveRDS( bugsData, file.path(home, "bugs/alcData.rds"))
+
+# --- create the analysis tibble ---------------------------------
+set.seed(1782)
+tibble( 
+        model   = rep( file.path(home, "bugs/alcModel.txt"), 3),
+        data    = rep( file.path(home, "bugs/alcData.rds"), 3),
+        niter   = rep(1500, 3),
+        nburnin = rep(500, 3),
+        thin    = rep(1, 3),
+        seed    = c(3, 4, 5),
+        inits   = list(
+                    list( b0=rnorm(1, 0, sd=0.5), 
+                          b1=rnorm(1, 0, sd=0.5), 
+                          b2=c(NA, rnorm(13, 0, sd=0.5)), 
+                          b3=rnorm(1, 0, sd=0.5)),
+                    list( b0=rnorm(1, 0, sd=0.5), 
+                          b1=rnorm(1, 0, sd=0.5), 
+                          b2=c(NA, rnorm(13, 0, sd=0.5)), 
+                          b3=rnorm(1, 0, sd=0.5)),
+                    list( b0=rnorm(1, 0, sd=0.5), 
+                          b1=rnorm(1, 0, sd=0.5), 
+                          b2=c(NA, rnorm(13, 0, sd=0.5)), 
+                          b3=rnorm(1, 0, sd=0.5)) ),
+        wDir    = paste(
+          file.path(home, "temp/chain"), 1:3, sep=""),
+        sims    = paste(
+          file.path(home, "data/dataStore/bugs_1_"), 1:3,".rds", sep="")
+  ) %>%
+  print() -> bugsRunDF
+  # --- save as permanent record of the analysis ---------------------
+  saveRDS( bugsRunDF, file.path(home, "data/dataStore/bugs_df01.rds")) 
+```
+
+
+Next, a function must be created that completes the whole analysis for a single chain. This function must be completely stand-alone, it cannot refer to any R objects in the calling environment unless they are passed as arguments. It can, however, read and write to file. 
+
+```{r  eval=FALSE}
+# --- function to run a single chain ------------------------------
+# arguments correspond to the columns of the analysis tibble
+#
+# returns
+#    nothing .. results written to rds files
+#
+run_bugs <- function(model, data, niter, nburnin, thin, seed,
+                          inits, wDir, sims)
+{
+  library(R2OpenBUGS)
+  
+  # --- OpenBUGS executable
+  obExe   <- "C:/Software/OpenBUGS/OpenBUGS323/OpenBUGS.exe"
+  
+  # --- call to bugs() ---------------------------------------------
+  bugs( data = readRDS(data),
+        inits = list(inits),
+        parameters = c("b0", "b1", "b2", "b3"),
+        model.file = model,
+        n.chains = 1,
+        n.iter = niter,
+        n.burnin = nburnin,
+        n.thin = thin,
+        digits = 5,
+        codaPkg = FALSE,
+        bugs.seed = seed,
+        OpenBUGS = obExe,
+        working.directory = wDir
+  ) %>%
+  # --- save the returned bugs object -----------------------------
+     saveRDS(sims)
+}
+```
+
+Now I can use `purrr` or `furrr` to run these chains sequentially or in parallel. naturally, I will use `furrr`. The function required is `future_pwalk()`, which is the equivalent of `purrr`'s `pwalk()`. The `walk()` function is used when we want to iterate a function for its side effects, i.e. the function does not return anything. `pwalk()` is the version that takes multiple arguments; here the arguments are all of the entries in a single row of the analysis tibble.
+```{r eval=FALSE}
+library(furrr)
+# --- run three independent R sessions --------------
+plan(multisession, workers=3)
+
+# --- run the chains in parallel --------------------
+bugsRunDF %>%
+  future_pwalk(run_bugs) %>%
+  system.time()
+
+# --- switch back to sequential processing ----------
+plan(sequential)
+```
+
+Three chains in 7.75s, more or less the same as it took to run one chain.
+
+Now I can read the results and bind them into a single data frame. Since, running multiple chains is the norm, I have written a function `bayes_to_df()` that takes a vector as rds file names and returns a data frame of the simulations that they contain. The code for the function is in the appendix.
+```{r}
+# --- read the simulations --------------------------------
+bayes_to_df(bugsRunDF$sims) %>%
+  print() -> simDF
+```
+
+# nimble
+
+The R package, `nimble`, uses a language very similar to `BUGS` but instead of passing the problem to an external program, the model code and chosen samplers are translated into C++, compiled, linked and run. For a comprehensive description of the package, see https://r-nimble.org/.
+
+`nimble` does extend the `BUGS` language in a few ways, such as allowing different parameterisations of its distributions, but these differences are minor so, for my simple example, I can use the `BUGS` model code asis.
+
+The function `nimbleCode` is the package's way of placing the code in a function, only this time it is not written to a text file, but saved as an R object.
+```{r  eval=FALSE}
+library(nimble)
+
+nimbleCode( {
+  for( i in 1:560 ) {
+    log(mu[i]) <- b0 + b1*year[i] + b2[age[i]] + b3*gender[i] + offset[i]
+    deaths[i] ~ dpois(mu[i])
+  }
+  b0 ~ dnorm(0, 0.0001)
+  b1 ~ dnorm(0, 0.0001)
+  b2[1] <- 0.0
+  for(j in 2:14) {
+    b2[j] ~ dnorm(0, 0.0001)
+  }
+  b3 ~ dnorm(0, 0.0001)
+} )                       -> modelCode
+```
+
+The data are placed in a list identical to that used by `OpenBUGS`.
+```{r}
+nimbleData <- list( deaths = alcDF$deaths,
+                    offset = log(alcDF$pop),
+                    year   = alcDF$year - 2001,
+                    gender = as.numeric( alcDF$gender == "male"),
+                    age    = as.numeric( alcDF$age))
+```
+
+The initial values go into a list, rather than a list of lists.
+```{r}
+nimbleInits <- 
+  list( b0=0, b1=0, b2=c(NA, rep(0,13)), b3=0)
+
+```
+
+Next, the code, data and initial values are combined and compiled
+```{r eval=FALSE}
+# --- create the model ---------------------------------
+nimbleModel(
+  code  = modelCode,
+  data  = nimbleData,
+  inits = nimbleInits
+)                         -> model
+# --- Compile the model ---------------------------------
+modelCompiled <- compileNimble(model)
+```
+
+Now, the samplers are compiled/linked with the model. I use the default samplers chosen by `nimble`, but I could have made my own choices.
+```{r eval=FALSE}
+# --- build the sampler ---------------------------------
+buildMCMC(
+  conf     = modelCompiled,
+  monitors = c("b0", "b1", "b2", "b3")
+)                          -> nimbleMCMC
+# --- final compilation ---------------------------------
+mcmcCompiled <- compileNimble(nimbleMCMC)
+```
+
+Finally, the compiled mcmc code is run.
+```{r eval=FALSE}
+# --- run the compiled nimble code ----------------------
+runMCMC(
+  mcmc    = mcmcCompiled,
+  niter   = 1500,
+  nburnin = 500,
+  setSeed = 1832
+  )  %>%
+  saveRDS( file.path( home, "data/dataStore/alcNimble01.rds")) %>%
+  system.time()
+```
+
+`nimble` takes less than half the time required by `OpenBUGS`. However, this time does not allow for compilation.
+
+The structure returned by `nimble` is much simpler than that of `R2OpenBUGS`.
+```{r}
+results <- readRDS(file.path( home, "data/dataStore/alcNimble01.rds"))
+
+str(results)
+```
+
+My function for placing these results into a tibble is called `nimble_to_df()` and is given in the Appendix. Alternatively, the function `bayes_to_df()` will return a data frame from the name of an rds file(s).
+
+```{r}
+# --- read the results for the example ------------------------
+simDF <- nimble_to_df(results)
+
+# --- show the results ----------------------------------------
+print(simDF)
+```
+
+Notice that the b0 does not move over the first 10 iterations, this is a consequence of `nimble`'s choice of samplers; I could do better, but that is not the point of this post.
+
+## Parallel Nimble
+
+`nimble` is made parallel in much the same way as `OpenBUGS`. The entire `nimble` analysis, including the compilations, are placed in a function that is called by `future_pwalk()`. I believe that the authors of `nimble` have plans to improve the parallel processing, so it might be worth checking their website. 
+
+First, I write the code and data to an rds file and the create an analysis data frame. There is no need for separate working directories as model components are not written to text files as in `OpenBUGS`.
+```{r eval=FALSE}
+saveRDS( modelCode, file.path(home, "nimble/alcModel.rds"))
+
+# --- save the nimble data in an rds file --------------------------
+saveRDS( nimbleData, file.path(home, "nimble/alcData.rds"))
+
+# --- create the analysis tibble ---------------------------------
+set.seed(1782)
+tibble( 
+        model   = rep( file.path(home, "nimble/alcModel.rds"), 3),
+        data    = rep( file.path(home, "nimble/alcData.rds"), 3),
+        niter   = rep(1500, 3),
+        nburnin = rep(500, 3),
+        thin    = rep(1, 3),
+        seed   = c(3328, 4309, 5881),
+        inits   = list(
+                    list( b0=rnorm(1, 0, sd=0.5), 
+                          b1=rnorm(1, 0, sd=0.5), 
+                          b2=c(NA, rnorm(13, 0, sd=0.5)), 
+                          b3=rnorm(1, 0, sd=0.5)),
+                    list( b0=rnorm(1, 0, sd=0.5), 
+                          b1=rnorm(1, 0, sd=0.5), 
+                          b2=c(NA, rnorm(13, 0, sd=0.5)), 
+                          b3=rnorm(1, 0, sd=0.5)),
+                    list( b0=rnorm(1, 0, sd=0.5), 
+                          b1=rnorm(1, 0, sd=0.5), 
+                          b2=c(NA, rnorm(13, 0, sd=0.5)), 
+                          b3=rnorm(1, 0, sd=0.5)) ),
+        sims    = paste(
+          file.path(home, "data/dataStore/nimble_1_"), 1:3,".rds", sep="")
+  ) %>%
+  print() -> nimbleRunDF
+  # --- save as permanent record of the analysis ---------------------
+  saveRDS( nimbleRunDF,  file.path(home, "data/dataStore/nimble_df01.rds"))
+
+```
+
+```{r eval=FALSE}
+# --- a function for all stages of the nimble analysis ---------------
+run_nimble <- function(model, data, niter, nburnin, thin, seed,
+                          inits, sims)
+{
+  library(nimble)
+  
+  # --- create the model and compile ------------------------
+  nimbleModel(code  = readRDS(model),
+              data  = readRDS(data),
+              inits = inits) %>%
+     compileNimble() %>%
+  # --- choose samplers and link ----------------------------
+     buildMCMC() %>%
+     compileNimble() %>%
+  # --- run the chain ---------------------------------------
+     runMCMC(niter = niter, nburnin = nburnin,
+                     thin = thin, setSeed = seed) %>%
+  # --- Save the results ------------------------------------
+     saveRDS(sims)
+}
+```
+
+Next, I create a cluster of 3 cores and run `nimble` independently on each of the cores. The method is the same as that used with OpenBUGS.
+```{r eval=FALSE}
+library(furrr)
+# --- run three independent R sessions --------------
+plan(multisession, workers=3)
+
+# --- run the chains in parallel --------------------
+nimbleRunDF %>%
+  future_pwalk(run_nimble) %>%
+  system.time()
+
+# --- switch back to sequential processing ----------
+plan(sequential)
+
+bayes_to_df(nimbleRunDF$sims) %>%
+  print() -> simDF
+```
+
+The program appears to be slower than `OpenBUGS`, but the time includes compilation. For longer, more realistic chains, compilation is a smaller fraction of the total time and the speed of `nimble` is very competitive.
+
+# Stan
+
+Stan uses the HMC algorithm, which for some problems performs better than the Gibbs sampling of `BUGS` and its derivatives. Much like `nimble`, Stan turns the model into C++ code and compiles it, but unlike `nimble`, it modifies the `BUGS` language to make it easier to optimise the performance of its compiled code. The chief difference lies in the requirement to define the size, type and range of the data, parameters and intermediate variables. That said, the code is noticeably `BUGS`-like.
+
+A `Stan` model is created in sections, though not all of them are needed for every problem. The sections are,
+
+* data: a description of the size, type and range of the data  
+* transformed data: variables derived by transforming the data  
+* parameters: a description of the size, type and range of the parameters  
+* transformed parameters: variables derived by transforming the parameters  
+* model: the code for the likelihood and prior (much like BUGS)  
+* generated quantities: values derived from the simulations, including predictions    
+
+`Stan` has more functions than `BUGS` and a greater variety of parameterisations for its distributions. It also adopts simpler distribution names, such as `normal()` instead of `dnorm()` for the normal distribution. `Stan` uses different default parameterisations.
+
+In `Stan`, lines end with a semi-colon and `=` replaces `<-`.
+
+The Poisson regression problem might be coded as,
+
+```{r eval=FALSE}
+data {
+  int N;
+  int deaths[N];
+  vector[N] year;
+  int<lower=1, upper=14> age[N];
+  vector[N] gender;
+  vector[N] offset;
+}
+
+parameters {
+  real b0;
+  real b1;
+  vector[13] b2;
+  real b3;
+}
+
+transformed parameters {
+  real mu[N];
+  vector[14] b4;
+
+  b4[1] = 0.0;
+  for( i in 2:14 ) {
+    b4[i] = b2[i-1];
+  }
+  for( i in 1:N) {
+    mu[i] = exp(b0 + b1*year[i] + b4[age[i]] + b3*gender[i] + offset[i]);
+  }
+}
+
+model {
+  deaths ~ poisson(mu);
+  
+  b0 ~ normal(0, 10);
+  b1 ~ normal(0, 10);
+  for(j in 1:13) {
+    b2[j] ~ normal(0, 10);
+  }
+  b3 ~ normal(0, 10);
+}
+```
+
+Since I tell `Stan` that age is an integer between 1 and 14, it will check the data when it is read. Giving types and ranges for the parameters helps `Stan` to create more efficient code. Typically, types and ranges can be omitted and the program will still work, just not as quickly.
+
+Notice that `Stan` is vectorised, so it is possible to write `deaths ~ poisson(mu)` and, because deaths has been defined as a vector, `Stan` will expand the calculation without us needing to give an explicit loop. Had I made the loop explicit, it would still have worked.  
+
+By default, `Stan` parameterises the normal distribution in terms of its mean and standard deviation. See the `Stan` functions guide for more details, https://mc-stan.org/docs/2_20/functions-reference/normal-distribution.html.
+
+The `Stan` documentation has a page on transitioning from `BUGS` that might be helpful if you start with some familiarity with `BUGS`. See https://mc-stan.org/docs/2_28/stan-users-guide/stan-for-bugs.html.
+
+## Running RStan
+
+### Saving the model code
+
+The model code should be written to a text file, just as for `R2OpenBUGS`. Conventionally these files are given a `.stan` extension. My file is called `alcModel.stan` and is saved in a folder called `stan`
+
+### Preparing the data
+
+Data are placed in a list, just as with `BUGS`.
+
+```{r}
+stanData <- list( N      = 560,
+                  deaths = as.integer(alcDF$deaths),
+                  offset = log(alcDF$pop),
+                  year   = as.numeric(alcDF$year - 2001),
+                  gender = as.numeric( alcDF$gender == "male"),
+                  age    = as.integer( alcDF$age))
+```
+
+### Preparing the initial values
+
+No need. `Stan` has an initial warm-up phase during which it tunes the algorithm; at the same time, it finds good starting values for you.  
+
+### Running the sampler
+
+There is a `stan()` function in `rstan` that is directly analogous to the `bugs()` function of `R2OpenBUGS`.  
+
+Compilation etc. is all handled for you and parallel processing is built-in.
+
+```{r eval=FALSE}
+library(rstan)
+
+stan(
+  file = file.path(home, "stan/alcModel.stan"),  # Stan program
+  data = stanData,         # named list of data
+  pars = c("b0", "b1", "b2", "b3"), # parameters to monitor
+  chains = 3,              # number of Markov chains
+  warmup = 500,            # number of warmup iterations per chain
+  iter   = 1000,           # total number of iterations per chain
+  cores  = 3,              # number of cores
+  ) %>%
+saveRDS( file.path( home, "data/dataStore/alcStanP01.rds")) %>%
+system.time()
+```
+
+Like `nimble` the time taken by `stan` is in large part a result of the compilation and `stan` becomes more competitive when the computation takes longer.
+
+The object returned by `rstan` is quite complex but my function `stan_to_df()`, which is given in the appendix, will extract the results into a tibble.
+
+```{r}
+# --- read the stan results --------------------------------
+results <- readRDS(file.path( home, "data/dataStore/alcStanP01.rds"))
+# --- look at the structure --------------------------------
+str(results)
+# --- extract the result to a tibble -----------------------
+simDF <- stan_to_df(results)
+# --- show the results -------------------------------------
+print(simDF)
+```
+
+# Greta
+
+`Greta` exists on a knife-edge. It is an R package with many dependencies; it works via `python` code that calls `tensorflow` and `tensorflow-probability`. Only if every step in this process is compatible, will it work.  
+
+I installed miniconda and the appropriate version of tensorflow as recommended on the `greta` website
+```{r eval=FALSE}
+reticulate::install_miniconda()
+reticulate::conda_create(
+  envname = "greta-env",
+  python_version = "3.7"
+)
+reticulate::conda_install(
+  envname = "greta-env",
+  packages = c(
+    "numpy==1.16.4",
+    "tensorflow-probability==0.7.0",
+    "tensorflow==1.14.0"
+  )
+)
+```
+
+I updated every R package in my library and I download the latest `greta` from CRAN, **no joy**. Only when I downloaded the development version of `greta` could I get even the simplest program to run.  
+
+```{r eval=FALSE}
+devtools::install_github("greta-dev/greta")
+```
+
+The code below was run with greta 0.4.0 (2021-11-26). Hopefully, when `greta` is updated to use tensorflow 2.0, it will become more robust.
+
+When it works, it is very impressive.
+
+Here is the poisson regression, written for `greta`. The whole thing is R code. Parallel computation is created automatically.
+```{r eval=FALSE}
+library(greta)
+
+# --- prepare the data --------------------------------------
+deaths <- as_data(as.integer(alcDF$deaths))
+offset <- log(alcDF$pop)
+year   <- as.numeric(alcDF$year - 2001)
+gender <- as.numeric( alcDF$gender == "male")
+age    <- factor( alcDF$age)
+# --- construct the design matrix .. as_data() is a greta function
+X      <- as_data(model.matrix(~ year + age + gender))
+
+# --- prior on the coefficients -----------------------------
+b <- normal(0, 10, dim=16)
+# --- the likelihood part of the model ----------------------
+mu <- exp(X %*% b + offset)
+distribution(deaths) <- poisson(mu)
+
+# --- prepare the greta analysis ----------------------------
+alcModel <- model(b)
+
+# --- run three chains --------------------------------------
+mcmc(alcModel, n_samples = 1000, chains = 3) %>%
+  saveRDS( file.path( home, "data/dataStore/alcGretaP01.rds")) %>%
+  system.time()
+```
+
+It is fast and because it is built on tensorflow, `greta` should scale competitively.
+
+The returned object can be read using my `greta_to_df()` function.
+
+```{r}
+# --- read the greta results ----------------------------------
+results <- readRDS(file.path( home, "data/dataStore/alcGretaP01.rds"))
+# --- look at the structure -----------------------------------
+str(results)
+# --- convert to a tibble -------------------------------------
+simDF <- greta_to_df(results)
+# --- look at the tibble --------------------------------------
+print(simDF)
+```
+
+
+
+# Appendix
+
+Here are the functions referred to in the post.
+
+### Code to clean the data
+
+```{r}
+library(tidyverse)
+
+home     <- "C:/Projects/kaggle/sliced/methods/methods_bayes_software"
+filename <- "data/rawData/alcoholspecificdeaths2020.xlsx"
+
+# --- read without column names -------------------------------------
+readxl::read_excel( file.path(home, filename), 
+                    sheet="Table 2", 
+                    range="C6:V385", 
+                    col_names=FALSE) %>%
+  # --- rename relevant columns -------------------------------------
+  rename( year = `...1`,
+          age  = `...2`,
+          deaths_male = `...10`,
+          rate_male = `...11`,
+          deaths_female = `...16`,
+          rate_female = `...17`) %>%
+  # --- select relevant columns -------------------------------------
+  select( year, age, deaths_male, rate_male, 
+          deaths_female, rate_female) %>%
+  # --- rates from character to numeric -----------------------------
+  mutate( rate_male = as.numeric(rate_male),
+          rate_female = as.numeric(rate_female)) %>%
+  # --- drop the children -------------------------------------------
+  filter( !(age %in% c("<1", "01-04", "05-09", 
+                       "10-14", "15-19"))) %>%
+  mutate(age = factor(age)) %>%
+  # --- reshape the data --------------------------------------------
+  pivot_longer(cols=starts_with("deaths") | starts_with("rate"),
+               names_to=c("type", "gender"),
+               names_sep = "_") %>% 
+  pivot_wider( values_from=value, names_from=type) %>%
+  # --- calc population from #deaths & rate per 100,000 -------------
+  mutate( pop = round(100000*deaths/rate)/100000 ) %>%
+  # --- use average population as annual pop unreliable 
+  #     when #deaths is small
+  group_by( gender, age ) %>%
+  mutate( pop = round(mean(pop, na.rm=TRUE), 2) ) %>% 
+  select( -rate) %>%
+  saveRDS( file.path(home, "data/rData/alc.rds"))
+```
+
+### Convert a BUGS object to a tibble
+
+```{r}
+# --- Function to put bugs simulations in a tibble -----------------
+# argument
+#    bugsObject ... R Object returned by bugs()
+# return
+#    tibble of simulations plus chain and iteration number
+#
+bugs_to_df <- function(bugsObject) {
+  vNames <- attr(bugsObject$sims.matrix,"dimnames")[[2]]
+  vNames <- str_replace(vNames, "\\[", "_")
+  vNames <- str_replace(vNames, ",", "_")
+  vNames <- str_replace(vNames, "\\]", "")
+  thisDF <- setNames(as_tibble(bugsObject$sims.matrix), vNames)
+  nc <- bugsObject$n.chains
+  ni <- bugsObject$n.keep 
+  thisDF$chain <- factor(rep(1:nc, each=ni))
+  thisDF$iter <- rep(1:ni, nc )
+  return( thisDF[, c("chain", "iter", vNames)])
+}
+```
+
+### Convert a nimble object to a tibble
+
+```{r}
+# --- Function to put bugs simulations in a tibble -----------------
+# argument
+#    nimbleObject ... R Object returned by nimble
+# return
+#    tibble of simulations plus chain and iteration number
+#
+nimble_to_df <- function(nimbleObject) {
+  if( typeof(nimbleObject) == "list" ) {
+    nc <- length(nimbleObject)
+    ni <- nrow(nimbleObject$chain1)
+    vNames <- attr(nimbleObject$chain1,"dimnames")[[2]]
+    thisDF <- NULL
+    for( i in 1:nc ) {
+      thisDF <- bind_rows(thisDF, as_tibble(nimbleObject[[i]]))
+    }
+  }
+  else {
+    nc <- 1
+    ni <- nrow(nimbleObject)
+    vNames <- attr(nimbleObject,"dimnames")[[2]]
+    thisDF <- as_tibble(nimbleObject)
+  }
+  vNames <- str_replace(vNames, "\\[", "_")
+  vNames <- str_replace(vNames, ",", "_")
+  vNames <- str_replace(vNames, "\\]", "")
+
+  thisDF <- setNames(thisDF, vNames)
+  thisDF$chain <- factor(rep(1:nc, each=ni))
+  thisDF$iter <- rep(1:ni, nc )
+  return( thisDF[, c("chain", "iter", vNames)])
+}
+```
+
+### Convert a stan object to a tibble
+
+```{r}
+stan_to_df <- function(stanObject) {
+
+  nPar <- length(stanObject@sim$samples[[1]])
+  nc <- length(stanObject@sim$samples)
+  ni <- stanObject@sim$iter
+  
+  vNames <- stanObject@sim$fnames_oi
+  vNames <- str_replace(vNames, "\\[", "_")
+  vNames <- str_replace(vNames, ",", "_")
+  vNames <- str_replace(vNames, "\\]", "")
+
+  thisDF <- NULL
+  for( i in 1:nc ) {
+    thisDF <- bind_rows(thisDF, as_tibble(as.data.frame(stanObject@sim$samples[[i]])))
+  }
+  thisDF <- setNames(thisDF, vNames)
+  thisDF$chain <- factor(rep(1:nc, each=ni))
+  thisDF$iter <- rep(1:ni, nc )
+  return( thisDF[, c("chain", "iter", vNames)])
+}
+
+```
+
+### Convert a greta object to a tibble
+
+```{r}
+greta_to_df <- function(gretaObject) {
+
+  par  <- attr(gretaObject[[1]], "mcpar")
+  nc <- length(gretaObject)
+  ni <- par[2]
+  
+  vNames <- attr(gretaObject[[1]], "dimnames")[[2]]
+  vNames <- str_replace(vNames, "\\[", "_")
+  vNames <- str_replace(vNames, ",", "_")
+  vNames <- str_replace(vNames, "\\]", "")
+
+  thisDF <- NULL
+  for( i in 1:nc ) {
+    thisDF <- bind_rows(thisDF, as_tibble(as.data.frame(gretaObject[[i]])))
+  }
+  thisDF <- setNames(thisDF, vNames)
+  thisDF$chain <- factor(rep(1:nc, each=ni))
+  thisDF$iter <- rep(1:ni, nc )
+  return( thisDF[, c("chain", "iter", vNames)])
+}
+```
+
+### Read a set of rds files containing Bayesian simulations
+
+The function determines the source of the simulations from the class of the object in the file.
+
+```{r}
+bayes_to_df <- function(files) {
+  
+  ichain <- 0
+  S <- NULL
+  nfiles <- length(files)
+  for( f in 1:nfiles) {
+ 
+    object <- readRDS(files[f])
+    if( class(object)[1] == "matrix") {
+      df <- nimble_to_df(object)
+    } else if( class(object)[1] == "bugs") {
+      df <- bugs_to_df(object)
+    }
+      df$chain <- as.numeric(df$chain)
+      nchain <- max(df$chain)
+      df$chain <- ichain + df$chain
+      ichain <- ichain + nchain
+      S <- rbind(S, df)
+  }
+  if( ichain > 1) {
+    as_tibble(S) %>% mutate( chain = factor(chain))
+  } else {
+    as_tibble(S)
+  }
+}
+```
+

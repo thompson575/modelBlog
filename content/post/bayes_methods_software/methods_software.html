@@ -1,0 +1,1453 @@
+---
+title: "Methods: R Software for Bayesian Analysis"
+author: "John Thompson"
+date: "2022-03-12"
+layout: post
+tags:
+- BUGS
+- OpenBUGS
+- R2OpenBUGS
+- stan
+- rstan
+- nimble
+- greta
+- Poisson regression
+- parallel computation
+- furrr
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console 
+---
+
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>Probabilistic Programming Languages (PPLs) provide a way of specifying a Bayesian model and a choice of samplers that can be used to simulate parameter values from the model’s joint posterior. The Wikipedia page on Probabilitic Programming (<a href="https://en.wikipedia.org/wiki/Probabilistic_programming" class="uri">https://en.wikipedia.org/wiki/Probabilistic_programming</a>) lists about 40 such languages, of which a handful can be run in, or via, R.</p>
+<p>As the name suggests, <em>BUGS</em> (Bayesian Inference using Gibbs Sampling) is a PPL that uses Gibbs sampling. It was one of the first PPLs and its language for specifying the model has been widely copied and adapted. The <em>BUGS</em> project dates from 1989 when Classic BUGS was released. This was followed by <em>WinBUGS</em>, <em>OpenBUGS</em> and most recently <em>MultiBUGS</em>. The homepage for the project is <a href="https://www.mrc-bsu.cam.ac.uk/software/bugs/" class="uri">https://www.mrc-bsu.cam.ac.uk/software/bugs/</a>.</p>
+<p>The <em>BUGS</em> language has been adopted by <em>JAGS</em> (Just Another Gibbs Sampler) and by an R-based project called <em>nimble</em>. In fact, for speed, <em>nimble</em> translates the R code into C++ and compiles it before it is run, but to the user, the appearance is of working with R code. <em>nimble</em> provides a wider range of samplers than <em>BUGS</em> and gives the user finer control over those samplers. It also makes it easy for the user to create their own samplers, or to define their own distributions.</p>
+<p><em>Stan</em> (<a href="https://mc-stan.org/" class="uri">https://mc-stan.org/</a>) differs from <em>BUGS</em> in that it uses Hamiltonian Monte Carlo (HMC) rather than Gibbs Sampling. HMC is a derivative-based Markov chain Monte Carlo (MCMC) algorithm; calculation of the partial derivatives of the log-posterior increases the time needed for each iteration, but the resulting samples usually have lower autocorrelation, so far fewer iterations are needed compared with Gibbs Sampling. The net result is that HMC is often very efficient.</p>
+<p>The <em>Stan</em> language is similar to the <em>BUGS</em> language, but it has more built-in functions and in requires slightly more structuring of the code. For increased speed, the user’s model is translated into C++ and compiled before it is run.</p>
+<p>HMC requires exact derivatives, which for complex models can be difficult to obtain. The Tensorflow project (<a href="https://www.tensorflow.org/" class="uri">https://www.tensorflow.org/</a>) provides scalable open source tools for Machine Learning that include automatic differentiation. The <em>greta</em> project (<a href="https://greta-stats.org/" class="uri">https://greta-stats.org/</a>) has used the tensorflow library to create an HMC based PPL that, like <em>nimble</em>, can be programmed directly in R.</p>
+<p><em>nimble</em> and <em>greta</em> are fully integrated into R and can be run by downloading the appropriate packages. <em>Stan</em>, <em>BUGS</em> and <em>JAGS</em> are standalone programs that can be run from within R by using interface packages. <code>rstan</code> is the most integrated into R. The various flavours of BUGS require the user to download the free external software before interfacing with it from within R. These interface packages include <code>rjags</code>, <code>R2WinBUGS</code>, <code>R2OpenBUGS</code> and <code>R2MultiBUGS</code>. There is, however, a degree of duplication with other user groups creating alternative interface packages, such as <code>RBugs</code> and <code>runjags</code>.</p>
+<p>As well as these PPLs, R also has a range of packages for fitting very specific Bayesian models, but in this post my interest is purely in the mechanics of using <code>BUGS</code>, <code>Stan</code>, <code>nimble</code> and <code>greta</code>; these are the PPLs that I will rely on when I re-analyse the <em>Sliced</em> datasets.</p>
+<p>A full list of R packages for Bayesian analysis is available on the CRAN task view (<a href="https://cran.r-project.org/web/views/Bayesian.html" class="uri">https://cran.r-project.org/web/views/Bayesian.html</a>).</p>
+</div>
+<div id="overview-of-this-post" class="section level1">
+<h1>Overview of this Post</h1>
+<p>In this post, I will take a simple Bayesian Poisson regression model and fit it using flavours of <code>BUGS</code>, <code>nimble</code>, <code>Stan</code> and <code>greta</code>. The emphasis will be on the code rather than the model, so I will not try to interpret the output or even ensure that the algorithms have converged. There is a companion methods post in which I look at ways of interpreting the MCMC output; these methods are essentially the same regardless of the software used to fit the model.</p>
+</div>
+<div id="the-data" class="section level1">
+<h1>The data</h1>
+<p>I have chosen to model ONS (Office of National Statistics) data on deaths due to alcohol in the UK. The data can be downloaded as an Excel workbook from <a href="https://www.ons.gov.uk/peoplepopulationandcommunity/healthandsocialcare/causesofdeath/datasets/alcoholspecificdeathsintheukmaindataset" class="uri">https://www.ons.gov.uk/peoplepopulationandcommunity/healthandsocialcare/causesofdeath/datasets/alcoholspecificdeathsintheukmaindataset</a>.</p>
+<p>I will analyse data from table 2 of the Excel workbook that gives numbers of deaths and death rates by age, gender and year. The code that reads the data and prepares it for analysis is given in the appendix; it uses standard R functions and is not crucial to my main task. That code saves the clean data frame in a file called <code>alc.rds</code>.</p>
+<pre class="r"><code>library(tidyverse)
+
+# --- paths on my desktop --------------------------------------
+home     &lt;- &quot;C:/Projects/kaggle/sliced/methods/methods_bayes_software&quot;
+filename &lt;- &quot;data/rData/alc.rds&quot;
+
+# --- read the clean data that is to be analysed ---------------
+alcDF &lt;- readRDS( file.path(home, filename))</code></pre>
+<p>Here is a traditional likelihood analysis of a Poisson regression model that incorporates a linear increase in the rate per 100,000 over time plus categorical age and gender effects, but no interactions.</p>
+<pre class="r"><code>library(broom)
+
+# --- Poisson regression in glm() -----------------------------------
+glm(deaths ~ year + age + gender, 
+    offset = log(pop), 
+    family = &quot;poisson&quot;, 
+    data   = alcDF %&gt;% mutate(year = year - 2001)) %&gt;%
+  tidy()</code></pre>
+<pre><code>## # A tibble: 16 x 5
+##    term        estimate std.error statistic   p.value
+##    &lt;chr&gt;          &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;
+##  1 (Intercept)  -1.68    0.0586       -28.7 4.82e-181
+##  2 year          0.0143  0.000465      30.7 4.63e-207
+##  3 age25-29      1.50    0.0646        23.2 7.12e-119
+##  4 age30-34      2.53    0.0606        41.7 0        
+##  5 age35-39      3.25    0.0594        54.7 0        
+##  6 age40-44      3.81    0.0590        64.5 0        
+##  7 age45-49      4.18    0.0588        71.1 0        
+##  8 age50-54      4.37    0.0587        74.4 0        
+##  9 age55-59      4.44    0.0587        75.6 0        
+## 10 age60-64      4.42    0.0588        75.2 0        
+## 11 age65-69      4.26    0.0589        72.3 0        
+## 12 age70-74      3.90    0.0593        65.7 0        
+## 13 age75-79      3.53    0.0602        58.7 0        
+## 14 age80-84      3.06    0.0624        49.0 0        
+## 15 age85+        2.41    0.0671        35.9 1.60e-281
+## 16 gendermale    0.778   0.00571      136.  0</code></pre>
+<p>The baseline category (intercept) is women aged 20-24 in 2001.</p>
+<p>According to the model, the rate per 100,000 in the baseline group is exp(-1.68)=0.19. The downloaded excel file does not give the measured rate for this group as there was only 1 death in women aged 20-24 in 2001 and the ONS consider the rate unreliable, but in 2002 women aged 20-24 had a rate of 0.2 per 100,000 very much in line with the intercept.</p>
+<p>The model suggests that the rate of alcohol deaths is increasing over time, the rate is higher in men than in women and it is highest in middle aged people. Everything is off-the-scale significant.</p>
+<p>Of course, there is still much to do, even in a non-Bayesian analysis. I ought to look at model fit, check for over-dispersion, question the linearity over time and look for interactions. However, in this post, all I want to do is reproduce this analysis using Bayesian software. In my companion post, I will look more closely at the inspection of Bayesian results.</p>
+</div>
+<div id="bugs-code" class="section level1">
+<h1>BUGS Code</h1>
+<p>The best way to learn the BUGS language is to copy and adapt other people’s code and in that spirit, the BUGS project provides a lot of examples. They can be accessed, either from the help facilities of the specific implementations of BUGS, or via the BUGS book that is online at <a href="https://www.mrc-bsu.cam.ac.uk/software/bugs/the-bugs-project-the-bugs-book/bugs-book-examples/" class="uri">https://www.mrc-bsu.cam.ac.uk/software/bugs/the-bugs-project-the-bugs-book/bugs-book-examples/</a>.</p>
+<p>The OpenBUGS manual can be downloaded as a pdf from <a href="https://www.openbugs.net/w/Manuals" class="uri">https://www.openbugs.net/w/Manuals</a> and provides a useful reference to the language and the available functions and distributions. Other flavours of BUGS may have slightly more, or slightly fewer functions, but the language remains much the same.</p>
+<p>The BUGS language provides a way of specifying the structure of the model together with the priors. Calculations are denoted by <code>&lt;-</code>, as they are in R, and distributions are denoted by <code>~</code>. Vector processing is not provided and so BUGS code tends to include a lot of loops, which use the same structure as in R. Here is the BUGS code for the likelihood part of the Poisson regression model.</p>
+<pre class="r"><code>for( i in 1:560 ) {
+  log(mu[i]) &lt;- b0 + b1*year[i] + b2[age[i]] + b3*gender[i] + offset[i]
+  deaths[i] ~ dpois(mu[i])
+}</code></pre>
+<p>This code assumes that <code>deaths</code>, <code>year</code>, <code>age</code>, <code>gender</code> and <code>offset</code> are provided as data. It is usually best to perform any preliminary data manipulation in R before sending the data to BUGS. Notice how BUGS allows the log function to be placed on the left hand side of the calculation.</p>
+<p>To complete the code, we must specify our priors for b0, b1, the vector b2, and b3. For illustration, I use very vague priors.</p>
+<pre class="r"><code>b0 ~ dnorm(0, 0.0001)
+b1 ~ dnorm(0, 0.0001)
+b2[1] &lt;- 0
+for(j in 2:14) {
+  b2[j] ~ dnorm(0, 0.0001)
+}
+b3 ~ dnorm(0, 0.0001)</code></pre>
+<p>Age is a factor with 14 levels, which I parameterise in the usual glm() style by setting the coefficient of the first level to zero.</p>
+<p>In BUGS, the normal distribution is parameterised by the mean and the precision (1/variance). A precision of 0.0001 is equivalent to a variance of 10000 and a standard deviation of 100, so the prior on the intercept says that I believe with 95% probability that it is a value in the range -200 to 200. Since the intercept represents the log rate per 100,000 people in the baseline group, this is like saying that I expect between exp(-200) and exp(200) cases per 100,000 in 2001 amongst women aged 20-24. With a little thought I could certainly narrow done this range. Perhaps I could look up the rates in earlier years, or the rates in other developed countries, or just use common sense; the rate is unlikely to be less that 0.01 (1 in 10million) and it is unlikely to be over 100 (1 in 1,000). This would give a range for the log rate of -4.5 to +4.5, so a zero-centred normal distribution with a standard deviation of 2 (variance 4, precision 0.25) would not be unreasonable.</p>
+<p>Specifying a good prior is an important, but neglected, part of a Bayesian analysis, but my aim here is to concentrate on the PPLs, so I’ll not pursue this. Here is my full BUGS model code.</p>
+<pre class="r"><code>model {
+  for( i in 1:560 ) {
+    mu[i] &lt;- b0 + b1*year[i] + b2[age[i]] + b3*gender[i] + offset[i]
+    deaths[i] ~ dpois(mu[i])
+  }
+  b0 ~ dnorm(0, 0.0001)
+  b1 ~ dnorm(0, 0.0001)
+  b2[1] &lt;- 0.0
+  for(j in 2:14) {
+    b2[j] ~ dnorm(0, 0.0001)
+  }
+  b3 ~ dnorm(0, 0.0001)
+}</code></pre>
+<p>BUGS is implemented as an external program and to run an analysis the essential components, that is, the model code, data, initial values and run specification (number of iterations etc) are each created in R then written to text files in a format that can be read by the external program. Most of this is done automatically by the interface package.</p>
+<p>For this example, I use <code>OpenBUGS</code> together with the R interface package <code>R2OpenBUGS</code>.</p>
+<p>To get the model code into a file, one could type it directly to a text editor such as the RStudio Editor, but it is more reproducible if it is entered in R code. <code>write.model()</code> is a functions provided by <code>R2OpenBUGS</code> that takes the code stored in a function and writes it to a text file.</p>
+<pre class="r"><code>library(R2OpenBUGS)
+
+# --- function that stores the model code ---------------------------
+modelFunc &lt;- function() {
+  for( i in 1:560 ) {
+    log(mu[i]) &lt;- b0 + b1*year[i] + b2[age[i]] + b3*gender[i] + offset[i]
+    deaths[i] ~ dpois(mu[i])
+  }
+  b0 ~ dnorm(0, 0.0001)
+  b1 ~ dnorm(0, 0.0001)
+  b2[1] &lt;- 0.0
+  for(j in 2:14) {
+    b2[j] ~ dnorm(0, 0.0001)
+  }
+  b3 ~ dnorm(0, 0.0001)
+}
+
+# --- R2OpenBUGS function that exports the code ---------------------
+write.model(modelFunc, file.path(home, &quot;bugs/alcModel.txt&quot;))</code></pre>
+<p>I organise my work by saving the model code in a folder called <code>bugs</code> and by using a <code>temp</code> folder as my working directory.</p>
+<div id="preparing-the-data" class="section level2">
+<h2>Preparing the data</h2>
+<p>All of the data that is used by the model must be saved in a single R list. This is also written to a text file, but it is done behind the scenes by the <code>R2OpenBUGS</code>.</p>
+<pre class="r"><code>bugsData &lt;- list( deaths = alcDF$deaths,
+                  offset = log(alcDF$pop),
+                  year   = alcDF$year - 2001,
+                  gender = as.numeric( alcDF$gender == &quot;male&quot;),
+                  age    = as.numeric( alcDF$age))</code></pre>
+</div>
+<div id="initial-values" class="section level2">
+<h2>Initial values</h2>
+<p>Gibbs sampling requires a starting point. The chosen initial values are also placed in a list. This can be done in two ways; as a function, or as a list of lists.</p>
+<pre class="r"><code># --- 1: initial values as a function --------------------------
+bugsInits &lt;- function() {
+  list( b0=0, b1=0, b2=c(NA, rep(0,13)), b3=0)
+}
+
+# --- 2: initial values as a list of lists ---------------------
+bugsInits &lt;- list(
+  list( b0=0, b1=0, b2=c(NA, rep(0,13)), b3=0)
+)</code></pre>
+<p>Making a list containing a list may, at first sight, look redundant, but often we will want to run multiple chains, in which case each set of initial values is placed in a separate internal list.</p>
+<p>Notice that the first level of b2, which I set to zero in my model code, is specified as missing in the initial values.</p>
+</div>
+<div id="model-fitting-in-openbugs" class="section level2">
+<h2>Model fitting in OpenBUGS</h2>
+<p>Here is the code that fits the model using <code>OpenBUGS</code>. I use the <code>system.time()</code> function for timing. The options are more or less self-explanatory, but details are given in the help file.</p>
+<pre class="r"><code>library(R2OpenBUGS)
+
+# --- path to OpenBUGS on my computer ---------------------------
+openbugsExe &lt;- &quot;C:/Software/OpenBUGS/OpenBUGS323/OpenBUGS.exe&quot;
+
+# --- fit model using OpenBUGS ----------------------------------
+bugs( data       = bugsData, 
+      inits      = bugsInits, 
+      parameters = c(&quot;b0&quot;, &quot;b1&quot;, &quot;b2&quot;, &quot;b3&quot;), 
+      model.file = file.path(home, &quot;bugs/alcModel.txt&quot;),
+      n.chains   = 1, 
+      n.iter     = 1500, 
+      n.burnin   = 500,
+      n.thin     = 1, 
+      DIC        = FALSE, 
+      bugs.seed  = 6,
+      OpenBUGS   = openbugsExe,
+      working.directory = file.path(home, &quot;temp&quot;)
+    ) %&gt;%
+  saveRDS( file.path( home, &quot;data/dataStore/alcBugs01.rds&quot;)) %&gt;%
+  system.time</code></pre>
+<p>On my computer this code took 7.3 seconds to run.</p>
+</div>
+<div id="accessing-the-results-in-r" class="section level2">
+<h2>Accessing the Results in R</h2>
+<p>The structure returned by the <code>bugs()</code> function is quite complex as we can see using <code>str()</code>.</p>
+<pre class="r"><code># --- read the save bugs() results -----------------------------------
+results &lt;- readRDS( file.path( home, &quot;data/dataStore/alcBugs01.rds&quot;))
+
+# --- inspect the structure of the object ----------------------------
+str(results)</code></pre>
+<pre><code>## List of 20
+##  $ n.chains       : num 1
+##  $ n.iter         : num 1500
+##  $ n.burnin       : num 500
+##  $ n.thin         : num 1
+##  $ n.keep         : num 1000
+##  $ n.sims         : num 1000
+##  $ sims.array     : num [1:1000, 1, 1:16] -1.3 -1.31 -1.29 -1.3 -1.3 ...
+##   ..- attr(*, &quot;dimnames&quot;)=List of 3
+##   .. ..$ : NULL
+##   .. ..$ : NULL
+##   .. ..$ : chr [1:16] &quot;b0&quot; &quot;b1&quot; &quot;b2[2]&quot; &quot;b2[3]&quot; ...
+##  $ sims.list      :List of 4
+##   ..$ b0: num [1:1000] -1.55 -1.42 -1.56 -1.56 -1.51 ...
+##   ..$ b1: num [1:1000] 0.0142 0.0141 0.0145 0.0144 0.0136 ...
+##   ..$ b2: num [1:1000, 1:13] 1.38 1.29 1.39 1.33 1.34 ...
+##   ..$ b3: num [1:1000] 0.781 0.782 0.778 0.778 0.773 ...
+##  $ sims.matrix    : num [1:1000, 1:16] -1.55 -1.42 -1.56 -1.56 -1.51 ...
+##   ..- attr(*, &quot;dimnames&quot;)=List of 2
+##   .. ..$ : NULL
+##   .. ..$ : chr [1:16] &quot;b0&quot; &quot;b1&quot; &quot;b2[2]&quot; &quot;b2[3]&quot; ...
+##  $ summary        : num [1:16, 1:7] -1.51 0.0143 1.3254 2.3552 3.0782 ...
+##   ..- attr(*, &quot;dimnames&quot;)=List of 2
+##   .. ..$ : chr [1:16] &quot;b0&quot; &quot;b1&quot; &quot;b2[2]&quot; &quot;b2[3]&quot; ...
+##   .. ..$ : chr [1:7] &quot;mean&quot; &quot;sd&quot; &quot;2.5%&quot; &quot;25%&quot; ...
+##  $ mean           :List of 4
+##   ..$ b0: num -1.51
+##   ..$ b1: num 0.0143
+##   ..$ b2: num [1:13(1d)] 1.33 2.36 3.08 3.63 4 ...
+##   ..$ b3: num 0.778
+##  $ sd             :List of 4
+##   ..$ b0: num 0.0661
+##   ..$ b1: num 0.000442
+##   ..$ b2: num [1:13(1d)] 0.0734 0.0671 0.0668 0.0661 0.0662 ...
+##   ..$ b3: num 0.00579
+##  $ median         :List of 4
+##   ..$ b0: num -1.53
+##   ..$ b1: num 0.0143
+##   ..$ b2: num [1:13(1d)] 1.34 2.38 3.1 3.65 4.03 ...
+##   ..$ b3: num 0.778
+##  $ root.short     : chr [1:4] &quot;b0&quot; &quot;b1&quot; &quot;b2&quot; &quot;b3&quot;
+##  $ long.short     :List of 4
+##   ..$ : int 1
+##   ..$ : int 2
+##   ..$ : int [1:13] 3 4 5 6 7 8 9 10 11 12 ...
+##   ..$ : int 16
+##  $ dimension.short: num [1:4] 0 0 1 0
+##  $ indexes.short  :List of 4
+##   ..$ : NULL
+##   ..$ : NULL
+##   ..$ :List of 13
+##   .. ..$ : num 2
+##   .. ..$ : num 3
+##   .. ..$ : num 4
+##   .. ..$ : num 5
+##   .. ..$ : num 6
+##   .. ..$ : num 7
+##   .. ..$ : num 8
+##   .. ..$ : num 9
+##   .. ..$ : num 10
+##   .. ..$ : num 11
+##   .. ..$ : num 12
+##   .. ..$ : num 13
+##   .. ..$ : num 14
+##   ..$ : NULL
+##  $ last.values    :List of 1
+##   ..$ :List of 4
+##   .. ..$ b0: num -1.57
+##   .. ..$ b1: num 0.0145
+##   .. ..$ b2: num [1:13] 1.33 2.43 3.14 3.7 4.07 ...
+##   .. ..$ b3: num 0.78
+##  $ isDIC          : logi FALSE
+##  $ model.file     : chr &quot;C:/Projects/kaggle/sliced/methods/methods_bayes_software/bugs/alcModel.txt&quot;
+##  - attr(*, &quot;class&quot;)= chr &quot;bugs&quot;</code></pre>
+<p><code>R2OpenBUGS</code> defines a version of the <code>print()</code> function for bugs objects that summarises the results.</p>
+<pre class="r"><code>print(results, digits=2)</code></pre>
+<pre><code>## Inference for Bugs model at &quot;C:/Projects/kaggle/sliced/methods/methods_bayes_software/bugs/alcModel.txt&quot;, 
+## Current: 1 chains, each with 1500 iterations (first 500 discarded)
+## Cumulative: n.sims = 1000 iterations saved
+##         mean   sd  2.5%   25%   50%   75% 97.5%
+## b0     -1.51 0.07 -1.58 -1.55 -1.53 -1.49 -1.32
+## b1      0.01 0.00  0.01  0.01  0.01  0.01  0.02
+## b2[2]   1.33 0.07  1.13  1.30  1.34  1.38  1.42
+## b2[3]   2.36 0.07  2.18  2.34  2.38  2.40  2.44
+## b2[4]   3.08 0.07  2.89  3.06  3.10  3.12  3.15
+## b2[5]   3.63 0.07  3.44  3.62  3.65  3.68  3.70
+## b2[6]   4.00 0.07  3.82  3.99  4.03  4.05  4.07
+## b2[7]   4.19 0.07  4.01  4.18  4.22  4.24  4.26
+## b2[8]   4.27 0.07  4.08  4.25  4.29  4.31  4.34
+## b2[9]   4.24 0.07  4.06  4.23  4.27  4.29  4.31
+## b2[10]  4.09 0.07  3.89  4.07  4.11  4.13  4.16
+## b2[11]  3.73 0.07  3.54  3.71  3.75  3.77  3.80
+## b2[12]  3.36 0.07  3.17  3.34  3.38  3.40  3.44
+## b2[13]  2.88 0.07  2.70  2.87  2.90  2.93  2.97
+## b2[14]  2.23 0.07  2.05  2.20  2.25  2.28  2.34
+## b3      0.78 0.01  0.77  0.77  0.78  0.78  0.79</code></pre>
+<p>However, I find it helpful to have the simulations in a data frame with one column for each parameter and one row for each iteration. My function, <code>bugs_to_df()</code>, extracts the simulations and adds columns denoting the chain number and iteration number. The code for this function is given in the appendix. I have placed <code>bugs_to_df()</code> in a package called <code>MyPackage</code>.</p>
+<pre class="r"><code>library(MyPackage)
+
+# --- results into a tibble ----------------------------------------
+simDF &lt;- bugs_to_df(results)
+
+# --- show the tibble ----------------------------------------------
+print(simDF)</code></pre>
+<pre><code>## # A tibble: 1,000 x 18
+##    chain  iter    b0     b1  b2_2  b2_3  b2_4  b2_5  b2_6  b2_7  b2_8  b2_9
+##    &lt;fct&gt; &lt;int&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+##  1 1         1 -1.55 0.0142  1.38  2.42  3.11  3.68  4.04  4.23  4.30  4.28
+##  2 1         2 -1.42 0.0141  1.29  2.28  2.96  3.53  3.90  4.09  4.17  4.14
+##  3 1         3 -1.56 0.0145  1.39  2.40  3.13  3.69  4.05  4.24  4.32  4.29
+##  4 1         4 -1.56 0.0144  1.33  2.41  3.12  3.68  4.05  4.25  4.32  4.29
+##  5 1         5 -1.51 0.0136  1.34  2.37  3.08  3.64  4.01  4.20  4.28  4.25
+##  6 1         6 -1.56 0.0143  1.40  2.42  3.12  3.67  4.06  4.25  4.31  4.29
+##  7 1         7 -1.56 0.0140  1.38  2.40  3.16  3.68  4.06  4.23  4.33  4.30
+##  8 1         8 -1.41 0.0144  1.23  2.25  2.98  3.52  3.90  4.09  4.17  4.14
+##  9 1         9 -1.54 0.0136  1.34  2.40  3.12  3.68  4.05  4.22  4.29  4.28
+## 10 1        10 -1.57 0.0133  1.38  2.40  3.16  3.70  4.08  4.27  4.33  4.29
+## # ... with 990 more rows, and 6 more variables: b2_10 &lt;dbl&gt;, b2_11 &lt;dbl&gt;,
+## #   b2_12 &lt;dbl&gt;, b2_13 &lt;dbl&gt;, b2_14 &lt;dbl&gt;, b3 &lt;dbl&gt;</code></pre>
+<p>Obviously this is just the beginning. Now I need to assess whether the chain has converged and if it has, I need to summarise the results, but that is for another time.</p>
+</div>
+<div id="multiple-chains" class="section level2">
+<h2>Multiple Chains</h2>
+<p>To run multiple chains in <code>OpenBUGS</code>, we just need to alter the n.chains argument in the bugs() call. However, this will run the chains one after the other, there is no built-in parallel processing.</p>
+<p>I want to run the chains from different starting positions in order to see if they converge to the same solution. One option is to set the initial values randomly. Here all of the values are drawn from N(0, 0.5) distributions. With random initial values, it is important to set a seed for reproducibility.</p>
+<pre class="r"><code>set.seed(8992)
+
+bugsInits &lt;- function() {
+  list( b0=rnorm(1, 0, sd=0.5), 
+        b1=rnorm(1, 0, sd=0.5), 
+        b2=c(NA, rnorm(13, 0, sd=0.5)), 
+        b3=rnorm(1, 0, sd=0.5))
+}</code></pre>
+<p>Alternatively, I could choose the initial values with a list of lists. Here are my initial values for 3 chains.</p>
+<pre class="r"><code>bugsInits &lt;- list(
+  list( b0=-1, b1=-0.1, b2=c(NA, rep(0,13)), b3= 1),
+  list( b0= 0, b1= 0.0, b2=c(NA, rep(0,13)), b3= 0),
+  list( b0= 1, b1= 0.1, b2=c(NA, rep(0,13)), b3=-1)
+)</code></pre>
+<p>It is trivial to change <code>n.chains</code> and re-run the <code>bugs()</code> function, so I’ll omit it to save space.</p>
+</div>
+<div id="parallel-processing" class="section level2">
+<h2>Parallel Processing</h2>
+<p>The are two levels of parallel processing. The simpler form just runs the chains on separate cores. The more complex form also parallelises the tasks required for the calculations within a single chain.</p>
+<div id="multibugs" class="section level3">
+<h3>MultiBUGS</h3>
+<p><code>MultiBUGS</code> is a project to create the complex form of parallel processing. <code>MultiBUGS</code> is still under development, but a beta version is available for download. It is accompanied by an R package <code>R2MultiBUGS</code> that mirrors <code>R2OpenBUGS</code>, so the structure of a <code>MultiBUGS</code> run in R uses almost identical code to the <code>OpenBUGS</code> example.</p>
+<p>To install <code>MultiBUGS</code> go to <a href="https://github.com/MultiBUGS/MultiBUGS#installation" class="uri">https://github.com/MultiBUGS/MultiBUGS#installation</a> and to install <code>R2MultiBUGS</code> go to <a href="https://github.com/MultiBUGS/R2MultiBUGS" class="uri">https://github.com/MultiBUGS/R2MultiBUGS</a></p>
+<p>When I experimented with <code>MultiBUGS</code>, the program ran, but fell foul of my virus checker (McAfee on Windows). McAfee closes <code>MultiBUGS</code> and quarantines the executable. As yet, I have not found a way around this problem.</p>
+</div>
+<div id="multiple-cores" class="section level3">
+<h3>Multiple Cores</h3>
+<p>If you search the internet, you will find some old blog posts that show how to set up a multi-core BUGS analysis using the <code>snow</code> package. <code>snow</code> is rather dated and I will show a more modern method based on the <code>furrr</code> package, which produces reproducible runs.</p>
+<p>I use Windows, so I have to run each chain in a separate R session. These sessions are completely independent of one another, for instance they must all have their own copy of the data. Such independence requires a separate working directory for each chain. <code>R2OpenBUGS</code> works by writing the data, initial values etc. to text files. If the different processes were to use the same working directory, these files would over-write one another.</p>
+<p>I want to create 3 simultaneous <code>OpenBUGS</code> chains using 3 of my processor’s cores and so I start by creating three temporary working directories.</p>
+<pre class="r"><code># --- Create 3 working directories ---------------------------------
+for( i in 1:3 ) {
+  # --- address of the working directory ---------------------------
+  folder &lt;- file.path( home, paste(&quot;temp/chain&quot;, i, sep=&quot;&quot;))
+  # --- delete if it already exists -----------------------------
+  if( dir.exists(folder)) {
+    unlink(folder, recursive=TRUE)
+  }
+  # --- create the working directory -------------------------------
+  dir.create(folder)
+}</code></pre>
+<p>Next I set up a tibble that describes the 3 runs that I want to complete.</p>
+<pre class="r"><code># --- save the bugs data in an rds file --------------------------
+saveRDS( bugsData, file.path(home, &quot;bugs/alcData.rds&quot;))
+
+# --- create the analysis tibble ---------------------------------
+set.seed(1782)
+tibble( 
+        model   = rep( file.path(home, &quot;bugs/alcModel.txt&quot;), 3),
+        data    = rep( file.path(home, &quot;bugs/alcData.rds&quot;), 3),
+        niter   = rep(1500, 3),
+        nburnin = rep(500, 3),
+        thin    = rep(1, 3),
+        seed    = c(3, 4, 5),
+        inits   = list(
+                    list( b0=rnorm(1, 0, sd=0.5), 
+                          b1=rnorm(1, 0, sd=0.5), 
+                          b2=c(NA, rnorm(13, 0, sd=0.5)), 
+                          b3=rnorm(1, 0, sd=0.5)),
+                    list( b0=rnorm(1, 0, sd=0.5), 
+                          b1=rnorm(1, 0, sd=0.5), 
+                          b2=c(NA, rnorm(13, 0, sd=0.5)), 
+                          b3=rnorm(1, 0, sd=0.5)),
+                    list( b0=rnorm(1, 0, sd=0.5), 
+                          b1=rnorm(1, 0, sd=0.5), 
+                          b2=c(NA, rnorm(13, 0, sd=0.5)), 
+                          b3=rnorm(1, 0, sd=0.5)) ),
+        wDir    = paste(
+          file.path(home, &quot;temp/chain&quot;), 1:3, sep=&quot;&quot;),
+        sims    = paste(
+          file.path(home, &quot;data/dataStore/bugs_1_&quot;), 1:3,&quot;.rds&quot;, sep=&quot;&quot;)
+  ) %&gt;%
+  print() -&gt; bugsRunDF</code></pre>
+<pre><code>## # A tibble: 3 x 9
+##   model       data        niter nburnin  thin  seed inits  wDir       sims      
+##   &lt;chr&gt;       &lt;chr&gt;       &lt;dbl&gt;   &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;list&gt; &lt;chr&gt;      &lt;chr&gt;     
+## 1 C:/Project~ C:/Project~  1500     500     1     3 &lt;name~ C:/Projec~ C:/Projec~
+## 2 C:/Project~ C:/Project~  1500     500     1     4 &lt;name~ C:/Projec~ C:/Projec~
+## 3 C:/Project~ C:/Project~  1500     500     1     5 &lt;name~ C:/Projec~ C:/Projec~</code></pre>
+<pre class="r"><code>  # --- save as permanent record of the analysis ---------------------
+  saveRDS( bugsRunDF, file.path(home, &quot;data/dataStore/bugs_df01.rds&quot;)) </code></pre>
+<p>Next, a function must be created that completes the whole analysis for a single chain. This function must be completely stand-alone, it cannot refer to any R objects in the calling environment unless they are passed as arguments. It can, however, read and write to file.</p>
+<pre class="r"><code># --- function to run a single chain ------------------------------
+# arguments correspond to the columns of the analysis tibble
+#
+# returns
+#    nothing .. results written to rds files
+#
+run_bugs &lt;- function(model, data, niter, nburnin, thin, seed,
+                          inits, wDir, sims)
+{
+  library(R2OpenBUGS)
+  
+  # --- OpenBUGS executable
+  obExe   &lt;- &quot;C:/Software/OpenBUGS/OpenBUGS323/OpenBUGS.exe&quot;
+  
+  # --- call to bugs() ---------------------------------------------
+  bugs( data = readRDS(data),
+        inits = list(inits),
+        parameters = c(&quot;b0&quot;, &quot;b1&quot;, &quot;b2&quot;, &quot;b3&quot;),
+        model.file = model,
+        n.chains = 1,
+        n.iter = niter,
+        n.burnin = nburnin,
+        n.thin = thin,
+        digits = 5,
+        codaPkg = FALSE,
+        bugs.seed = seed,
+        OpenBUGS = obExe,
+        working.directory = wDir
+  ) %&gt;%
+  # --- save the returned bugs object -----------------------------
+     saveRDS(sims)
+}</code></pre>
+<p>Now I can use <code>purrr</code> or <code>furrr</code> to run these chains sequentially or in parallel. naturally, I will use <code>furrr</code>. The function required is <code>future_pwalk()</code>, which is the equivalent of <code>purrr</code>’s <code>pwalk()</code>. The <code>walk()</code> function is used when we want to iterate a function for its side effects, i.e. the function does not return anything. <code>pwalk()</code> is the version that takes multiple arguments; here the arguments are all of the entries in a single row of the analysis tibble.</p>
+<pre class="r"><code>library(furrr)
+# --- run three independent R sessions --------------
+plan(multisession, workers=3)
+
+# --- run the chains in parallel --------------------
+bugsRunDF %&gt;%
+  future_pwalk(run_bugs) %&gt;%
+  system.time()
+
+# --- switch back to sequential processing ----------
+plan(sequential)</code></pre>
+<p>Three chains in 7.75s, more or less the same as it took to run one chain.</p>
+<p>Now I can read the results and bind them into a single data frame. Since, running multiple chains is the norm, I have written a function <code>bayes_to_df()</code> that takes a vector as rds file names and returns a data frame of the simulations that they contain. The code for the function is in the appendix.</p>
+<pre class="r"><code># --- read the simulations --------------------------------
+bayes_to_df(bugsRunDF$sims) %&gt;%
+  print() -&gt; simDF</code></pre>
+<pre><code>## # A tibble: 3,000 x 19
+##    chain  iter    b0     b1  b2_2  b2_3  b2_4  b2_5  b2_6  b2_7  b2_8  b2_9
+##    &lt;fct&gt; &lt;int&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+##  1 1         1 -1.55 0.0148  1.41  2.39  3.10  3.67  4.05  4.23  4.30  4.29
+##  2 1         2 -1.54 0.0144  1.35  2.38  3.11  3.68  4.03  4.21  4.28  4.27
+##  3 1         3 -1.31 0.0142  1.12  2.15  2.86  3.44  3.80  3.99  4.08  4.06
+##  4 1         4 -1.32 0.0142  1.11  2.18  2.88  3.45  3.81  3.99  4.07  4.05
+##  5 1         5 -1.52 0.0146  1.36  2.38  3.10  3.66  4.01  4.20  4.29  4.25
+##  6 1         6 -1.35 0.0136  1.15  2.18  2.93  3.47  3.84  4.04  4.12  4.09
+##  7 1         7 -1.28 0.0134  1.08  2.13  2.86  3.42  3.79  3.97  4.06  4.04
+##  8 1         8 -1.31 0.0144  1.10  2.16  2.88  3.42  3.80  4.00  4.07  4.04
+##  9 1         9 -1.40 0.0149  1.22  2.24  2.97  3.51  3.88  4.07  4.13  4.12
+## 10 1        10 -1.40 0.0144  1.22  2.26  2.95  3.51  3.88  4.08  4.15  4.14
+## # ... with 2,990 more rows, and 7 more variables: b2_10 &lt;dbl&gt;, b2_11 &lt;dbl&gt;,
+## #   b2_12 &lt;dbl&gt;, b2_13 &lt;dbl&gt;, b2_14 &lt;dbl&gt;, b3 &lt;dbl&gt;, deviance &lt;dbl&gt;</code></pre>
+</div>
+</div>
+</div>
+<div id="nimble" class="section level1">
+<h1>nimble</h1>
+<p>The R package, <code>nimble</code>, uses a language very similar to <code>BUGS</code> but instead of passing the problem to an external program, the model code and chosen samplers are translated into C++, compiled, linked and run. For a comprehensive description of the package, see <a href="https://r-nimble.org/" class="uri">https://r-nimble.org/</a>.</p>
+<p><code>nimble</code> does extend the <code>BUGS</code> language in a few ways, such as allowing different parameterisations of its distributions, but these differences are minor so, for my simple example, I can use the <code>BUGS</code> model code asis.</p>
+<p>The function <code>nimbleCode</code> is the package’s way of placing the code in a function, only this time it is not written to a text file, but saved as an R object.</p>
+<pre class="r"><code>library(nimble)
+
+nimbleCode( {
+  for( i in 1:560 ) {
+    log(mu[i]) &lt;- b0 + b1*year[i] + b2[age[i]] + b3*gender[i] + offset[i]
+    deaths[i] ~ dpois(mu[i])
+  }
+  b0 ~ dnorm(0, 0.0001)
+  b1 ~ dnorm(0, 0.0001)
+  b2[1] &lt;- 0.0
+  for(j in 2:14) {
+    b2[j] ~ dnorm(0, 0.0001)
+  }
+  b3 ~ dnorm(0, 0.0001)
+} )                       -&gt; modelCode</code></pre>
+<p>The data are placed in a list identical to that used by <code>OpenBUGS</code>.</p>
+<pre class="r"><code>nimbleData &lt;- list( deaths = alcDF$deaths,
+                    offset = log(alcDF$pop),
+                    year   = alcDF$year - 2001,
+                    gender = as.numeric( alcDF$gender == &quot;male&quot;),
+                    age    = as.numeric( alcDF$age))</code></pre>
+<p>The initial values go into a list, rather than a list of lists.</p>
+<pre class="r"><code>nimbleInits &lt;- 
+  list( b0=0, b1=0, b2=c(NA, rep(0,13)), b3=0)</code></pre>
+<p>Next, the code, data and initial values are combined and compiled</p>
+<pre class="r"><code># --- create the model ---------------------------------
+nimbleModel(
+  code  = modelCode,
+  data  = nimbleData,
+  inits = nimbleInits
+)                         -&gt; model
+# --- Compile the model ---------------------------------
+modelCompiled &lt;- compileNimble(model)</code></pre>
+<p>Now, the samplers are compiled/linked with the model. I use the default samplers chosen by <code>nimble</code>, but I could have made my own choices.</p>
+<pre class="r"><code># --- build the sampler ---------------------------------
+buildMCMC(
+  conf     = modelCompiled,
+  monitors = c(&quot;b0&quot;, &quot;b1&quot;, &quot;b2&quot;, &quot;b3&quot;)
+)                          -&gt; nimbleMCMC
+# --- final compilation ---------------------------------
+mcmcCompiled &lt;- compileNimble(nimbleMCMC)</code></pre>
+<p>Finally, the compiled mcmc code is run.</p>
+<pre class="r"><code># --- run the compiled nimble code ----------------------
+runMCMC(
+  mcmc    = mcmcCompiled,
+  niter   = 1500,
+  nburnin = 500,
+  setSeed = 1832
+  )  %&gt;%
+  saveRDS( file.path( home, &quot;data/dataStore/alcNimble01.rds&quot;)) %&gt;%
+  system.time()</code></pre>
+<p><code>nimble</code> takes less than half the time required by <code>OpenBUGS</code>. However, this time does not allow for compilation.</p>
+<p>The structure returned by <code>nimble</code> is much simpler than that of <code>R2OpenBUGS</code>.</p>
+<pre class="r"><code>results &lt;- readRDS(file.path( home, &quot;data/dataStore/alcNimble01.rds&quot;))
+
+str(results)</code></pre>
+<pre><code>##  num [1:1000, 1:17] 0.422 0.422 0.422 0.422 0.422 ...
+##  - attr(*, &quot;dimnames&quot;)=List of 2
+##   ..$ : NULL
+##   ..$ : chr [1:17] &quot;b0&quot; &quot;b1&quot; &quot;b2[1]&quot; &quot;b2[2]&quot; ...</code></pre>
+<p>My function for placing these results into a tibble is called <code>nimble_to_df()</code> and is given in the Appendix. Alternatively, the function <code>bayes_to_df()</code> will return a data frame from the name of an rds file(s).</p>
+<pre class="r"><code># --- read the results for the example ------------------------
+simDF &lt;- nimble_to_df(results)
+
+# --- show the results ----------------------------------------
+print(simDF)</code></pre>
+<pre><code>## # A tibble: 1,000 x 19
+##    chain  iter    b0      b1  b2_1   b2_2  b2_3  b2_4  b2_5  b2_6  b2_7  b2_8
+##    &lt;fct&gt; &lt;int&gt; &lt;dbl&gt;   &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+##  1 1         1 0.422 0.00141     0 -0.424 0.539  1.30  1.86  2.21  2.40  2.47
+##  2 1         2 0.422 0.00141     0 -0.424 0.606  1.30  1.86  2.21  2.40  2.47
+##  3 1         3 0.422 0.00141     0 -0.424 0.606  1.30  1.86  2.23  2.40  2.47
+##  4 1         4 0.422 0.00141     0 -0.464 0.606  1.30  1.86  2.23  2.40  2.47
+##  5 1         5 0.422 0.00141     0 -0.464 0.606  1.30  1.86  2.23  2.40  2.46
+##  6 1         6 0.422 0.00141     0 -0.439 0.606  1.30  1.86  2.23  2.40  2.46
+##  7 1         7 0.422 0.00141     0 -0.439 0.606  1.30  1.86  2.23  2.40  2.46
+##  8 1         8 0.422 0.00141     0 -0.508 0.608  1.30  1.86  2.23  2.42  2.46
+##  9 1         9 0.422 0.00141     0 -0.465 0.608  1.30  1.86  2.23  2.41  2.46
+## 10 1        10 0.422 0.00141     0 -0.478 0.608  1.30  1.86  2.23  2.41  2.46
+## # ... with 990 more rows, and 7 more variables: b2_9 &lt;dbl&gt;, b2_10 &lt;dbl&gt;,
+## #   b2_11 &lt;dbl&gt;, b2_12 &lt;dbl&gt;, b2_13 &lt;dbl&gt;, b2_14 &lt;dbl&gt;, b3 &lt;dbl&gt;</code></pre>
+<p>Notice that the b0 does not move over the first 10 iterations, this is a consequence of <code>nimble</code>’s choice of samplers; I could do better, but that is not the point of this post.</p>
+<div id="parallel-nimble" class="section level2">
+<h2>Parallel Nimble</h2>
+<p><code>nimble</code> is made parallel in much the same way as <code>OpenBUGS</code>. The entire <code>nimble</code> analysis, including the compilations, are placed in a function that is called by <code>future_pwalk()</code>. I believe that the authors of <code>nimble</code> have plans to improve the parallel processing, so it might be worth checking their website.</p>
+<p>First, I write the code and data to an rds file and the create an analysis data frame. There is no need for separate working directories as model components are not written to text files as in <code>OpenBUGS</code>.</p>
+<pre class="r"><code>saveRDS( modelCode, file.path(home, &quot;nimble/alcModel.rds&quot;))
+
+# --- save the nimble data in an rds file --------------------------
+saveRDS( nimbleData, file.path(home, &quot;nimble/alcData.rds&quot;))
+
+# --- create the analysis tibble ---------------------------------
+set.seed(1782)
+tibble( 
+        model   = rep( file.path(home, &quot;nimble/alcModel.rds&quot;), 3),
+        data    = rep( file.path(home, &quot;nimble/alcData.rds&quot;), 3),
+        niter   = rep(1500, 3),
+        nburnin = rep(500, 3),
+        thin    = rep(1, 3),
+        seed   = c(3328, 4309, 5881),
+        inits   = list(
+                    list( b0=rnorm(1, 0, sd=0.5), 
+                          b1=rnorm(1, 0, sd=0.5), 
+                          b2=c(NA, rnorm(13, 0, sd=0.5)), 
+                          b3=rnorm(1, 0, sd=0.5)),
+                    list( b0=rnorm(1, 0, sd=0.5), 
+                          b1=rnorm(1, 0, sd=0.5), 
+                          b2=c(NA, rnorm(13, 0, sd=0.5)), 
+                          b3=rnorm(1, 0, sd=0.5)),
+                    list( b0=rnorm(1, 0, sd=0.5), 
+                          b1=rnorm(1, 0, sd=0.5), 
+                          b2=c(NA, rnorm(13, 0, sd=0.5)), 
+                          b3=rnorm(1, 0, sd=0.5)) ),
+        sims    = paste(
+          file.path(home, &quot;data/dataStore/nimble_1_&quot;), 1:3,&quot;.rds&quot;, sep=&quot;&quot;)
+  ) %&gt;%
+  print() -&gt; nimbleRunDF
+  # --- save as permanent record of the analysis ---------------------
+  saveRDS( nimbleRunDF,  file.path(home, &quot;data/dataStore/nimble_df01.rds&quot;))</code></pre>
+<pre class="r"><code># --- a function for all stages of the nimble analysis ---------------
+run_nimble &lt;- function(model, data, niter, nburnin, thin, seed,
+                          inits, sims)
+{
+  library(nimble)
+  
+  # --- create the model and compile ------------------------
+  nimbleModel(code  = readRDS(model),
+              data  = readRDS(data),
+              inits = inits) %&gt;%
+     compileNimble() %&gt;%
+  # --- choose samplers and link ----------------------------
+     buildMCMC() %&gt;%
+     compileNimble() %&gt;%
+  # --- run the chain ---------------------------------------
+     runMCMC(niter = niter, nburnin = nburnin,
+                     thin = thin, setSeed = seed) %&gt;%
+  # --- Save the results ------------------------------------
+     saveRDS(sims)
+}</code></pre>
+<p>Next, I create a cluster of 3 cores and run <code>nimble</code> independently on each of the cores. The method is the same as that used with OpenBUGS.</p>
+<pre class="r"><code>library(furrr)
+# --- run three independent R sessions --------------
+plan(multisession, workers=3)
+
+# --- run the chains in parallel --------------------
+nimbleRunDF %&gt;%
+  future_pwalk(run_nimble) %&gt;%
+  system.time()
+
+# --- switch back to sequential processing ----------
+plan(sequential)
+
+bayes_to_df(nimbleRunDF$sims) %&gt;%
+  print() -&gt; simDF</code></pre>
+<p>The program appears to be slower than <code>OpenBUGS</code>, but the time includes compilation. For longer, more realistic chains, compilation is a smaller fraction of the total time and the speed of <code>nimble</code> is very competitive.</p>
+</div>
+</div>
+<div id="stan" class="section level1">
+<h1>Stan</h1>
+<p>Stan uses the HMC algorithm, which for some problems performs better than the Gibbs sampling of <code>BUGS</code> and its derivatives. Much like <code>nimble</code>, Stan turns the model into C++ code and compiles it, but unlike <code>nimble</code>, it modifies the <code>BUGS</code> language to make it easier to optimise the performance of its compiled code. The chief difference lies in the requirement to define the size, type and range of the data, parameters and intermediate variables. That said, the code is noticeably <code>BUGS</code>-like.</p>
+<p>A <code>Stan</code> model is created in sections, though not all of them are needed for every problem. The sections are,</p>
+<ul>
+<li>data: a description of the size, type and range of the data<br />
+</li>
+<li>transformed data: variables derived by transforming the data<br />
+</li>
+<li>parameters: a description of the size, type and range of the parameters<br />
+</li>
+<li>transformed parameters: variables derived by transforming the parameters<br />
+</li>
+<li>model: the code for the likelihood and prior (much like BUGS)<br />
+</li>
+<li>generated quantities: values derived from the simulations, including predictions</li>
+</ul>
+<p><code>Stan</code> has more functions than <code>BUGS</code> and a greater variety of parameterisations for its distributions. It also adopts simpler distribution names, such as <code>normal()</code> instead of <code>dnorm()</code> for the normal distribution. <code>Stan</code> uses different default parameterisations.</p>
+<p>In <code>Stan</code>, lines end with a semi-colon and <code>=</code> replaces <code>&lt;-</code>.</p>
+<p>The Poisson regression problem might be coded as,</p>
+<pre class="r"><code>data {
+  int N;
+  int deaths[N];
+  vector[N] year;
+  int&lt;lower=1, upper=14&gt; age[N];
+  vector[N] gender;
+  vector[N] offset;
+}
+
+parameters {
+  real b0;
+  real b1;
+  vector[13] b2;
+  real b3;
+}
+
+transformed parameters {
+  real mu[N];
+  vector[14] b4;
+
+  b4[1] = 0.0;
+  for( i in 2:14 ) {
+    b4[i] = b2[i-1];
+  }
+  for( i in 1:N) {
+    mu[i] = exp(b0 + b1*year[i] + b4[age[i]] + b3*gender[i] + offset[i]);
+  }
+}
+
+model {
+  deaths ~ poisson(mu);
+  
+  b0 ~ normal(0, 10);
+  b1 ~ normal(0, 10);
+  for(j in 1:13) {
+    b2[j] ~ normal(0, 10);
+  }
+  b3 ~ normal(0, 10);
+}</code></pre>
+<p>Since I tell <code>Stan</code> that age is an integer between 1 and 14, it will check the data when it is read. Giving types and ranges for the parameters helps <code>Stan</code> to create more efficient code. Typically, types and ranges can be omitted and the program will still work, just not as quickly.</p>
+<p>Notice that <code>Stan</code> is vectorised, so it is possible to write <code>deaths ~ poisson(mu)</code> and, because deaths has been defined as a vector, <code>Stan</code> will expand the calculation without us needing to give an explicit loop. Had I made the loop explicit, it would still have worked.</p>
+<p>By default, <code>Stan</code> parameterises the normal distribution in terms of its mean and standard deviation. See the <code>Stan</code> functions guide for more details, <a href="https://mc-stan.org/docs/2_20/functions-reference/normal-distribution.html" class="uri">https://mc-stan.org/docs/2_20/functions-reference/normal-distribution.html</a>.</p>
+<p>The <code>Stan</code> documentation has a page on transitioning from <code>BUGS</code> that might be helpful if you start with some familiarity with <code>BUGS</code>. See <a href="https://mc-stan.org/docs/2_28/stan-users-guide/stan-for-bugs.html" class="uri">https://mc-stan.org/docs/2_28/stan-users-guide/stan-for-bugs.html</a>.</p>
+<div id="running-rstan" class="section level2">
+<h2>Running RStan</h2>
+<div id="saving-the-model-code" class="section level3">
+<h3>Saving the model code</h3>
+<p>The model code should be written to a text file, just as for <code>R2OpenBUGS</code>. Conventionally these files are given a <code>.stan</code> extension. My file is called <code>alcModel.stan</code> and is saved in a folder called <code>stan</code></p>
+</div>
+<div id="preparing-the-data-1" class="section level3">
+<h3>Preparing the data</h3>
+<p>Data are placed in a list, just as with <code>BUGS</code>.</p>
+<pre class="r"><code>stanData &lt;- list( N      = 560,
+                  deaths = as.integer(alcDF$deaths),
+                  offset = log(alcDF$pop),
+                  year   = as.numeric(alcDF$year - 2001),
+                  gender = as.numeric( alcDF$gender == &quot;male&quot;),
+                  age    = as.integer( alcDF$age))</code></pre>
+</div>
+<div id="preparing-the-initial-values" class="section level3">
+<h3>Preparing the initial values</h3>
+<p>No need. <code>Stan</code> has an initial warm-up phase during which it tunes the algorithm; at the same time, it finds good starting values for you.</p>
+</div>
+<div id="running-the-sampler" class="section level3">
+<h3>Running the sampler</h3>
+<p>There is a <code>stan()</code> function in <code>rstan</code> that is directly analogous to the <code>bugs()</code> function of <code>R2OpenBUGS</code>.</p>
+<p>Compilation etc. is all handled for you and parallel processing is built-in.</p>
+<pre class="r"><code>library(rstan)
+
+stan(
+  file = file.path(home, &quot;stan/alcModel.stan&quot;),  # Stan program
+  data = stanData,         # named list of data
+  pars = c(&quot;b0&quot;, &quot;b1&quot;, &quot;b2&quot;, &quot;b3&quot;), # parameters to monitor
+  chains = 3,              # number of Markov chains
+  warmup = 500,            # number of warmup iterations per chain
+  iter   = 1000,           # total number of iterations per chain
+  cores  = 3,              # number of cores
+  ) %&gt;%
+saveRDS( file.path( home, &quot;data/dataStore/alcStanP01.rds&quot;)) %&gt;%
+system.time()</code></pre>
+<p>Like <code>nimble</code> the time taken by <code>stan</code> is in large part a result of the compilation and <code>stan</code> becomes more competitive when the computation takes longer.</p>
+<p>The object returned by <code>rstan</code> is quite complex but my function <code>stan_to_df()</code>, which is given in the appendix, will extract the results into a tibble.</p>
+<pre class="r"><code># --- read the stan results --------------------------------
+results &lt;- readRDS(file.path( home, &quot;data/dataStore/alcStanP01.rds&quot;))
+# --- look at the structure --------------------------------
+str(results)</code></pre>
+<pre><code>## Formal class &#39;stanfit&#39; [package &quot;rstan&quot;] with 10 slots
+##   ..@ model_name: chr &quot;alcModel&quot;
+##   ..@ model_pars: chr [1:7] &quot;b0&quot; &quot;b1&quot; &quot;b2&quot; &quot;b3&quot; ...
+##   ..@ par_dims  :List of 7
+##   .. ..$ b0  : num(0) 
+##   .. ..$ b1  : num(0) 
+##   .. ..$ b2  : num 13
+##   .. ..$ b3  : num(0) 
+##   .. ..$ mu  : num 560
+##   .. ..$ b4  : num 14
+##   .. ..$ lp__: num(0) 
+##   ..@ mode      : int 0
+##   ..@ sim       :List of 12
+##   .. ..$ samples    :List of 3
+##   .. .. ..$ :List of 17
+##   .. .. .. ..$ b0    : num [1:1000] -0.872 -0.872 -0.872 -0.872 -0.872 ...
+##   .. .. .. ..$ b1    : num [1:1000] -0.123 -0.123 -0.123 -0.123 -0.123 ...
+##   .. .. .. ..$ b2[1] : num [1:1000] 1.02 1.02 1.02 1.02 1.02 ...
+##   .. .. .. ..$ b2[2] : num [1:1000] 1.09 1.09 1.09 1.09 1.09 ...
+##   .. .. .. ..$ b2[3] : num [1:1000] -1.43 -1.43 -1.43 -1.43 -1.43 ...
+##   .. .. .. ..$ b2[4] : num [1:1000] -0.0502 -0.0502 -0.0502 -0.0502 -0.0502 ...
+##   .. .. .. ..$ b2[5] : num [1:1000] -1.79 -1.79 -1.79 -1.79 -1.79 ...
+##   .. .. .. ..$ b2[6] : num [1:1000] -0.862 -0.862 -0.862 -0.862 -0.862 ...
+##   .. .. .. ..$ b2[7] : num [1:1000] 0.711 0.711 0.711 0.711 0.711 ...
+##   .. .. .. ..$ b2[8] : num [1:1000] -0.634 -0.634 -0.634 -0.634 -0.634 ...
+##   .. .. .. ..$ b2[9] : num [1:1000] -1.55 -1.55 -1.55 -1.55 -1.55 ...
+##   .. .. .. ..$ b2[10]: num [1:1000] 1.83 1.83 1.83 1.83 1.83 ...
+##   .. .. .. ..$ b2[11]: num [1:1000] -0.427 -0.427 -0.427 -0.427 -0.427 ...
+##   .. .. .. ..$ b2[12]: num [1:1000] 0.376 0.376 0.376 0.376 0.376 ...
+##   .. .. .. ..$ b2[13]: num [1:1000] -0.533 -0.533 -0.533 -0.533 -0.533 ...
+##   .. .. .. ..$ b3    : num [1:1000] -1.57 -1.57 -1.57 -1.57 -1.57 ...
+##   .. .. .. ..$ lp__  : num [1:1000] -101805 -101805 -101805 -101805 -101805 ...
+##   .. .. .. ..- attr(*, &quot;test_grad&quot;)= logi FALSE
+##   .. .. .. ..- attr(*, &quot;args&quot;)=List of 16
+##   .. .. .. .. ..$ append_samples    : logi FALSE
+##   .. .. .. .. ..$ chain_id          : num 1
+##   .. .. .. .. ..$ control           :List of 12
+##   .. .. .. .. .. ..$ adapt_delta      : num 0.8
+##   .. .. .. .. .. ..$ adapt_engaged    : logi TRUE
+##   .. .. .. .. .. ..$ adapt_gamma      : num 0.05
+##   .. .. .. .. .. ..$ adapt_init_buffer: num 75
+##   .. .. .. .. .. ..$ adapt_kappa      : num 0.75
+##   .. .. .. .. .. ..$ adapt_t0         : num 10
+##   .. .. .. .. .. ..$ adapt_term_buffer: num 50
+##   .. .. .. .. .. ..$ adapt_window     : num 25
+##   .. .. .. .. .. ..$ max_treedepth    : int 10
+##   .. .. .. .. .. ..$ metric           : chr &quot;diag_e&quot;
+##   .. .. .. .. .. ..$ stepsize         : num 1
+##   .. .. .. .. .. ..$ stepsize_jitter  : num 0
+##   .. .. .. .. ..$ enable_random_init: logi TRUE
+##   .. .. .. .. ..$ init              : chr &quot;random&quot;
+##   .. .. .. .. ..$ init_list         : NULL
+##   .. .. .. .. ..$ init_radius       : num 2
+##   .. .. .. .. ..$ iter              : int 1000
+##   .. .. .. .. ..$ method            : chr &quot;sampling&quot;
+##   .. .. .. .. ..$ random_seed       : chr &quot;827152961&quot;
+##   .. .. .. .. ..$ refresh           : int 100
+##   .. .. .. .. ..$ sampler_t         : chr &quot;NUTS(diag_e)&quot;
+##   .. .. .. .. ..$ save_warmup       : logi TRUE
+##   .. .. .. .. ..$ test_grad         : logi FALSE
+##   .. .. .. .. ..$ thin              : int 1
+##   .. .. .. .. ..$ warmup            : int 500
+##   .. .. .. ..- attr(*, &quot;inits&quot;)= num [1:590] -0.888 -0.289 1.017 1.091 -1.428 ...
+##   .. .. .. ..- attr(*, &quot;mean_pars&quot;)= num [1:590] -1.6849 0.0142 1.5011 2.5297 3.2542 ...
+##   .. .. .. ..- attr(*, &quot;mean_lp__&quot;)= num 691125
+##   .. .. .. ..- attr(*, &quot;adaptation_info&quot;)= chr &quot;# Adaptation terminated\n# Step size = 0.00849926\n# Diagonal elements of inverse mass matrix:\n# 0.0902026, 2.&quot;| __truncated__
+##   .. .. .. ..- attr(*, &quot;elapsed_time&quot;)= Named num [1:2] 4.81 5.48
+##   .. .. .. .. ..- attr(*, &quot;names&quot;)= chr [1:2] &quot;warmup&quot; &quot;sample&quot;
+##   .. .. .. ..- attr(*, &quot;sampler_params&quot;)=List of 6
+##   .. .. .. .. ..$ accept_stat__: num [1:1000] 1 0 0 0 0 0 1 1 1 0.5 ...
+##   .. .. .. .. ..$ stepsize__   : num [1:1000] 4.88e-04 1.44e+01 2.43 2.40e-01 1.86e-02 ...
+##   .. .. .. .. ..$ treedepth__  : num [1:1000] 1 0 0 0 0 0 2 1 1 1 ...
+##   .. .. .. .. ..$ n_leapfrog__ : num [1:1000] 1 1 1 1 1 1 3 1 1 2 ...
+##   .. .. .. .. ..$ divergent__  : num [1:1000] 0 1 1 1 1 1 0 0 0 1 ...
+##   .. .. .. .. ..$ energy__     : num [1:1000] 335457 101811 101811 101813 101813 ...
+##   .. .. .. ..- attr(*, &quot;return_code&quot;)= int 0
+##   .. .. ..$ :List of 17
+##   .. .. .. ..$ b0    : num [1:1000] 1.71 1.71 1.71 1.71 1.71 ...
+##   .. .. .. ..$ b1    : num [1:1000] 0.298 0.298 0.298 0.298 0.298 ...
+##   .. .. .. ..$ b2[1] : num [1:1000] -1.9 -1.9 -1.9 -1.9 -1.9 ...
+##   .. .. .. ..$ b2[2] : num [1:1000] 0.747 0.747 0.747 0.747 0.747 ...
+##   .. .. .. ..$ b2[3] : num [1:1000] 1.63 1.63 1.63 1.63 1.63 ...
+##   .. .. .. ..$ b2[4] : num [1:1000] -1.19 -1.19 -1.19 -1.19 -1.19 ...
+##   .. .. .. ..$ b2[5] : num [1:1000] -1.71 -1.71 -1.71 -1.71 -1.71 ...
+##   .. .. .. ..$ b2[6] : num [1:1000] -1.19 -1.19 -1.19 -1.19 -1.19 ...
+##   .. .. .. ..$ b2[7] : num [1:1000] 1.23 1.23 1.23 1.23 1.23 ...
+##   .. .. .. ..$ b2[8] : num [1:1000] -0.255 -0.255 -0.255 -0.255 -0.255 ...
+##   .. .. .. ..$ b2[9] : num [1:1000] 0.0068 0.0068 0.0068 0.0068 0.0068 ...
+##   .. .. .. ..$ b2[10]: num [1:1000] 0.44 0.44 0.44 0.44 0.44 ...
+##   .. .. .. ..$ b2[11]: num [1:1000] 0.0699 0.0699 0.0699 0.0699 0.0699 ...
+##   .. .. .. ..$ b2[12]: num [1:1000] 1.39 1.39 1.39 1.39 1.39 ...
+##   .. .. .. ..$ b2[13]: num [1:1000] -1.27 -1.27 -1.27 -1.27 -1.27 ...
+##   .. .. .. ..$ b3    : num [1:1000] -1.45 -1.45 -1.45 -1.45 -1.45 ...
+##   .. .. .. ..$ lp__  : num [1:1000] -1905693 -1905693 -1905693 -1905693 -1905693 ...
+##   .. .. .. ..- attr(*, &quot;test_grad&quot;)= logi FALSE
+##   .. .. .. ..- attr(*, &quot;args&quot;)=List of 16
+##   .. .. .. .. ..$ append_samples    : logi FALSE
+##   .. .. .. .. ..$ chain_id          : num 2
+##   .. .. .. .. ..$ control           :List of 12
+##   .. .. .. .. .. ..$ adapt_delta      : num 0.8
+##   .. .. .. .. .. ..$ adapt_engaged    : logi TRUE
+##   .. .. .. .. .. ..$ adapt_gamma      : num 0.05
+##   .. .. .. .. .. ..$ adapt_init_buffer: num 75
+##   .. .. .. .. .. ..$ adapt_kappa      : num 0.75
+##   .. .. .. .. .. ..$ adapt_t0         : num 10
+##   .. .. .. .. .. ..$ adapt_term_buffer: num 50
+##   .. .. .. .. .. ..$ adapt_window     : num 25
+##   .. .. .. .. .. ..$ max_treedepth    : int 10
+##   .. .. .. .. .. ..$ metric           : chr &quot;diag_e&quot;
+##   .. .. .. .. .. ..$ stepsize         : num 1
+##   .. .. .. .. .. ..$ stepsize_jitter  : num 0
+##   .. .. .. .. ..$ enable_random_init: logi TRUE
+##   .. .. .. .. ..$ init              : chr &quot;random&quot;
+##   .. .. .. .. ..$ init_list         : NULL
+##   .. .. .. .. ..$ init_radius       : num 2
+##   .. .. .. .. ..$ iter              : int 1000
+##   .. .. .. .. ..$ method            : chr &quot;sampling&quot;
+##   .. .. .. .. ..$ random_seed       : chr &quot;827152961&quot;
+##   .. .. .. .. ..$ refresh           : int 100
+##   .. .. .. .. ..$ sampler_t         : chr &quot;NUTS(diag_e)&quot;
+##   .. .. .. .. ..$ save_warmup       : logi TRUE
+##   .. .. .. .. ..$ test_grad         : logi FALSE
+##   .. .. .. .. ..$ thin              : int 1
+##   .. .. .. .. ..$ warmup            : int 500
+##   .. .. .. ..- attr(*, &quot;inits&quot;)= num [1:590] 1.717 0.373 -1.9 0.747 1.635 ...
+##   .. .. .. ..- attr(*, &quot;mean_pars&quot;)= num [1:590] -1.68 0.0143 1.4944 2.5243 3.2479 ...
+##   .. .. .. ..- attr(*, &quot;mean_lp__&quot;)= num 691125
+##   .. .. .. ..- attr(*, &quot;adaptation_info&quot;)= chr &quot;# Adaptation terminated\n# Step size = 0.0147061\n# Diagonal elements of inverse mass matrix:\n# 0.0371848, 2.4&quot;| __truncated__
+##   .. .. .. ..- attr(*, &quot;elapsed_time&quot;)= Named num [1:2] 4.58 4.99
+##   .. .. .. .. ..- attr(*, &quot;names&quot;)= chr [1:2] &quot;warmup&quot; &quot;sample&quot;
+##   .. .. .. ..- attr(*, &quot;sampler_params&quot;)=List of 6
+##   .. .. .. .. ..$ accept_stat__: num [1:1000] 1 0 0 0 0 0 1 1 1 1 ...
+##   .. .. .. .. ..$ stepsize__   : num [1:1000] 3.05e-05 1.44e+01 2.43 2.40e-01 1.86e-02 ...
+##   .. .. .. .. ..$ treedepth__  : num [1:1000] 3 0 0 0 0 0 3 2 2 2 ...
+##   .. .. .. .. ..$ n_leapfrog__ : num [1:1000] 7 1 1 1 1 1 7 3 3 3 ...
+##   .. .. .. .. ..$ divergent__  : num [1:1000] 0 1 1 1 1 1 0 0 0 0 ...
+##   .. .. .. .. ..$ energy__     : num [1:1000] 6771707 1905699 1905698 1905703 1905702 ...
+##   .. .. .. ..- attr(*, &quot;return_code&quot;)= int 0
+##   .. .. ..$ :List of 17
+##   .. .. .. ..$ b0    : num [1:1000] -0.266 -0.266 -0.266 -0.266 -0.266 ...
+##   .. .. .. ..$ b1    : num [1:1000] 1.8 1.8 1.8 1.8 1.8 ...
+##   .. .. .. ..$ b2[1] : num [1:1000] -0.319 -0.319 -0.319 -0.319 -0.319 ...
+##   .. .. .. ..$ b2[2] : num [1:1000] 1.63 1.63 1.63 1.63 1.63 ...
+##   .. .. .. ..$ b2[3] : num [1:1000] 1.61 1.61 1.61 1.61 1.61 ...
+##   .. .. .. ..$ b2[4] : num [1:1000] 1.29 1.29 1.29 1.29 1.29 ...
+##   .. .. .. ..$ b2[5] : num [1:1000] 1.94 1.94 1.94 1.94 1.94 ...
+##   .. .. .. ..$ b2[6] : num [1:1000] -0.188 -0.188 -0.188 -0.188 -0.188 ...
+##   .. .. .. ..$ b2[7] : num [1:1000] 0.648 0.648 0.648 0.648 0.648 ...
+##   .. .. .. ..$ b2[8] : num [1:1000] -0.749 -0.749 -0.749 -0.749 -0.749 ...
+##   .. .. .. ..$ b2[9] : num [1:1000] 1.26 1.26 1.26 1.26 1.26 ...
+##   .. .. .. ..$ b2[10]: num [1:1000] -0.145 -0.145 -0.145 -0.145 -0.145 ...
+##   .. .. .. ..$ b2[11]: num [1:1000] 0.304 0.304 0.304 0.304 0.304 ...
+##   .. .. .. ..$ b2[12]: num [1:1000] 0.805 0.805 0.805 0.805 0.805 ...
+##   .. .. .. ..$ b2[13]: num [1:1000] -0.8 -0.8 -0.8 -0.8 -0.8 ...
+##   .. .. .. ..$ b3    : num [1:1000] 1.67 1.67 1.67 1.67 1.67 ...
+##   .. .. .. ..$ lp__  : num [1:1000] -2.43e+18 -2.43e+18 -2.43e+18 -2.43e+18 -2.43e+18 ...
+##   .. .. .. ..- attr(*, &quot;test_grad&quot;)= logi FALSE
+##   .. .. .. ..- attr(*, &quot;args&quot;)=List of 16
+##   .. .. .. .. ..$ append_samples    : logi FALSE
+##   .. .. .. .. ..$ chain_id          : num 3
+##   .. .. .. .. ..$ control           :List of 12
+##   .. .. .. .. .. ..$ adapt_delta      : num 0.8
+##   .. .. .. .. .. ..$ adapt_engaged    : logi TRUE
+##   .. .. .. .. .. ..$ adapt_gamma      : num 0.05
+##   .. .. .. .. .. ..$ adapt_init_buffer: num 75
+##   .. .. .. .. .. ..$ adapt_kappa      : num 0.75
+##   .. .. .. .. .. ..$ adapt_t0         : num 10
+##   .. .. .. .. .. ..$ adapt_term_buffer: num 50
+##   .. .. .. .. .. ..$ adapt_window     : num 25
+##   .. .. .. .. .. ..$ max_treedepth    : int 10
+##   .. .. .. .. .. ..$ metric           : chr &quot;diag_e&quot;
+##   .. .. .. .. .. ..$ stepsize         : num 1
+##   .. .. .. .. .. ..$ stepsize_jitter  : num 0
+##   .. .. .. .. ..$ enable_random_init: logi TRUE
+##   .. .. .. .. ..$ init              : chr &quot;random&quot;
+##   .. .. .. .. ..$ init_list         : NULL
+##   .. .. .. .. ..$ init_radius       : num 2
+##   .. .. .. .. ..$ iter              : int 1000
+##   .. .. .. .. ..$ method            : chr &quot;sampling&quot;
+##   .. .. .. .. ..$ random_seed       : chr &quot;827152961&quot;
+##   .. .. .. .. ..$ refresh           : int 100
+##   .. .. .. .. ..$ sampler_t         : chr &quot;NUTS(diag_e)&quot;
+##   .. .. .. .. ..$ save_warmup       : logi TRUE
+##   .. .. .. .. ..$ test_grad         : logi FALSE
+##   .. .. .. .. ..$ thin              : int 1
+##   .. .. .. .. ..$ warmup            : int 500
+##   .. .. .. ..- attr(*, &quot;inits&quot;)= num [1:590] -0.263 1.854 -0.319 1.633 1.615 ...
+##   .. .. .. ..- attr(*, &quot;mean_pars&quot;)= num [1:590] -1.6771 0.0143 1.4971 2.5227 3.2461 ...
+##   .. .. .. ..- attr(*, &quot;mean_lp__&quot;)= num 691125
+##   .. .. .. ..- attr(*, &quot;adaptation_info&quot;)= chr &quot;# Adaptation terminated\n# Step size = 0.0243091\n# Diagonal elements of inverse mass matrix:\n# 0.00675896, 2.&quot;| __truncated__
+##   .. .. .. ..- attr(*, &quot;elapsed_time&quot;)= Named num [1:2] 4.73 5.04
+##   .. .. .. .. ..- attr(*, &quot;names&quot;)= chr [1:2] &quot;warmup&quot; &quot;sample&quot;
+##   .. .. .. ..- attr(*, &quot;sampler_params&quot;)=List of 6
+##   .. .. .. .. ..$ accept_stat__: num [1:1000] 1 0 0 0 0 0 0 0 0 0 ...
+##   .. .. .. .. ..$ stepsize__   : num [1:1000] 2.91e-11 1.44e+01 2.43 2.40e-01 1.86e-02 ...
+##   .. .. .. .. ..$ treedepth__  : num [1:1000] 2 0 0 0 0 0 0 0 0 0 ...
+##   .. .. .. .. ..$ n_leapfrog__ : num [1:1000] 3 1 1 1 1 1 1 1 1 1 ...
+##   .. .. .. .. ..$ divergent__  : num [1:1000] 0 1 1 1 1 1 1 1 1 1 ...
+##   .. .. .. .. ..$ energy__     : num [1:1000] 6.05e+18 2.43e+18 2.43e+18 2.43e+18 2.43e+18 ...
+##   .. .. .. ..- attr(*, &quot;return_code&quot;)= int 0
+##   .. ..$ chains     : int 3
+##   .. ..$ iter       : num 1000
+##   .. ..$ thin       : num 1
+##   .. ..$ warmup     : num 500
+##   .. ..$ n_save     : num [1:3] 1000 1000 1000
+##   .. ..$ warmup2    : num [1:3] 500 500 500
+##   .. ..$ permutation:List of 3
+##   .. .. ..$ : int [1:500] 296 396 423 462 419 6 430 494 234 221 ...
+##   .. .. ..$ : int [1:500] 343 34 337 338 486 363 135 400 433 249 ...
+##   .. .. ..$ : int [1:500] 329 223 414 453 344 368 250 16 101 325 ...
+##   .. ..$ pars_oi    : chr [1:5] &quot;b0&quot; &quot;b1&quot; &quot;b2&quot; &quot;b3&quot; ...
+##   .. ..$ dims_oi    :List of 5
+##   .. .. ..$ b0  : num(0) 
+##   .. .. ..$ b1  : num(0) 
+##   .. .. ..$ b2  : num 13
+##   .. .. ..$ b3  : num(0) 
+##   .. .. ..$ lp__: num(0) 
+##   .. ..$ fnames_oi  : chr [1:17] &quot;b0&quot; &quot;b1&quot; &quot;b2[1]&quot; &quot;b2[2]&quot; ...
+##   .. ..$ n_flatnames: int 17
+##   ..@ inits     :List of 3
+##   .. ..$ :List of 6
+##   .. .. ..$ b0: num -0.888
+##   .. .. ..$ b1: num -0.289
+##   .. .. ..$ b2: num [1:13(1d)] 1.017 1.091 -1.428 -0.052 -1.793 ...
+##   .. .. ..$ b3: num -1.58
+##   .. .. ..$ mu: num [1:560(1d)] 0.0073 0.04 0.0205 0.1002 0.0222 ...
+##   .. .. ..$ b4: num [1:14(1d)] 0 1.017 1.091 -1.428 -0.052 ...
+##   .. ..$ :List of 6
+##   .. .. ..$ b0: num 1.72
+##   .. .. ..$ b1: num 0.373
+##   .. .. ..$ b2: num [1:13(1d)] -1.9 0.747 1.635 -1.186 -1.706 ...
+##   .. .. ..$ b3: num -1.45
+##   .. .. ..$ mu: num [1:560(1d)] 32125 155552 4883 21061 69420 ...
+##   .. .. ..$ b4: num [1:14(1d)] 0 -1.9 0.747 1.635 -1.186 ...
+##   .. ..$ :List of 6
+##   .. .. ..$ b0: num -0.263
+##   .. .. ..$ b1: num 1.85
+##   .. .. ..$ b2: num [1:13(1d)] -0.319 1.633 1.615 1.293 1.938 ...
+##   .. .. ..$ b3: num 1.67
+##   .. .. ..$ mu: num [1:560(1d)] 1.70e+17 3.60e+16 1.25e+17 2.37e+16 8.90e+17 ...
+##   .. .. ..$ b4: num [1:14(1d)] 0 -0.319 1.633 1.615 1.293 ...
+##   ..@ stan_args :List of 3
+##   .. ..$ :List of 9
+##   .. .. ..$ chain_id          : int 1
+##   .. .. ..$ iter              : int 1000
+##   .. .. ..$ thin              : int 1
+##   .. .. ..$ seed              : int 827152961
+##   .. .. ..$ warmup            : num 500
+##   .. .. ..$ init              : chr &quot;random&quot;
+##   .. .. ..$ algorithm         : chr &quot;NUTS&quot;
+##   .. .. ..$ check_unknown_args: logi FALSE
+##   .. .. ..$ method            : chr &quot;sampling&quot;
+##   .. ..$ :List of 9
+##   .. .. ..$ chain_id          : int 2
+##   .. .. ..$ iter              : int 1000
+##   .. .. ..$ thin              : int 1
+##   .. .. ..$ seed              : int 827152961
+##   .. .. ..$ warmup            : num 500
+##   .. .. ..$ init              : chr &quot;random&quot;
+##   .. .. ..$ algorithm         : chr &quot;NUTS&quot;
+##   .. .. ..$ check_unknown_args: logi FALSE
+##   .. .. ..$ method            : chr &quot;sampling&quot;
+##   .. ..$ :List of 9
+##   .. .. ..$ chain_id          : int 3
+##   .. .. ..$ iter              : int 1000
+##   .. .. ..$ thin              : int 1
+##   .. .. ..$ seed              : int 827152961
+##   .. .. ..$ warmup            : num 500
+##   .. .. ..$ init              : chr &quot;random&quot;
+##   .. .. ..$ algorithm         : chr &quot;NUTS&quot;
+##   .. .. ..$ check_unknown_args: logi FALSE
+##   .. .. ..$ method            : chr &quot;sampling&quot;
+##   ..@ stanmodel :Formal class &#39;stanmodel&#39; [package &quot;rstan&quot;] with 5 slots
+##   .. .. ..@ model_name  : chr &quot;alcModel&quot;
+##   .. .. ..@ model_code  : chr &quot;data {\n  int N;\n  int deaths[N];\n  vector[N] year;\n  int&lt;lower=1, upper=14&gt; age[N];\n  vector[N] gender;\n &quot;| __truncated__
+##   .. .. .. ..- attr(*, &quot;model_name2&quot;)= chr &quot;alcModel&quot;
+##   .. .. ..@ model_cpp   :List of 2
+##   .. .. .. ..$ model_cppname: chr &quot;model39f86e656888_alcModel&quot;
+##   .. .. .. ..$ model_cppcode: chr &quot;// Code generated by Stan version 2.21.0\n\n#include &lt;stan/model/model_header.hpp&gt;\n\nnamespace model39f86e6568&quot;| __truncated__
+##   .. .. ..@ mk_cppmodule:function (object)  
+##   .. .. ..@ dso         :Formal class &#39;cxxdso&#39; [package &quot;rstan&quot;] with 7 slots
+##   .. .. .. .. ..@ sig         :List of 1
+##   .. .. .. .. .. ..$ file39f868cf4f4e: chr(0) 
+##   .. .. .. .. ..@ dso_saved   : logi TRUE
+##   .. .. .. .. ..@ dso_filename: chr &quot;file39f868cf4f4e&quot;
+##   .. .. .. .. ..@ modulename  : chr &quot;stan_fit4model39f86e656888_alcModel_mod&quot;
+##   .. .. .. .. ..@ system      : chr &quot;x86_64, mingw32&quot;
+##   .. .. .. .. ..@ cxxflags    : chr &quot;CXXFLAGS = -O2 -Wall $(DEBUGFLAG) -mfpmath=sse -msse2 -mstackrealign $(LTO)&quot;
+##   .. .. .. .. ..@ .CXXDSOMISC :&lt;environment: 0x00000000258cb340&gt; 
+##   ..@ date      : chr &quot;Tue Dec 28 11:38:45 2021&quot;
+##   ..@ .MISC     :&lt;environment: 0x000000002604fa48&gt;</code></pre>
+<pre class="r"><code># --- extract the result to a tibble -----------------------
+simDF &lt;- stan_to_df(results)
+# --- show the results -------------------------------------
+print(simDF)</code></pre>
+<pre><code>## # A tibble: 3,000 x 19
+##    chain  iter     b0      b1  b2_1  b2_2  b2_3    b2_4  b2_5   b2_6  b2_7
+##    &lt;fct&gt; &lt;int&gt;  &lt;dbl&gt;   &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;   &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt;
+##  1 1         1 -0.872 -0.123   1.02  1.09 -1.43 -0.0502 -1.79 -0.862 0.711
+##  2 1         2 -0.872 -0.123   1.02  1.09 -1.43 -0.0502 -1.79 -0.862 0.711
+##  3 1         3 -0.872 -0.123   1.02  1.09 -1.43 -0.0502 -1.79 -0.862 0.711
+##  4 1         4 -0.872 -0.123   1.02  1.09 -1.43 -0.0502 -1.79 -0.862 0.711
+##  5 1         5 -0.872 -0.123   1.02  1.09 -1.43 -0.0502 -1.79 -0.862 0.711
+##  6 1         6 -0.872 -0.123   1.02  1.09 -1.43 -0.0502 -1.79 -0.862 0.711
+##  7 1         7 -0.870 -0.101   1.02  1.09 -1.43 -0.0500 -1.79 -0.862 0.711
+##  8 1         8 -0.869 -0.0885  1.02  1.09 -1.43 -0.0499 -1.79 -0.861 0.711
+##  9 1         9 -0.865 -0.0524  1.02  1.09 -1.43 -0.0501 -1.79 -0.861 0.712
+## 10 1        10 -0.854  0.0626  1.02  1.09 -1.43 -0.0493 -1.79 -0.859 0.714
+## # ... with 2,990 more rows, and 8 more variables: b2_8 &lt;dbl&gt;, b2_9 &lt;dbl&gt;,
+## #   b2_10 &lt;dbl&gt;, b2_11 &lt;dbl&gt;, b2_12 &lt;dbl&gt;, b2_13 &lt;dbl&gt;, b3 &lt;dbl&gt;, lp__ &lt;dbl&gt;</code></pre>
+</div>
+</div>
+</div>
+<div id="greta" class="section level1">
+<h1>Greta</h1>
+<p><code>Greta</code> exists on a knife-edge. It is an R package with many dependencies; it works via <code>python</code> code that calls <code>tensorflow</code> and <code>tensorflow-probability</code>. Only if every step in this process is compatible, will it work.</p>
+<p>I installed miniconda and the appropriate version of tensorflow as recommended on the <code>greta</code> website</p>
+<pre class="r"><code>reticulate::install_miniconda()
+reticulate::conda_create(
+  envname = &quot;greta-env&quot;,
+  python_version = &quot;3.7&quot;
+)
+reticulate::conda_install(
+  envname = &quot;greta-env&quot;,
+  packages = c(
+    &quot;numpy==1.16.4&quot;,
+    &quot;tensorflow-probability==0.7.0&quot;,
+    &quot;tensorflow==1.14.0&quot;
+  )
+)</code></pre>
+<p>I updated every R package in my library and I download the latest <code>greta</code> from CRAN, <strong>no joy</strong>. Only when I downloaded the development version of <code>greta</code> could I get even the simplest program to run.</p>
+<pre class="r"><code>devtools::install_github(&quot;greta-dev/greta&quot;)</code></pre>
+<p>The code below was run with greta 0.4.0 (2021-11-26). Hopefully, when <code>greta</code> is updated to use tensorflow 2.0, it will become more robust.</p>
+<p>When it works, it is very impressive.</p>
+<p>Here is the poisson regression, written for <code>greta</code>. The whole thing is R code. Parallel computation is created automatically.</p>
+<pre class="r"><code>library(greta)
+
+# --- prepare the data --------------------------------------
+deaths &lt;- as_data(as.integer(alcDF$deaths))
+offset &lt;- log(alcDF$pop)
+year   &lt;- as.numeric(alcDF$year - 2001)
+gender &lt;- as.numeric( alcDF$gender == &quot;male&quot;)
+age    &lt;- factor( alcDF$age)
+# --- construct the design matrix .. as_data() is a greta function
+X      &lt;- as_data(model.matrix(~ year + age + gender))
+
+# --- prior on the coefficients -----------------------------
+b &lt;- normal(0, 10, dim=16)
+# --- the likelihood part of the model ----------------------
+mu &lt;- exp(X %*% b + offset)
+distribution(deaths) &lt;- poisson(mu)
+
+# --- prepare the greta analysis ----------------------------
+alcModel &lt;- model(b)
+
+# --- run three chains --------------------------------------
+mcmc(alcModel, n_samples = 1000, chains = 3) %&gt;%
+  saveRDS( file.path( home, &quot;data/dataStore/alcGretaP01.rds&quot;)) %&gt;%
+  system.time()</code></pre>
+<p>It is fast and because it is built on tensorflow, <code>greta</code> should scale competitively.</p>
+<p>The returned object can be read using my <code>greta_to_df()</code> function.</p>
+<pre class="r"><code># --- read the greta results ----------------------------------
+results &lt;- readRDS(file.path( home, &quot;data/dataStore/alcGretaP01.rds&quot;))
+# --- look at the structure -----------------------------------
+str(results)</code></pre>
+<pre><code>## List of 3
+##  $ 11: &#39;mcmc&#39; num [1:1000, 1:16] -0.527 -0.538 -0.538 -0.535 -0.546 ...
+##   ..- attr(*, &quot;dimnames&quot;)=List of 2
+##   .. ..$ : chr [1:1000] &quot;1&quot; &quot;2&quot; &quot;3&quot; &quot;4&quot; ...
+##   .. ..$ : chr [1:16] &quot;b[1,1]&quot; &quot;b[2,1]&quot; &quot;b[3,1]&quot; &quot;b[4,1]&quot; ...
+##   ..- attr(*, &quot;mcpar&quot;)= num [1:3] 1 1000 1
+##  $ 12: &#39;mcmc&#39; num [1:1000, 1:16] -0.513 -0.497 -0.504 -0.501 -0.501 ...
+##   ..- attr(*, &quot;dimnames&quot;)=List of 2
+##   .. ..$ : chr [1:1000] &quot;1&quot; &quot;2&quot; &quot;3&quot; &quot;4&quot; ...
+##   .. ..$ : chr [1:16] &quot;b[1,1]&quot; &quot;b[2,1]&quot; &quot;b[3,1]&quot; &quot;b[4,1]&quot; ...
+##   ..- attr(*, &quot;mcpar&quot;)= num [1:3] 1 1000 1
+##  $ 13: &#39;mcmc&#39; num [1:1000, 1:16] -0.569 -0.575 -0.581 -0.558 -0.559 ...
+##   ..- attr(*, &quot;dimnames&quot;)=List of 2
+##   .. ..$ : chr [1:1000] &quot;1&quot; &quot;2&quot; &quot;3&quot; &quot;4&quot; ...
+##   .. ..$ : chr [1:16] &quot;b[1,1]&quot; &quot;b[2,1]&quot; &quot;b[3,1]&quot; &quot;b[4,1]&quot; ...
+##   ..- attr(*, &quot;mcpar&quot;)= num [1:3] 1 1000 1
+##  - attr(*, &quot;class&quot;)= chr [1:2] &quot;greta_mcmc_list&quot; &quot;mcmc.list&quot;
+##  - attr(*, &quot;model_info&quot;)=List of 3
+##   ..$ raw_draws:List of 3
+##   .. ..$ 11: &#39;mcmc&#39; num [1:1000, 1:16] -0.527 -0.538 -0.538 -0.535 -0.546 ...
+##   .. .. ..- attr(*, &quot;dimnames&quot;)=List of 2
+##   .. .. .. ..$ : chr [1:1000] &quot;1&quot; &quot;2&quot; &quot;3&quot; &quot;4&quot; ...
+##   .. .. .. ..$ : chr [1:16] &quot;1&quot; &quot;2&quot; &quot;3&quot; &quot;4&quot; ...
+##   .. .. ..- attr(*, &quot;mcpar&quot;)= num [1:3] 1 1000 1
+##   .. ..$ 12: &#39;mcmc&#39; num [1:1000, 1:16] -0.513 -0.497 -0.504 -0.501 -0.501 ...
+##   .. .. ..- attr(*, &quot;dimnames&quot;)=List of 2
+##   .. .. .. ..$ : chr [1:1000] &quot;1&quot; &quot;2&quot; &quot;3&quot; &quot;4&quot; ...
+##   .. .. .. ..$ : chr [1:16] &quot;1&quot; &quot;2&quot; &quot;3&quot; &quot;4&quot; ...
+##   .. .. ..- attr(*, &quot;mcpar&quot;)= num [1:3] 1 1000 1
+##   .. ..$ 13: &#39;mcmc&#39; num [1:1000, 1:16] -0.569 -0.575 -0.581 -0.558 -0.559 ...
+##   .. .. ..- attr(*, &quot;dimnames&quot;)=List of 2
+##   .. .. .. ..$ : chr [1:1000] &quot;1&quot; &quot;2&quot; &quot;3&quot; &quot;4&quot; ...
+##   .. .. .. ..$ : chr [1:16] &quot;1&quot; &quot;2&quot; &quot;3&quot; &quot;4&quot; ...
+##   .. .. ..- attr(*, &quot;mcpar&quot;)= num [1:3] 1 1000 1
+##   .. ..- attr(*, &quot;class&quot;)= chr &quot;mcmc.list&quot;
+##   ..$ samplers :List of 1
+##   .. ..$ 1:Classes &#39;hmc_sampler&#39;, &#39;sampler&#39;, &#39;inference&#39;, &#39;R6&#39; &lt;hmc_sampler&gt;
+##   Inherits from: &lt;sampler&gt;
+##   Public:
+##     accept_history: FALSE FALSE FALSE FALSE FALSE FALSE FALSE FALSE FALSE FA ...
+##     accept_target: 0.651
+##     burst_lengths: function (n_samples, pb_update, warmup = FALSE) 
+##     check_initial_values: function (inits) 
+##     clone: function (deep = FALSE) 
+##     define_tf_draws: function () 
+##     define_tf_kernel: function () 
+##     free_state: -1.12015257508273 -1.01928896310261 -0.993346205409014 0 ...
+##     hbar: 0.00845652330560466
+##     in_periods: function (periods, i, n_samples) 
+##     initialize: function (initial_values, model, parameters = list(), seed) 
+##     last_burst_free_states: list
+##     log_epsilon_bar: -3.97082330013737
+##     mean_accept_stat: 0.984376119213626
+##     model: greta_model
+##     n_chains: 3
+##     n_free: 16
+##     n_samplers: 1
+##     n_traced: 48
+##     numerical_rejections: 0
+##     parameters: list
+##     pb_file: NULL
+##     pb_width: 80
+##     percentage_file: NULL
+##     print_sampler_number: function () 
+##     run_burst: function (n_samples, thin = 1L) 
+##     run_chain: function (n_samples, thin, warmup, verbose, pb_update, one_by_one, 
+##     sample_carefully: function (n_samples) 
+##     sample_variance: function () 
+##     sampler_number: 1
+##     sampler_parameter_values: function () 
+##     seed: 883959483492
+##     set_initial_values: function (init_list) 
+##     set_tf_seed: function () 
+##     sum_epsilon_trace: NULL
+##     thin: 1
+##     trace: function (free_state = TRUE, values = FALSE) 
+##     trace_batch_size: 100
+##     trace_burst_values: function (free_states = self$last_burst_free_states) 
+##     trace_log_file: NULL
+##     trace_values: function (trace_batch_size) 
+##     traced_free_state: list
+##     traced_values: list
+##     tune: function (iterations_completed, total_iterations) 
+##     tune_diag_sd: function (iterations_completed, total_iterations) 
+##     tune_epsilon: function (iter, total) 
+##     tuning_interval: 3
+##     tuning_periods: list
+##     update_welford: function () 
+##     uses_metropolis: TRUE
+##     valid_parameters: function (parameters) 
+##     welford_state: list
+##     write_percentage_log: function (total, completed, stage) 
+##     write_trace_to_log_file: function (last_burst_values)  
+##   ..$ model    :List of 3
+##   .. ..$ dag                 :Classes &#39;dag_class&#39;, &#39;R6&#39; &lt;dag_class&gt;
+##   Public:
+##     adjacency_matrix: active binding
+##     build_dag: function (greta_array_list) 
+##     build_feed_dict: function (dict_list = list(), data_list = self$get_tf_data_list()) 
+##     clone: function (deep = FALSE) 
+##     compile: TRUE
+##     define_batch_size: function () 
+##     define_free_state: function (type = c(&quot;variable&quot;, &quot;placeholder&quot;), name = &quot;free_state&quot;) 
+##     define_joint_density: function () 
+##     define_tf: function (target_nodes = self$node_list) 
+##     define_tf_body: function (target_nodes = self$node_list) 
+##     define_tf_session: function () 
+##     draw_sample: function (distribution_node) 
+##     evaluate_density: function (distribution_node, target_node) 
+##     example_parameters: function (free = TRUE) 
+##     generate_log_prob_function: function (which = c(&quot;adjusted&quot;, &quot;unadjusted&quot;, &quot;both&quot;)) 
+##     get_tf_data_list: function () 
+##     get_tf_names: function (types = NULL) 
+##     get_tf_object: function (node) 
+##     get_tfp_distribution: function (distrib_node) 
+##     hessians: function () 
+##     how_to_define: function (node) 
+##     how_to_define_all_sampling: function (node) 
+##     how_to_define_hybrid: function (node) 
+##     initialize: function (target_greta_arrays, tf_float = &quot;float32&quot;, compile = FALSE) 
+##     log_density: function () 
+##     mode: all_forward
+##     n_cores: 8
+##     new_tf_environment: function () 
+##     node_list: list
+##     node_tf_names: active binding
+##     node_types: active binding
+##     on_graph: function (expr) 
+##     send_parameters: function (parameters) 
+##     set_tf_data_list: function (element_name, value) 
+##     split_free_state: function () 
+##     subgraph_membership: function () 
+##     target_nodes: list
+##     tf_environment: environment
+##     tf_evaluate_density: function (tfp_distribution, tf_target, truncation = NULL, bounds = NULL) 
+##     tf_float: float64
+##     tf_graph: tensorflow.python.framework.ops.Graph, python.builtin.object
+##     tf_name: function (node) 
+##     tf_run: function (expr, as_text = FALSE) 
+##     tf_sess_run: function (expr, as_text = FALSE) 
+##     trace_names: b[1,1] b[2,1] b[3,1] b[4,1] b[5,1] b[6,1] b[7,1] b[8,1]  ...
+##     trace_values: function (free_state, flatten = TRUE, trace_batch_size = Inf) 
+##     trace_values_batch: function (free_state_batch) 
+##     variables_without_free_state: list 
+##   .. ..$ target_greta_arrays :List of 1
+##   .. .. ..$ b:&#39;greta_array&#39;  num [1:16, 1] ? ? ? ? ? ? ? ? ? ? ...  .. ..$ visible_greta_arrays:List of 4
+##   .. .. ..$ b     :&#39;greta_array&#39;  num [1:16, 1] ? ? ? ? ? ? ? ? ? ? ...  .. .. ..$ deaths:&#39;greta_array&#39;  int [1:560, 1] 4 5 23 23 115 71 272 159 457 232 ...  .. .. ..$ mu    :&#39;greta_array&#39;  num [1:560, 1] ? ? ? ? ? ? ? ? ? ? ...  .. .. ..$ X     :&#39;greta_array&#39;  num [1:560, 1:16] 1 1 1 1 1 1 1 1 1 1 ... &#39;greta_array&#39;  - attr(*, &quot;assign&quot;)= int [1:16] 0 1 2 2 2 2 2 2 2 2 ... &#39;greta_array&#39;  - attr(*, &quot;contrasts&quot;)=List of 1 &#39;greta_array&#39;   ..$ age: chr &quot;contr.treatment&quot;  .. ..- attr(*, &quot;class&quot;)= chr &quot;greta_model&quot;</code></pre>
+<pre class="r"><code># --- convert to a tibble -------------------------------------
+simDF &lt;- greta_to_df(results)
+# --- look at the tibble --------------------------------------
+print(simDF)</code></pre>
+<pre><code>## # A tibble: 3,000 x 18
+##    chain  iter  b_1_1  b_2_1 b_3_1 b_4_1 b_5_1 b_6_1 b_7_1 b_8_1 b_9_1 b_10_1
+##    &lt;fct&gt; &lt;int&gt;  &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt;
+##  1 1         1 -0.527 0.0139 0.292  1.34  2.09  2.65  3.02  3.20  3.29   3.26
+##  2 1         2 -0.538 0.0142 0.335  1.34  2.10  2.66  3.04  3.21  3.30   3.27
+##  3 1         3 -0.538 0.0141 0.339  1.33  2.10  2.68  3.04  3.22  3.30   3.27
+##  4 1         4 -0.535 0.0143 0.330  1.34  2.11  2.65  3.04  3.22  3.30   3.27
+##  5 1         5 -0.546 0.0143 0.339  1.35  2.11  2.67  3.05  3.22  3.31   3.28
+##  6 1         6 -0.542 0.0141 0.318  1.35  2.10  2.65  3.05  3.22  3.31   3.27
+##  7 1         7 -0.526 0.0139 0.324  1.34  2.10  2.65  3.03  3.20  3.29   3.25
+##  8 1         8 -0.541 0.0141 0.270  1.34  2.09  2.67  3.03  3.21  3.29   3.26
+##  9 1         9 -0.533 0.0142 0.281  1.35  2.09  2.66  3.03  3.21  3.29   3.26
+## 10 1        10 -0.545 0.0147 0.313  1.34  2.09  2.64  3.03  3.20  3.29   3.27
+## # ... with 2,990 more rows, and 6 more variables: b_11_1 &lt;dbl&gt;, b_12_1 &lt;dbl&gt;,
+## #   b_13_1 &lt;dbl&gt;, b_14_1 &lt;dbl&gt;, b_15_1 &lt;dbl&gt;, b_16_1 &lt;dbl&gt;</code></pre>
+</div>
+<div id="appendix" class="section level1">
+<h1>Appendix</h1>
+<p>Here are the functions referred to in the post.</p>
+<div id="code-to-clean-the-data" class="section level3">
+<h3>Code to clean the data</h3>
+<pre class="r"><code>library(tidyverse)
+
+home     &lt;- &quot;C:/Projects/kaggle/sliced/methods/methods_bayes_software&quot;
+filename &lt;- &quot;data/rawData/alcoholspecificdeaths2020.xlsx&quot;
+
+# --- read without column names -------------------------------------
+readxl::read_excel( file.path(home, filename), 
+                    sheet=&quot;Table 2&quot;, 
+                    range=&quot;C6:V385&quot;, 
+                    col_names=FALSE) %&gt;%
+  # --- rename relevant columns -------------------------------------
+  rename( year = `...1`,
+          age  = `...2`,
+          deaths_male = `...10`,
+          rate_male = `...11`,
+          deaths_female = `...16`,
+          rate_female = `...17`) %&gt;%
+  # --- select relevant columns -------------------------------------
+  select( year, age, deaths_male, rate_male, 
+          deaths_female, rate_female) %&gt;%
+  # --- rates from character to numeric -----------------------------
+  mutate( rate_male = as.numeric(rate_male),
+          rate_female = as.numeric(rate_female)) %&gt;%
+  # --- drop the children -------------------------------------------
+  filter( !(age %in% c(&quot;&lt;1&quot;, &quot;01-04&quot;, &quot;05-09&quot;, 
+                       &quot;10-14&quot;, &quot;15-19&quot;))) %&gt;%
+  mutate(age = factor(age)) %&gt;%
+  # --- reshape the data --------------------------------------------
+  pivot_longer(cols=starts_with(&quot;deaths&quot;) | starts_with(&quot;rate&quot;),
+               names_to=c(&quot;type&quot;, &quot;gender&quot;),
+               names_sep = &quot;_&quot;) %&gt;% 
+  pivot_wider( values_from=value, names_from=type) %&gt;%
+  # --- calc population from #deaths &amp; rate per 100,000 -------------
+  mutate( pop = round(100000*deaths/rate)/100000 ) %&gt;%
+  # --- use average population as annual pop unreliable 
+  #     when #deaths is small
+  group_by( gender, age ) %&gt;%
+  mutate( pop = round(mean(pop, na.rm=TRUE), 2) ) %&gt;% 
+  select( -rate) %&gt;%
+  saveRDS( file.path(home, &quot;data/rData/alc.rds&quot;))</code></pre>
+</div>
+<div id="convert-a-bugs-object-to-a-tibble" class="section level3">
+<h3>Convert a BUGS object to a tibble</h3>
+<pre class="r"><code># --- Function to put bugs simulations in a tibble -----------------
+# argument
+#    bugsObject ... R Object returned by bugs()
+# return
+#    tibble of simulations plus chain and iteration number
+#
+bugs_to_df &lt;- function(bugsObject) {
+  vNames &lt;- attr(bugsObject$sims.matrix,&quot;dimnames&quot;)[[2]]
+  vNames &lt;- str_replace(vNames, &quot;\\[&quot;, &quot;_&quot;)
+  vNames &lt;- str_replace(vNames, &quot;,&quot;, &quot;_&quot;)
+  vNames &lt;- str_replace(vNames, &quot;\\]&quot;, &quot;&quot;)
+  thisDF &lt;- setNames(as_tibble(bugsObject$sims.matrix), vNames)
+  nc &lt;- bugsObject$n.chains
+  ni &lt;- bugsObject$n.keep 
+  thisDF$chain &lt;- factor(rep(1:nc, each=ni))
+  thisDF$iter &lt;- rep(1:ni, nc )
+  return( thisDF[, c(&quot;chain&quot;, &quot;iter&quot;, vNames)])
+}</code></pre>
+</div>
+<div id="convert-a-nimble-object-to-a-tibble" class="section level3">
+<h3>Convert a nimble object to a tibble</h3>
+<pre class="r"><code># --- Function to put bugs simulations in a tibble -----------------
+# argument
+#    nimbleObject ... R Object returned by nimble
+# return
+#    tibble of simulations plus chain and iteration number
+#
+nimble_to_df &lt;- function(nimbleObject) {
+  if( typeof(nimbleObject) == &quot;list&quot; ) {
+    nc &lt;- length(nimbleObject)
+    ni &lt;- nrow(nimbleObject$chain1)
+    vNames &lt;- attr(nimbleObject$chain1,&quot;dimnames&quot;)[[2]]
+    thisDF &lt;- NULL
+    for( i in 1:nc ) {
+      thisDF &lt;- bind_rows(thisDF, as_tibble(nimbleObject[[i]]))
+    }
+  }
+  else {
+    nc &lt;- 1
+    ni &lt;- nrow(nimbleObject)
+    vNames &lt;- attr(nimbleObject,&quot;dimnames&quot;)[[2]]
+    thisDF &lt;- as_tibble(nimbleObject)
+  }
+  vNames &lt;- str_replace(vNames, &quot;\\[&quot;, &quot;_&quot;)
+  vNames &lt;- str_replace(vNames, &quot;,&quot;, &quot;_&quot;)
+  vNames &lt;- str_replace(vNames, &quot;\\]&quot;, &quot;&quot;)
+
+  thisDF &lt;- setNames(thisDF, vNames)
+  thisDF$chain &lt;- factor(rep(1:nc, each=ni))
+  thisDF$iter &lt;- rep(1:ni, nc )
+  return( thisDF[, c(&quot;chain&quot;, &quot;iter&quot;, vNames)])
+}</code></pre>
+</div>
+<div id="convert-a-stan-object-to-a-tibble" class="section level3">
+<h3>Convert a stan object to a tibble</h3>
+<pre class="r"><code>stan_to_df &lt;- function(stanObject) {
+
+  nPar &lt;- length(stanObject@sim$samples[[1]])
+  nc &lt;- length(stanObject@sim$samples)
+  ni &lt;- stanObject@sim$iter
+  
+  vNames &lt;- stanObject@sim$fnames_oi
+  vNames &lt;- str_replace(vNames, &quot;\\[&quot;, &quot;_&quot;)
+  vNames &lt;- str_replace(vNames, &quot;,&quot;, &quot;_&quot;)
+  vNames &lt;- str_replace(vNames, &quot;\\]&quot;, &quot;&quot;)
+
+  thisDF &lt;- NULL
+  for( i in 1:nc ) {
+    thisDF &lt;- bind_rows(thisDF, as_tibble(as.data.frame(stanObject@sim$samples[[i]])))
+  }
+  thisDF &lt;- setNames(thisDF, vNames)
+  thisDF$chain &lt;- factor(rep(1:nc, each=ni))
+  thisDF$iter &lt;- rep(1:ni, nc )
+  return( thisDF[, c(&quot;chain&quot;, &quot;iter&quot;, vNames)])
+}</code></pre>
+</div>
+<div id="convert-a-greta-object-to-a-tibble" class="section level3">
+<h3>Convert a greta object to a tibble</h3>
+<pre class="r"><code>greta_to_df &lt;- function(gretaObject) {
+
+  par  &lt;- attr(gretaObject[[1]], &quot;mcpar&quot;)
+  nc &lt;- length(gretaObject)
+  ni &lt;- par[2]
+  
+  vNames &lt;- attr(gretaObject[[1]], &quot;dimnames&quot;)[[2]]
+  vNames &lt;- str_replace(vNames, &quot;\\[&quot;, &quot;_&quot;)
+  vNames &lt;- str_replace(vNames, &quot;,&quot;, &quot;_&quot;)
+  vNames &lt;- str_replace(vNames, &quot;\\]&quot;, &quot;&quot;)
+
+  thisDF &lt;- NULL
+  for( i in 1:nc ) {
+    thisDF &lt;- bind_rows(thisDF, as_tibble(as.data.frame(gretaObject[[i]])))
+  }
+  thisDF &lt;- setNames(thisDF, vNames)
+  thisDF$chain &lt;- factor(rep(1:nc, each=ni))
+  thisDF$iter &lt;- rep(1:ni, nc )
+  return( thisDF[, c(&quot;chain&quot;, &quot;iter&quot;, vNames)])
+}</code></pre>
+</div>
+<div id="read-a-set-of-rds-files-containing-bayesian-simulations" class="section level3">
+<h3>Read a set of rds files containing Bayesian simulations</h3>
+<p>The function determines the source of the simulations from the class of the object in the file.</p>
+<pre class="r"><code>bayes_to_df &lt;- function(files) {
+  
+  ichain &lt;- 0
+  S &lt;- NULL
+  nfiles &lt;- length(files)
+  for( f in 1:nfiles) {
+ 
+    object &lt;- readRDS(files[f])
+    if( class(object)[1] == &quot;matrix&quot;) {
+      df &lt;- nimble_to_df(object)
+    } else if( class(object)[1] == &quot;bugs&quot;) {
+      df &lt;- bugs_to_df(object)
+    }
+      df$chain &lt;- as.numeric(df$chain)
+      nchain &lt;- max(df$chain)
+      df$chain &lt;- ichain + df$chain
+      ichain &lt;- ichain + nchain
+      S &lt;- rbind(S, df)
+  }
+  if( ichain &gt; 1) {
+    as_tibble(S) %&gt;% mutate( chain = factor(chain))
+  } else {
+    as_tibble(S)
+  }
+}</code></pre>
+</div>
+</div>

@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="generator" content="Hugo 0.82.0" />
+  
+  <meta name="description" content="IntroductionMarkov Chain Monte Carlo (MCMC) Samplers are ways of drawing representative values from a target distribution. In this post I will develop MCMC sampling from scratch and illustrate some of the most popular algorithms with simple R code. The key to understanding the approach lies in the name; Monte Carlo says that the values will be drawn by a random process and Markov Chain says that each sampled value will be dependent on the previous value.">
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/normalize.css">
+  <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
+  
+  
+  
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/cayman.ea0e967413f3851071cc8ace3621bc4205fe8fa79b2abe3d7bf94ff2841f0d47.css">
+  
+  
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.css" integrity="sha384-yFRtMMDnQtDRO8rLpMIKrtPCD5jdktao2TV19YiZYWMDkUR5GQZR/NOVTdquEx1j" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.js" integrity="sha384-9Nhn55MVVN0/4OFx7EE5kpFBPsEMZxKTCnA+4fqDmg12eCTqGi6+BB2LjY8brQxJ" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/contrib/auto-render.min.js" integrity="sha384-kWPLUVMOks5AQFrykwIup5lo0m3iMkkHrD0uJ4H5cjeGihAutqP0yW0J6dpFiVkI" crossorigin="anonymous" onload="renderMathInElement(document.body);"></script>
+
+  <title>Methods: MCMC Algorithms | Modelling with R</title>
+</head>
+
+<body>
+  <section class="page-header">
+  <h1 class="project-name">
+    Modelling with R
+  </h1>
+  <h2 class="project-tagline">
+    contrasting statistical and machine learning approaches
+  </h2>
+  <nav>
+    
+    
+      
+      
+      
+      
+      <a href="/post/" class="btn">Blog</a>
+    
+      
+      
+      
+      
+      <a href="/tags/" class="btn">Tags</a>
+    
+      
+      
+      
+      
+      <a href="/about/" class="btn">About</a>
+    
+  </nav>
+</section>
+
+  <section class="main-content">
+    
+  <h1>Methods: MCMC Algorithms</h1>
+  <div>
+    
+    <strong>Publish date: </strong>2022-03-07
+  </div>
+  
+  
+    <div>
+      <strong>Tags: </strong>
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+      <a href="https://modelling-with-r.netlify.app/tags/bayesian-computation/">Bayesian Computation</a>, <a href="https://modelling-with-r.netlify.app/tags/mcmc-algorithms/">MCMC algorithms</a>, <a href="https://modelling-with-r.netlify.app/tags/metropolis-hastings/">Metropolis-Hastings</a>, <a href="https://modelling-with-r.netlify.app/tags/slice-sampling/">Slice Sampling</a>, <a href="https://modelling-with-r.netlify.app/tags/gibbs-sampling/">Gibbs Sampling</a>, <a href="https://modelling-with-r.netlify.app/tags/hmc/">HMC</a>, <a href="https://modelling-with-r.netlify.app/tags/hamiltonian-monte-carlo/">Hamiltonian Monte Carlo</a>
+    </div>
+  
+  
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>Markov Chain Monte Carlo (MCMC) Samplers are ways of drawing representative values from a target distribution. In this post I will develop MCMC sampling from scratch and illustrate some of the most popular algorithms with simple R code. The key to understanding the approach lies in the name; <code>Monte Carlo</code> says that the values will be drawn by a random process and <code>Markov Chain</code> says that each sampled value will be dependent on the previous value.</p>
+<p>The algorithms are usually applied to Bayesian problems in which the target is the posterior distribution of a model parameter.</p>
+<p>MCMC is quite general; the target distribution can be continuous or discrete, one-dimensional or multi-dimensional. To simplify the explanation, I start with a one-dimensional, discrete target distribution of a parameter that I call <span class="math inline">\(\theta\)</span>.</p>
+</div>
+<div id="recognised-distributions" class="section level1">
+<h1>Recognised Distributions</h1>
+<p>On rare occasions the pattern of the probabilities of different values of <span class="math inline">\(\theta\)</span> will be recognised as following a standard distribution. For example, suppose that the target distribution is defined over the integer values 0 to 4 with probabilities,<br />
+(0) 0.4096, (1) 0.4096, (2) 0.1536, (3) 0.0256, (4) 0.0016</p>
+<p>You might recognise this pattern as a binomial distribution with n=4 and p=0.2, in which case there is no need for MCMC because the R function <code>rbinom()</code> does the job.</p>
+<pre class="r"><code># --- seed for reproducibility -----------
+set.seed(3491)
+# --- 5000 random values -----------------
+theta &lt;- rbinom(5000, size=4, prob=0.2)
+# --- table of sample proportions --------
+table(theta)/5000</code></pre>
+<pre><code>## theta
+##      0      1      2      3      4 
+## 0.4138 0.4056 0.1478 0.0314 0.0014</code></pre>
+<p>The proportions vary from the target, but only by chance and the more samples that are taken, the closer will be the approximation.</p>
+</div>
+<div id="metropolis-hastings" class="section level1">
+<h1>Metropolis-Hastings</h1>
+<p>Assuming that the target distribution is not recognised, the best option is an MCMC algorithm.</p>
+<p>The MCMC algorithm must create an ordered sequence of values (a chain) and the way to ensure that the chain represents the target distribution is to use the correct transition probabilities for generating one value from its predecessor. We need to pick appropriate values for quantities such as, <span class="math inline">\(T(3 | 2) = P(\theta_i=3 | \theta_{i-1}=2)\)</span>, which is the probability of sampling the value 3 when the previous value was 2.</p>
+<p>Take an arbitrary pair of consecutive values, say they are 3 and 1. If the entire chain were written in reverse order, it would still represent the same target distribution, so (3 followed by 1) and (1 followed by 3) should be equally common in the chain, i.e. P(3,1)=P(1,3). It follows that
+<span class="math display">\[
+P(3,1) = P(3).T(1 | 3) = P(1,3) = P(1). T(3|1)
+\]</span>
+In words, the probability of being at 3 and transitioning to 1 equals the probability of being at 1 and transitioning to 3.</p>
+<p>This is the fundamental relationship of MCMC that links the transition probabilities, T, to the target distribution, P. Generally,
+<span class="math display">\[
+P(a) T(b | a) = P(b) T(a | b)
+\]</span>
+This relationship holds for any consecutive pair of values (a,b) and is sometimes called <code>detailed balance</code>. The MCMC algorithm must obey this rule.</p>
+<p>Suppose that the target distribution is
+(0) 0.2, (1) 0.3, (2) 0.1, (3) 0.3, (4) 0.1</p>
+<pre class="r"><code>library(tidyverse)
+theme_set(theme_light())
+
+# --- histogram of the taregt distribution -----------------------
+tibble( x = 0:4,
+        P = c(0.2, 0.3, 0.1, 0.3, 0.1)) %&gt;%
+  ggplot( aes(x=x, y=P)) +
+  geom_bar( stat=&quot;identity&quot;, fill=&quot;steelblue&quot;) +
+  labs(title=&quot;Target distribution for the example&quot;)</code></pre>
+<p><img src="/post/bayes_mcmc/methods_mcmc_files/figure-html/unnamed-chunk-2-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>Imagine that the chain is currently at 1, with equal probability, a potential next value is chosen; it could be 0, 2, 3 or 4. This proposal will either be accepted or rejected, and if it is rejected the chain will have to stay at 1. So the consecutive pair could be any of (1,0), (1,1), (1,2), (1,3), (1,4).</p>
+<p>Suppose that starting from 1, we randomly select 0 as the potential move. We know that for our target distribution, P(0)=0.2 and P(1)=0.3, so detailed balance tells us that
+<span class="math display">\[
+0.3 T(0 | 1) = 0.2 T(1 | 0)
+\]</span>
+This relationship simultaneously constrains the transition probabilities for T(0|1) and the reverse T(1|0). All we need to do, is to choose any pair of transition probabilities T(0|1) and T(1|0) that satisfy this relationship. For example, T(0|1)=0.2 and T(1|0)=0.3 or T(0|1)=0.4 and T(1|0)=0.6, etc.</p>
+<p>The larger the pair of probabilities, the more likely the chain is to move and we want to move in order to cover the distribution as quickly as possible, so the optimum choice is T(1|0)=1 and T(0|1)=2/3.</p>
+<p>We can repeat this argument for any pair of values. Detailed balance tells us that
+<span class="math display">\[
+\frac{P(a)}{P(b)} = \frac{T(a | b)}{T(b | a)} 
+\]</span>
+and the optimum choice will be
+<span class="math display">\[
+T(a|b) = min\left\{ 1, \frac{P(a)}{P(b)}\right\} \ \ \text{and} \ \ T(b|a) = min\left\{ 1, \frac{P(b)}{P(a)}\right\}
+\]</span></p>
+<p>Let’s code this algorithm</p>
+<pre class="r"><code># --- Possible values
+domain &lt;- c(0, 1, 2, 3, 4)
+# --- target distribution = probabilities of each value
+prb &lt;- c( 0.2, 0.3, 0.1, 0.3, 0.1)
+
+# --- seed for reproducibility
+set.seed(8407)
+# --- space for 5000 simulations
+theta &lt;- rep(0, 5000)
+# --- start with a random value
+theta[1] = sample(domain, size=1)
+# --- loop to complete the chain
+for( i in 2:5000) {
+  # --- Identify all possible moves i.e. not theta[i-1]
+  possibleMoves &lt;- domain[ !(domain %in% theta[i-1]) ]
+  # --- select one move at random
+  move &lt;- sample(possibleMoves, size=1)
+  # --- Calculate the acceptance probability, 
+  #     n.b. because 0 is a possibility, P(theta=1) = prb[2]
+  acceptProb &lt;- min( 1, prb[move+1]/prb[theta[i-1]+1])
+  # --- Randomly Move or Stay with acceptProb 
+  theta[i] &lt;- ifelse(runif(1) &lt; acceptProb, move, theta[i-1])
+}
+# --- Inspect the first 20 values
+print(theta[1:20])</code></pre>
+<pre><code>##  [1] 0 4 0 1 3 1 2 1 1 3 3 1 3 1 3 1 0 3 3 3</code></pre>
+<pre class="r"><code># --- frequencies of each value in the chain
+table(theta)/5000</code></pre>
+<pre><code>## theta
+##      0      1      2      3      4 
+## 0.2006 0.2922 0.0966 0.3116 0.0990</code></pre>
+<p>The algorithm reproduces the target distribution quite well. The longer the chain the closer the proportions will be to the target.</p>
+<p>There is one final refinement to the algorithm. I started by choosing the potential move from all possible moves with equal probability. This works fine for a distribution with a small number of possible moves, but for distributions defined over a large domain, it can be easier to restrict the set of possible moves, for example, to favour local proposed moves over longer steps.</p>
+<p>We can adapt the algorithm by writing,
+<span class="math display">\[
+T(b|a) = G(b|a) A(b|a)
+\]</span>
+where G(b|a) is the proposal probability that we control, i.e. the probability that we propose a move from a to b, and A(b|a) is the probability that we accept that move.</p>
+<p>In this more general case, detailed balance becomes
+<span class="math display">\[
+P(a) G(b|a) A(b|a) = P(b) G(a | b) A(a | b)
+\]</span>
+and the acceptance probability A is obtained from
+<span class="math display">\[
+A(b|a) = min\left\{ 1, \frac{P(b) G(a|b)}{P(a) G(b|a)}\right\}
+\]</span>
+This is the full Metropolis-Hastings Algorithm, which is illustrated below for the case where I choose a proposal that is either 1 higher or 1 lower than the current value.</p>
+<pre class="r"><code># My Proposal Rule: Move up or down 1 provided stay within the domain
+# i.e. from 2 propose move to 1 or 3 with equal probability
+# but from 4 may only propose a move to 3
+#
+# --- proposal probabilities G .. 
+G &lt;- matrix( c(0, 0.5, 0, 0, 0,
+               1, 0, 0.5, 0, 0,
+               0, 0.5, 0, 0.5, 0,
+               0, 0, 0.5, 0, 1,
+               0, 0, 0, 0.5, 0), nrow=5)
+
+# --- Possible values
+domain &lt;- c(0, 1, 2, 3, 4)
+# --- target distribution = probabilities of each value
+prb &lt;- c( 0.2, 0.3, 0.1, 0.3, 0.1)
+
+# --- seed for reproducibility
+set.seed(3407)
+# --- space for 5000 simulations
+theta &lt;- rep(0,5000)
+# --- start with a random value
+theta[1] = sample(domain, size=1)
+# --- loop to complete the chain
+for( i in 2:5000) {
+  # --- Identify all possible moves .. +1 or -1
+  possibleMoves &lt;- c( theta[i-1]-1, theta[i-1]+1)
+  possibleMoves &lt;- possibleMoves[ possibleMoves &gt;= 0 &amp; possibleMoves &lt;= 4]
+  # --- select one potential move at random
+  # note oddity in R&#39;s sample() function means it cannot be used
+  # see help(sample) for details ... use sample.int() instead
+  move &lt;- possibleMoves[sample.int(length(possibleMoves), size=1)]
+  # --- domain starts at 0 while subscripts start at 1
+  from &lt;- theta[i-1] + 1
+  to   &lt;- move + 1
+  # --- Calculate the acceptance probability
+  acceptProb &lt;- min( 1, prb[to]*G[to, from]/(prb[from]*(G[from, to])))
+  # --- Randomly Move or Stay with probability=acceptProb 
+  theta[i] &lt;- ifelse(runif(1) &lt; acceptProb, move, theta[i-1])
+}
+# --- Inspect the first 20 values
+print(theta[1:20])</code></pre>
+<pre><code>##  [1] 0 1 1 1 2 3 3 3 2 1 0 1 0 0 0 1 1 1 0 1</code></pre>
+<pre class="r"><code># --- frequencies of each value in the chain
+table(theta)/5000</code></pre>
+<pre><code>## theta
+##      0      1      2      3      4 
+## 0.2106 0.3072 0.0952 0.2852 0.1018</code></pre>
+<p>Perhaps not quite as good an algorithm, but the target distribution is still being reproduced. The poorer performance is due to taking longer to move from one end of the distribution to the other, when only single steps are allowed.</p>
+</div>
+<div id="slice-sampling" class="section level1">
+<h1>Slice Sampling</h1>
+<p>Metropolis-Hastings is a flexible algorithm that can usually be tuned by the choice of the proposal distribution, G, to sample parameter values in an efficient way, but it is not the only option. A powerful alternative is an algorithm known as <em>Slice Sampling</em>.</p>
+<p>Given the current sample value <span class="math inline">\(\theta\)</span>, choose a random value, u, in the range from 0 to P(<span class="math inline">\(\theta\)</span>). Next, identify all values in the domain that have a probability of at least u and choose one at random. The chosen value is taken as the next value in the chain.</p>
+<p>Here is a sample from our target distribution drawn by Slice sampling.</p>
+<pre class="r"><code># --- SLICE sampling -------------------------------------
+#
+# target distribution 
+prb &lt;- c( 0.2, 0.3, 0.1, 0.3, 0.1)
+domain &lt;- c(0, 1, 2, 3, 4)
+set.seed(3929)
+
+# --- space to save 5000 samples
+theta &lt;- rep(0,5000)
+# --- arbitrary initial value
+theta[1] = sample(domain, size=1)
+# --- loop to generate the sample
+for( i in 2:5000 ) {
+  # --- random value in range (0, P(x[i-1]))
+  u &lt;- runif(1, 0, prb[theta[i-1]+1])
+  # --- all potential values that have prob &gt;= u
+  set &lt;- which( prb &gt;= u )
+  # --- choose a value at random from those with prob &gt; u
+  theta[i] &lt;- set[sample.int(length(set), size=1)] - 1
+}
+# --- inspect the results
+table(theta)/5000</code></pre>
+<pre><code>## theta
+##      0      1      2      3      4 
+## 0.1954 0.2940 0.0992 0.3056 0.1058</code></pre>
+<p>Slice sampling works well for this example.</p>
+</div>
+<div id="generalising-to-continuous-distributions" class="section level1">
+<h1>Generalising to Continuous Distributions</h1>
+<p>When the target distribution is continuous, the algorithms take the same form but with probability densities (the heights of the density curves) replacing the discrete probabilities.</p>
+<p>For Slice sampling with continuous distributions, careful programming is needed to identify the set of values with probability greater or equal to u in an efficient way.</p>
+</div>
+<div id="gibbs-sampling" class="section level1">
+<h1>Gibbs sampling</h1>
+<p>The Metropolis-Hastings and Slice sampling algorithms work in any number of dimensions, but in high dimensions, they becomes very inefficient. It is increasingly difficult to propose moves for the Metropolis-Hastings algorithm that will not be rejected and it is increasingly difficult to identify the set of potential values (the slice) for Slice sampling.</p>
+<p>Gibbs sampling offers a way around this problem by updating each parameter (dimension) in turn, with the remaining parameters held fixed. It is generally the case that Gibbs sampling takes longer to cover a multi-dimensional posterior, but it only ever requires one dimensional updates, which are usually easier to create.</p>
+<p>Gibbs sampling works well when there is low correlation between parameters but can become very slow to converge to the target when pairs of parameters are highly correlated. In such situations, it may be necessary to re-parameterise the problem, or to update the correlated parameters as a block.</p>
+</div>
+<div id="hamiltonian-markov-chain-hmc" class="section level1">
+<h1>Hamiltonian Markov Chain (HMC)</h1>
+<p>As already noted, Gibbs Sampling performs well provided the parameters of a model are not highly correlated. When they are, Gibbs samplers tends to get struck in one part of the posterior. It is not uncommon to hear stories of models fitted by Gibbs Sampling, where the software converges to the correct multi-dimensional target but only after hundreds of thousands of iterations taking days of computation.</p>
+<p>HMC is a form of MCMC that is capable of updating all parameters at the same time, so it is much less affected by the correlation between parameters. The computation for each iteration takes longer, but far fewer iterations are needed. The secret of HMC is that it uses both the probability density of the target distribution and the derivative of that probability density. Rather like gradient descent in optimisation problems, the derivative tells HMC how to change the parameters in order to cover the target distribution more efficiently.</p>
+<p>HMC can only be used when the parameters have a continuous distribution with smooth derivatives and it is only accurate, when those derivatives are precise; numerical differentiation is not good enough.</p>
+<p>There are two ways of motivating the HMC algorithm, by analogy with the path of a particle moving over a multi-dimensional surface, or as an auxiliary variable method in which extra parameters are added to the model to make it easier to simulate. In the physical analogy, the auxiliary variables represent the velocity of the particle.</p>
+<p>Let’s suppose that <span class="math inline">\(\theta\)</span> is a multi-dimensional parameter; in the physical analogy, the values of <span class="math inline">\(\theta\)</span> correspond to the co-ordinates of the particle. <span class="math inline">\(\phi\)</span> is the auxiliary variable, it has the same dimension as <span class="math inline">\(\theta\)</span> and represents the components of the velocity of the particle.</p>
+<p>The joint distribution of <span class="math inline">\(\phi\)</span> and <span class="math inline">\(\theta\)</span> is
+<span class="math display">\[
+p(\phi, \theta) = p(\phi | \theta) p(\theta)
+\]</span>
+Since <span class="math inline">\(\phi\)</span> is not inherent in the original problem, <span class="math inline">\(p(\phi | \theta)\)</span> can be chosen in any way that simplifies the joint sampling and once <span class="math inline">\(\phi\)</span> and <span class="math inline">\(\theta\)</span> have been simulated, the values of <span class="math inline">\(\phi\)</span> can be discarded to leave a value <span class="math inline">\(\theta\)</span> drawn from the target distribution <span class="math inline">\(p(\theta)\)</span>.</p>
+<p>If we take minus the log of this expression, we get something that is usually called H (H is analogous to the Hamiltonian of classical dynamics and can be used to calculate the path of a particle given its position and velocity)
+<span class="math display">\[
+H(\phi, \theta) = -log\left[p(\phi, \theta)\right] = -log\left[p(\phi | \theta)\right] - log\left[p(\theta)\right]
+\]</span>
+Hamilton’s equations of motion update the values of <span class="math inline">\(\phi\)</span> and <span class="math inline">\(\theta\)</span> in time, t, according to the following rule.
+<span class="math display">\[
+\frac{\partial \phi}{\partial t} = \frac{\partial H}{\partial \theta}  
+\frac{\partial \theta}{\partial t} = -\frac{\partial H}{\partial \phi}  
+\]</span></p>
+<p>So the path of <span class="math inline">\(\theta\)</span> and <span class="math inline">\(\phi\)</span> can be traced for a fixed time t, before <span class="math inline">\(\phi\)</span> is discarded. In the physical analogy, what happens is that the particle moves over the surface defined by minus the log of the target density, gaining or losing speed as it moves down or up. Eventually, the particle will run out of kinetic energy and stop. If the surface is frictionless, it will then reverse its path back to the place where it started (due to the conservation of energy).</p>
+<p>Deciding on the fixed time interval for the HMC algorithm is not trivial, we want to allow the parameters to change sufficiently that <span class="math inline">\(\theta\)</span> moves to another part of the target distribution, but not so long that it returns to the place where it started.</p>
+<p>Everything else about HMC is technical detail. First, the user must select the distribution of <span class="math inline">\(\phi\)</span>, a multivariate normal is the standard choice. Next, Hamilton’s differential equations must be solved. They are usually too complex to solve analytically, so a numerical method has to be used; the leap-frog algorithm is most popular. This method is highly accurate, but still only approximate, so to make the sampling exact, the leap-frog solution is used as the proposal in a Metropolis-Hastings step. A popular way to decide on the fixed time is to use an algorithm called the No U-Turn Sampler (NUTS), which stops when the parameters start their return journey towards their starting position. The programs <em>Stan</em> and <em>greta</em> are based on HMC samplers that incorporate all of these features. They have proved very successful, even for high-dimensional, complex models.</p>
+<div id="a-simple-hmc-sampler" class="section level2">
+<h2>A Simple HMC Sampler</h2>
+<p>Let’s take a ridiculously simple example. We have 10 observations that are to be modelled as being generated by a N(<span class="math inline">\(\theta\)</span>, 1) distribution. We place a flat prior on <span class="math inline">\(\theta\)</span> (all values of <span class="math inline">\(\theta\)</span> are equally likely), so the posterior of <span class="math inline">\(\theta\)</span> has the same form as the likelihood.</p>
+<pre class="r"><code># --- log-posterior of x ------------------------
+# --- omitting the constant term
+logPosterior &lt;- function(x, theta) {
+  -0.5*10*(mean(x) - theta)^2
+}</code></pre>
+<p>I’ll choose the distribution of <span class="math inline">\(\phi\)</span> to be N(0, 1), so</p>
+<pre class="r"><code>H &lt;- function(x, theta, phi) {
+  0.5*phi^2 - logPosterior(x, theta)
+}</code></pre>
+<p>Here are some random data. They are generated from the family of models that will be used in the analysis, so the analysis model should perform well.</p>
+<pre class="r"><code>set.seed(6671)
+# --- the data ---------------------------------
+x &lt;- rnorm(10, 2.5, sd=1)
+# --- mean of this sample ----------------------
+mean(x)</code></pre>
+<pre><code>## [1] 2.701392</code></pre>
+<p>If everything works, the posterior of theta ought to be centred close to this mean</p>
+<p>The code below creates a basic HMC algorithm. The leapfrog makes a half-step update to <span class="math inline">\(\phi\)</span>, then a full update to <span class="math inline">\(\theta\)</span> and finally another half-step update to <span class="math inline">\(\phi\)</span>. The amounts by which the parameters are updated is calculated from the partial derivatives of H, hence the need for derivatives.</p>
+<p>Arbitrarily, I have chosen to make 10 time steps each of 0.05, so no NUTS for me.</p>
+<pre class="r"><code># --- seed for reproducibility -----------------
+set.seed(1003)
+# --- vector to hold the sample ----------------
+sample &lt;- rep(0, 100)
+# --- Initial Value ----------------------------
+theta &lt;- 0.5
+# --- choice of time interval and time steps ---
+dt &lt;- 0.05
+Nt &lt;- 10
+# --- Iterate 100 times ------------------------
+for( iter in 1:100 ) {
+  # --- a random phi ---------------------------
+  phi &lt;- rnorm(1, 0, 1)
+  # --- current H and current theta ------------
+  H1 &lt;- H(x, theta, phi)
+  theta1 &lt;- theta
+  # --- iterate over the time steps ------------
+  for( t in 1:Nt ) {
+    # --- leapfrog -----------------------------
+    phi &lt;- phi + 0.5*dt*10*(mean(x) - theta)
+    theta &lt;- theta + dt*phi
+    phi &lt;- phi + 0.5*dt*10*(mean(x) - theta)
+  }
+  # --- new H ----------------------------------
+  H2 &lt;- H(x, theta, phi)
+  # --- Metropolis-Hastings step ---------------
+  acceptProb &lt;- min(1, exp(H1 - H2))
+  theta &lt;- ifelse( runif(1) &lt; acceptProb, theta, theta1)
+  # --- save the current theta -----------------
+  sample[iter] &lt;- theta
+}
+# --- Print sample -----------------------------
+print(sample[1:20])</code></pre>
+<pre><code>##  [1] 2.705552 3.091559 3.613054 2.532365 2.825904 2.883641 2.809128 2.737801
+##  [9] 2.949484 2.891013 2.081444 2.493530 2.293475 2.339607 3.032737 3.075198
+## [17] 2.551527 2.828968 2.389500 2.795353</code></pre>
+<p>The mixing is adequate and the sample looks like a normal distribution centred close to the sample mean.</p>
+<pre class="r"><code>library(tidyverse)
+
+# --- trace plot of the HMC sample ---------------------------
+tibble( theta = sample,
+        iter = 1:100 ) %&gt;%
+  ggplot( aes(x=iter, y=theta)) + 
+  geom_line( colour=&quot;steelblue&quot;) +
+  labs(title=&quot;trace plot of the HMC sample&quot;)</code></pre>
+<p><img src="/post/bayes_mcmc/methods_mcmc_files/figure-html/unnamed-chunk-10-1.png" width="672" style="display: block; margin: auto;" /></p>
+<pre class="r"><code># --- histogram of the HMC sample ----------------------------
+tibble( theta = sample ) %&gt;%
+  ggplot( aes(x=theta)) + 
+  geom_histogram( fill=&quot;steelblue&quot;, bins=25) +
+  labs(title=&quot;Histogram of the HMC sample&quot;)</code></pre>
+<p><img src="/post/bayes_mcmc/methods_mcmc_files/figure-html/unnamed-chunk-10-2.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The mean of the sample is close to the mean of the data, as we would expect it to be when the prior is flat.</p>
+<pre class="r"><code># --- posterior mean ------------
+mean(sample)</code></pre>
+<pre><code>## [1] 2.673291</code></pre>
+<p>Not bad considering that I guessed at the time interval and the number of leap-frog steps, my initial value for theta was poorly chosen and I only ran 100 iterations.</p>
+<p>Here is the histogram of the sample when 5000 iterations are run. Everything else remains unchanged.
+<img src="/post/bayes_mcmc/methods_mcmc_files/figure-html/unnamed-chunk-12-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The estimate of the posterior mean is now 2.70 and the sample gives a good representation of the theoretical posterior that I have shown in red.</p>
+</div>
+</div>
+
+  
+
+  
+    <div id="disqus_thread"></div>
+<script type="application/javascript">
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "John" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+  
+
+
+
+    <footer class="site-footer">
+  <span class="site-footer-credits">
+    Made with <a href="https://gohugo.io/">Hugo</a>. Themed by <a href="https://github.com/zwbetz-gh/cayman-hugo-theme">Cayman</a>. Deployed to <a href="https://www.netlify.com/">Netlify</a>.
+  </span>
+</footer>
+
+  </section>
+  
+  
+  <script>
+  window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+  ga('create', 'UA-123456789-1', 'auto');
+  ga('send', 'pageview');
+  </script>
+  <script async src='https://www.google-analytics.com/analytics.js'></script>
+  
+
+</body>
+</html>

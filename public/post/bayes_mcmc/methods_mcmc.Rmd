@@ -24,7 +24,7 @@ knitr::opts_chunk$set(echo = TRUE, fig.align='center', warning=FALSE, message=FA
 
 # Introduction
 
-Markov Chain Monte Carlo (MCMC) Samplers are ways of drawing representative values from a target distribution. In this post I will develop MCMC sampling from scratch and illustrate some of the most popular algorithms with simple R code.  The key to understanding the approach lies in the name; `Monte Carlo` says that the values will be drawn by a random process and `Markov Chain` says that each sampled value will be dependent on the previous value.  
+Markov Chain Monte Carlo (MCMC) Samplers are ways of drawing representative values from a target distribution. In this post I will develop MCMC sampling from scratch and illustrate some of the most popular algorithms with simple R code.  The key to understanding the approach lies in the name; `Monte Carlo` says that the values will be drawn by a random process and `Markov Chain` says that each sampled value will be dependent on the previous value.   
 
 The algorithms are usually applied to Bayesian problems in which the target is the posterior distribution of a model parameter.
 

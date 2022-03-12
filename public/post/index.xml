@@ -6,7 +6,16 @@
     <description>Recent content in Posts on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Thu, 10 Feb 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Mon, 07 Mar 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Methods: MCMC Algorithms</title>
+      <link>https://modelling-with-r.netlify.app/methods_mcmc/</link>
+      <pubDate>Mon, 07 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/methods_mcmc/</guid>
+      <description>IntroductionMarkov Chain Monte Carlo (MCMC) Samplers are ways of drawing representative values from a target distribution. In this post I will develop MCMC sampling from scratch and illustrate some of the most popular algorithms with simple R code. The key to understanding the approach lies in the name; Monte Carlo says that the values will be drawn by a random process and Markov Chain says that each sampled value will be dependent on the previous value.</description>
+    </item>
+    
     <item>
       <title>Methods: Introduction to Bayesian Analysis</title>
       <link>https://modelling-with-r.netlify.app/methods_bayes_basics/</link>
