@@ -6,7 +6,17 @@
     <description>Recent content in Blog on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Mon, 07 Mar 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Sat, 12 Mar 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Methods: R Software for Bayesian Analysis</title>
+      <link>https://modelling-with-r.netlify.app/methods_software/</link>
+      <pubDate>Sat, 12 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/methods_software/</guid>
+      <description>IntroductionProbabilistic Programming Languages (PPLs) provide a way of specifying a Bayesian model and a choice of samplers that can be used to simulate parameter values from the model’s joint posterior. The Wikipedia page on Probabilitic Programming (https://en.wikipedia.org/wiki/Probabilistic_programming) lists about 40 such languages, of which a handful can be run in, or via, R.
+As the name suggests, BUGS (Bayesian Inference using Gibbs Sampling) is a PPL that uses Gibbs sampling.</description>
+    </item>
+    
     <item>
       <title>Methods: MCMC Algorithms</title>
       <link>https://modelling-with-r.netlify.app/methods_mcmc/</link>
