@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="generator" content="Hugo 0.82.0" />
+  
+  <meta name="description" content="IntroductionMy last methods post described how Probabilistic Programming Languages (PPLs) such as BUGS, nimble, stan and greta can be used to fit Bayesian models in R. These PPLs all use MCMC simulation, but they return their results in differently structured R objects, so I also gave the code of functions that take these objects and convert them into a standard tibble with one column for each parameter and one row for each iteration.">
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/normalize.css">
+  <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
+  
+  
+  
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/cayman.ea0e967413f3851071cc8ace3621bc4205fe8fa79b2abe3d7bf94ff2841f0d47.css">
+  
+  
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.css" integrity="sha384-yFRtMMDnQtDRO8rLpMIKrtPCD5jdktao2TV19YiZYWMDkUR5GQZR/NOVTdquEx1j" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.js" integrity="sha384-9Nhn55MVVN0/4OFx7EE5kpFBPsEMZxKTCnA+4fqDmg12eCTqGi6+BB2LjY8brQxJ" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/contrib/auto-render.min.js" integrity="sha384-kWPLUVMOks5AQFrykwIup5lo0m3iMkkHrD0uJ4H5cjeGihAutqP0yW0J6dpFiVkI" crossorigin="anonymous" onload="renderMathInElement(document.body);"></script>
+
+  <title>Methods: Assessing MCMC Output | Modelling with R</title>
+</head>
+
+<body>
+  <section class="page-header">
+  <h1 class="project-name">
+    Modelling with R
+  </h1>
+  <h2 class="project-tagline">
+    contrasting statistical and machine learning approaches
+  </h2>
+  <nav>
+    
+    
+      
+      
+      
+      
+      <a href="/post/" class="btn">Blog</a>
+    
+      
+      
+      
+      
+      <a href="/tags/" class="btn">Tags</a>
+    
+      
+      
+      
+      
+      <a href="/about/" class="btn">About</a>
+    
+  </nav>
+</section>
+
+  <section class="main-content">
+    
+  <h1>Methods: Assessing MCMC Output</h1>
+  <div>
+    
+    <strong>Publish date: </strong>2022-03-21
+  </div>
+  
+  
+    <div>
+      <strong>Tags: </strong>
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+      <a href="https://modelling-with-r.netlify.app/tags/mcmc-convergence/">MCMC convergence</a>, <a href="https://modelling-with-r.netlify.app/tags/mcmc-summary/">MCMC summary</a>, <a href="https://modelling-with-r.netlify.app/tags/geweke/">Geweke</a>, <a href="https://modelling-with-r.netlify.app/tags/gelman-rubin-brooks/">Gelman-Rubin-Brooks</a>, <a href="https://modelling-with-r.netlify.app/tags/rhat/">Rhat</a>, <a href="https://modelling-with-r.netlify.app/tags/trace-plot-interpretation/">Trace plot interpretation</a>, <a href="https://modelling-with-r.netlify.app/tags/bayesian-model-checking/">Bayesian model checking</a>, <a href="https://modelling-with-r.netlify.app/tags/bayesian-residuals/">Bayesian residuals</a>, <a href="https://modelling-with-r.netlify.app/tags/bayesian-p-values/">Bayesian p-values</a>, <a href="https://modelling-with-r.netlify.app/tags/coda-package/">coda package</a>
+    </div>
+  
+  
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>My last methods post described how Probabilistic Programming Languages (PPLs) such as <code>BUGS</code>, <code>nimble</code>, <code>stan</code> and <code>greta</code> can be used to fit Bayesian models in R. These PPLs all use MCMC simulation, but they return their results in differently structured R objects, so I also gave the code of functions that take these objects and convert them into a standard tibble with one column for each parameter and one row for each iteration. In this post, I will consider how best to use the simulations once they have been converted into that standard form.</p>
+<p>There are four distinct questions that need to be asked of any set of MCMC simulations and I will consider each in turn.</p>
+<ol style="list-style-type: decimal">
+<li><strong>Assessment of convergence</strong>: do the simulations correctly represent the posterior of the model?<br />
+</li>
+<li><strong>Simulation accuracy</strong>: assuming convergence, are the results accurate enough for our purposes?</li>
+<li><strong>Model criticism</strong>: assuming convergence and accuracy, does the current model adequately capture the patterns in the data?</li>
+<li><strong>Model interpretation</strong>: assuming that we happy with the model, how do the simulations help us answer the questions that motivated the analysis?</li>
+</ol>
+</div>
+<div id="assessment-of-convergence" class="section level1">
+<h1>1. Assessment of Convergence</h1>
+<p>MCMC algorithms are very powerful, but they can go wrong. Much like an optimisation that settles on a local maximum, so an MCMC algorithm can get stuck exploring a remote region of the posterior and produce simulations that do not represent the true target. The problem for the data analyst is that they do not know what the true distribution looks like, so it is difficult for them to be sure whether or not the algorithm has worked.<br />
+One of the standard approaches is to assessing convergence is to run the analysis several times with different random number seeds and different initial values, in order to see if the various chains all arrive at the same posterior. Running <strong>at least three chains</strong> should be routine practice for any Bayesian analysis.</p>
+<p>Within a single chain, we can get some idea of convergence by dividing the chain into sections; for instance, does the posterior described by the first 500 iterations resemble the posterior described by the last 500 iterations?</p>
+<p>When an algorithm does not converge, the simulations should be inspected for clues as to why it has failed, so that the algorithm can be improved.</p>
+<p>I’ll consider single chain assessment of convergence first, even though multiple chain assessment is the gold standard.</p>
+<div id="single-chain-assessment" class="section level2">
+<h2>Single chain assessment</h2>
+<div id="trace-plots" class="section level3">
+<h3>Trace plots</h3>
+<p>A lot of information can be obtained from a simple trace plot (time series plot) of a chain. By eye we can see,</p>
+<ul>
+<li>Whether or not different sections of the chain resemble one another<br />
+</li>
+<li>Whether the chain is still moving towards the true posterior<br />
+</li>
+<li>Whether the chain is moving freely across the distribution</li>
+</ul>
+<p>There are several packages that will make a trace plot of a single chain, but the task is so straightforward that one might as well code it for oneself using ggplot2. For convenience I have created my own function called <code>trace_plot()</code> that I present in the appendix to this post. I supplement my trace plot with horizontal lines representing the 10%, 50% and 90% quantiles of the simulations and by a smoother that helps the eye detect any trend.</p>
+<p>Here is the trace plot for a single <code>OpenBUGS</code> run obtained in the previous post on Bayesian software for the Poisson regression model of alcohol related deaths. <code>MyPackage</code> contains my Bayesian functions, including the <code>trace_plot()</code> function and <code>bugs_to_df</code>, which extracts the simulations and saves them in a data frame.</p>
+<pre class="r"><code>library(tidyverse)
+library(MyPackage)
+
+theme_set(theme_light())
+
+# --- home folder on my computer -------------------------------------
+home     &lt;- &quot;C:/Projects/kaggle/sliced/methods/methods_bayes_software&quot;
+
+# --- read single bugs chain &amp; convert to a data frame ---------------
+readRDS( file.path( home, &quot;data/dataStore/alcBugs01.rds&quot;)) %&gt;%
+   bugs_to_df()  -&gt; simBugsDF
+
+# --- trace plot of parameter b1 -------------------------------------
+trace_plot(simBugsDF, b1) +
+  labs(title=&quot;Trace plot for the OpenBUGS analysis of parameter b1&quot;)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-1-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>By eye all looks well. The blue smoothed line is reassuringly straight and horizontal. There is no drift up or down of the type that might suggest that the algorithm is still searching for the centre of the posterior distribution. What is more, the simulations move quickly across the distribution suggesting that the algorithm is mixing well, that is to say it is not getting stuck in one part of the posterior.</p>
+<p>From the plot, we can see that the parameter b1 has a posterior mean of about 0.0144 and there is a high probability that its true value is somewhere between about 0.0138 and 0.0148.</p>
+<p>The package <code>bayesplot</code> has been designed to work with <code>stan</code>, but can be used more generally. It includes its own versions of the standard Bayesian plots. For instance, here is the <code>bayesplot</code> version of the same trace plot.</p>
+<pre class="r"><code>library(bayesplot)
+
+mcmc_trace(simBugsDF, pars=&quot;b1&quot;) +
+  labs(title=&quot;bayesplot&#39;s trace of the OpenBUGS chain&quot;)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-2-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>I prefer my own function and when it does not quite do what I want, I am happy to write ggplot2 code from scratch. None the less, <code>bayesplot</code> is widely used and if it suits you, you can read more about it at <a href="https://mc-stan.org/bayesplot/" class="uri">https://mc-stan.org/bayesplot/</a>.</p>
+<p>The nimble analysis of the same problem was less successful as its trace plot shows.</p>
+<pre class="r"><code># --- single nimble chain -----------------------------------------
+nimbleObject &lt;- readRDS( file.path( home, &quot;data/dataStore/alcNimble01.rds&quot;)) %&gt;%
+   nimble_to_df() -&gt; simNimbleDF
+
+trace_plot(simNimbleDF, b1) +
+  labs(title=&quot;Trace plot for the nimble analysis of parameter b1&quot;)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-3-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>The contrast could hardly be more stark. This chain is struggling to find the posterior (drift) and the smooth is anything but straight and horizontal. The algorithm ends in the right ballpark with a median estimate of b1 is about 0.014, but without the <code>OpenBUGS</code> analysis for comparison, I would not have any confidence in that estimate.</p>
+<p>The mixing is also poor. The flat regions within the trace show how the algorithm is getting stuck at the same value. <code>nimble</code> uses a Metropolis-Hastings algorithm, so when a proposal is rejected the algorithm repeats the current value. The flat regions extend over up to 50 iterations indicating the time needed before a proposal is accepted. There are theoretical papers that suggest that for a high-dimensional distribution, the ideal is accept on average every 4th proposal. An even higher acceptance rate might seem preferable, but it would mean that the proposed moves are too similar to the current value and such very short moves will be slow to cover the posterior.</p>
+<p>The problem here is mine, not <code>nimble</code>’s; I did not use <code>nimble</code> very intelligently. In my experience, <code>nimble</code>’s defaults are not as good as those of <code>OpenBUGS</code>, so the user needs to work harder to tune the algorithm.</p>
+<p>Here is the trace plot for the first <code>stan</code> chain.</p>
+<pre class="r"><code># --- three bayes chains -----------------------------------------
+stanObject &lt;- readRDS( file.path( home, &quot;data/dataStore/alcStanP01.rds&quot;)) %&gt;%
+   stan_to_df() -&gt; simStanDF 
+
+# --- trace plot of b1 in chain 1 --------------------------------
+trace_plot(simStanDF %&gt;% filter(chain == 1), b1) +
+  labs(title=&quot;Trace plot for the stan analysis of parameter b1&quot;)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-4-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p><code>stan</code> returns the full chain including the warmup during which the algorithm is being automatically tuned. The warmup of 500 iterations needs to be discarded before the chain is examined. The result is not perfect, but is not bad for such a short run.</p>
+<pre class="r"><code># --- trace plot of b1 in chain 1 --------------------------------
+trace_plot(simStanDF %&gt;% filter(chain == 1 &amp; iter &gt; 500), b1) +
+  labs(title=&quot;Trace plot for the stan analysis of parameter b1 after the warmup&quot;)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-5-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>In my <code>greta</code> code, I placed all of the coefficients in a single vector, b, and the element corresponding to b1 is called b_2_1.</p>
+<p>Here is the trace plot for the first <code>greta</code> chain.</p>
+<pre class="r"><code># --- three greta chains -----------------------------------------
+gretaObject &lt;- readRDS( file.path( home, &quot;data/dataStore/alcGretaP01.rds&quot;)) %&gt;%
+   greta_to_df() -&gt; simGretaDF
+
+# --- trace plot of b_2_1 (b1) in chain 1 ------------------------
+trace_plot(simGretaDF %&gt;% filter(chain == 1), b_2_1) +
+  labs(title=&quot;Trace plot for the geta analysis of parameter b_2_1&quot;)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-6-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>Pretty good. Quite similar to <code>OpenBUGS</code>.</p>
+</div>
+</div>
+<div id="numerical-measures-of-convergence" class="section level2">
+<h2>Numerical measures of convergence</h2>
+<p>Sometimes it is helpful to have numerical measures that summarise the things that can be seen in a trace plot and a good way of obtaining such measures is by using the <code>coda</code> package. Coda requires the simulations in a special format, but it provides a function <code>mcmc</code> that does the conversion. My iter and chain columns need to be dropped before <code>mcmc()</code> is used.</p>
+<pre class="r"><code>library(coda)
+
+# --- Coda versions of single chains from each program ------------
+bugsCoda &lt;- mcmc( simBugsDF %&gt;% 
+                    select( -chain, -iter))
+
+nimbleCoda &lt;- mcmc( simNimbleDF %&gt;% 
+                      select( -chain, -iter))
+
+stanCoda &lt;- mcmc( simStanDF %&gt;% 
+                    filter(chain == 1 &amp; iter &gt; 500) %&gt;% 
+                    select( -chain, -iter))
+
+gretaCoda &lt;- mcmc( simGretaDF %&gt;%
+                     filter(chain == 1) %&gt;% 
+                    select( -chain, -iter))</code></pre>
+<div id="drift" class="section level3">
+<h3>Drift</h3>
+<p>The function. <code>geweke.diag()</code> runs the Geweke test and produces the Z-statistic for testing the mean level of the early part of a single chain against that of the late part of the same chain. If they have the same mean, the Z-statistic should lie in the range -2 to +2.</p>
+<pre class="r"><code># ---- Geweke test of the OpenBUGS chain ------------------------
+geweke.diag(bugsCoda)</code></pre>
+<pre><code>## 
+## Fraction in 1st window = 0.1
+## Fraction in 2nd window = 0.5 
+## 
+##      b0      b1    b2_2    b2_3    b2_4    b2_5    b2_6    b2_7    b2_8    b2_9 
+## -0.1998 -1.3644  1.0031  0.2770  0.2470  0.3254  0.5552  0.3952  0.3079  0.1454 
+##   b2_10   b2_11   b2_12   b2_13   b2_14      b3 
+##  0.2375  0.5882  0.5591  0.6532  0.6990 -1.0805</code></pre>
+<p>The output tells us that we are comparing the first 10% of the chain with the last 50% (defaults that can be changed). b1 is fine, but most of the Z-statistics are only on the edge of acceptability. I would make trace plots of some of the other parameters before reaching any firm conclusions, but the message seems to be that <code>OpenBUGS</code> needs a longer burn-in and/or run length.</p>
+<pre class="r"><code># ---- Geweke test of the nimble chain ------------------------
+geweke.diag(nimbleCoda)</code></pre>
+<pre><code>## 
+## Fraction in 1st window = 0.1
+## Fraction in 2nd window = 0.5 
+## 
+##     b0     b1   b2_1   b2_2   b2_3   b2_4   b2_5   b2_6   b2_7   b2_8   b2_9 
+##  7.069 -6.460    NaN -9.024 -7.942 -7.988 -7.948 -7.548 -7.454 -7.703 -7.886 
+##  b2_10  b2_11  b2_12  b2_13  b2_14     b3 
+## -7.871 -8.192 -8.053 -8.494 -9.646 -7.356</code></pre>
+<p>nimble includes b2_1 in its output, which I set to zero by definition in the code, hence its Z-statistic cannot be calculated. Otherwise, only b3 looks acceptable and b1, which we saw by eye was poorly estimated by <code>nimble</code>, is far from the worst.</p>
+<pre class="r"><code># ---- Geweke test of the stan chain ------------------------
+geweke.diag(stanCoda)</code></pre>
+<pre><code>## 
+## Fraction in 1st window = 0.1
+## Fraction in 2nd window = 0.5 
+## 
+##      b0      b1    b2_1    b2_2    b2_3    b2_4    b2_5    b2_6    b2_7    b2_8 
+##  2.2400 -0.3684 -2.3648 -2.6567 -2.3395 -2.0911 -2.2546 -2.0953 -2.2223 -2.1183 
+##    b2_9   b2_10   b2_11   b2_12   b2_13      b3    lp__ 
+## -2.0742 -2.2851 -2.0781 -2.9519 -2.3356 -1.0902 -1.0011</code></pre>
+<p>Stan includes the value of the log-posterior, <code>lp__</code>, in its results. Most parameters narrowly fail the Geweke test, though not b1.</p>
+<pre class="r"><code># ---- Geweke test of the greta chain ------------------------
+geweke.diag(gretaCoda)</code></pre>
+<pre><code>## 
+## Fraction in 1st window = 0.1
+## Fraction in 2nd window = 0.5 
+## 
+##   b_1_1   b_2_1   b_3_1   b_4_1   b_5_1   b_6_1   b_7_1   b_8_1   b_9_1  b_10_1 
+##  6.1180 -1.6349 -6.9329 -5.4704 -4.9135 -5.5557 -5.4674 -5.5328 -5.8106 -5.4582 
+##  b_11_1  b_12_1  b_13_1  b_14_1  b_15_1  b_16_1 
+## -5.9061 -5.8050 -5.5534 -8.2921 -4.9279 -0.5082</code></pre>
+<p>Greta does not perform well, except for b1 (b_2_1) and b3 (b_16_1).</p>
+</div>
+<div id="mixing" class="section level3">
+<h3>Mixing</h3>
+<p>A useful numerical measure of mixing is the autocorrelation of the trace. When the chain moves slowly the correlation between successive values will be high and when mixing is good the correlations will be close to zero. In coda, the <code>autocorr.diag()</code> function does the calculation for different lags; lag 1 represents pairs of successive values , lag 10 considers all values 10 iterations apart etc.</p>
+<pre class="r"><code># --- OpenBugs autocorrelations ----------------------------
+autocorr.diag(bugsCoda, lags=c(1, 10, 50))</code></pre>
+<pre><code>##                 b0          b1       b2_2        b2_3        b2_4       b2_5
+## Lag 1  0.006890701  0.04144456 0.01726486 0.005315357 0.004186384 0.01161818
+## Lag 10 0.021793448  0.02826059 0.01808078 0.016217246 0.014844279 0.02919310
+## Lag 50 0.076793288 -0.01126541 0.05829718 0.080474475 0.073435941 0.07204585
+##               b2_6        b2_7       b2_8        b2_9      b2_10       b2_11
+## Lag 1  0.007445628 0.002076707 0.01041323 0.003638458 0.01049934 0.009299351
+## Lag 10 0.029269141 0.016019588 0.02838359 0.025807343 0.02806000 0.029350644
+## Lag 50 0.068886066 0.074163359 0.07831680 0.064317222 0.06579391 0.068715340
+##                b2_12       b2_13        b2_14          b3
+## Lag 1  -0.0005394223 0.005584714  0.024139575 -0.01347989
+## Lag 10  0.0250402843 0.037177764 -0.001309999  0.01896206
+## Lag 50  0.0701128667 0.069079892  0.075023378  0.03897660</code></pre>
+<p>The <code>OpenBUGS</code> output has reassuringly low correlations.</p>
+<pre class="r"><code># --- greta autocorrelations -------------------------------
+autocorr.diag(gretaCoda, lags=c(1, 10, 50))</code></pre>
+<pre><code>##            b_1_1        b_2_1     b_3_1     b_4_1     b_5_1     b_6_1     b_7_1
+## Lag 1  0.9939465  0.208912057 0.9857715 0.9950138 0.9956158 0.9933520 0.9934959
+## Lag 10 0.9581852  0.006839982 0.9234642 0.9536654 0.9592926 0.9574108 0.9584817
+## Lag 50 0.8217326 -0.052734373 0.7855345 0.8139601 0.8219693 0.8201945 0.8227359
+##            b_8_1     b_9_1    b_10_1    b_11_1    b_12_1    b_13_1    b_14_1
+## Lag 1  0.9937467 0.9936218 0.9933464 0.9926820 0.9923370 0.9961815 0.9964108
+## Lag 10 0.9578131 0.9574300 0.9582403 0.9574606 0.9569428 0.9634691 0.9633897
+## Lag 50 0.8191887 0.8208239 0.8232843 0.8194217 0.8228475 0.8312546 0.8187056
+##           b_15_1      b_16_1
+## Lag 1  0.9943584  0.25572782
+## Lag 10 0.9449027 -0.01691752
+## Lag 50 0.7536832  0.03581114</code></pre>
+<p>Greta has high correlations for most parameters, but is OK for b1 and b3.</p>
+</div>
+</div>
+<div id="multiple-chain-assessment" class="section level2">
+<h2>Multiple Chain Assessment</h2>
+<p>I read the three <code>BUGS</code> chains using my function <code>bayes_to_df()</code>, which reads saved simulations from named files and combines them into a single tibble.</p>
+<pre class="r"><code># --- names of the three BUGS rds files --------------------------
+file.path( home, paste(&quot;data/dataStore/alcPar0&quot;, 1:3,
+                                &quot;.rds&quot;,sep=&quot;&quot;)) %&gt;%
+  # --- combine the saved results --------------------------------
+  bayes_to_df() -&gt; simBugs3DF</code></pre>
+<p>The key assessment is the comparison of the three chains, which we could create by making three trace plots. My <code>trace_plot()</code> function does this automatically.</p>
+<pre class="r"><code># --- plot of the three chains ---------------------------------
+trace_plot(simBugs3DF, b1)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-15-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>The chains seem to be in reasonable agreement. Perhaps, the first two are drifting down slightly, suggesting that a longer burn-in is needed.</p>
+<p>The good numerical comparison of multiple chains is provided by an analysis of variance; how does the variance between chains compare with the variance within chains?</p>
+<p>This idea is captured in the Gelman-Rubin-Brooks statistic, R, which is scaled so that chains drawn from identical distributions would have R=1. Due to random sampling, the estimated R (usually called Rhat) might be greater than 1, but not greatly so. The threshold for what Rhat is acceptable has changed over time; originally, anything below 1.20 was accepted, then 1.1 was used and now most people require Rhat to be below 1.05.</p>
+<p>This statistic is available in coda via the <code>gelman.diag()</code> function. To convert a tibble of multiple chains to <code>coda</code> format, <code>coda</code> provides the <code>mcmc.list()</code> function.</p>
+<pre class="r"><code># --- coda format of the 3 OpenBUGS chains ------------------------
+bugs3Coda &lt;- mcmc.list( mcmc( simBugs3DF %&gt;%
+                       filter( chain == 1) %&gt;% 
+                       select(-chain, -iter)),
+                     mcmc( simBugs3DF %&gt;%
+                       filter( chain == 2) %&gt;% 
+                       select(-chain, -iter)),
+                     mcmc( simBugs3DF %&gt;%
+                       filter( chain == 3) %&gt;% 
+                       select(-chain, -iter)) )
+
+# --- Gelman-Rubin-Brooks statistics ------------------------------
+gelman.diag(bugs3Coda)</code></pre>
+<pre><code>## Potential scale reduction factors:
+## 
+##       Point est. Upper C.I.
+## b0          1.18       1.54
+## b1          1.00       1.00
+## b2_2        1.18       1.51
+## b2_3        1.18       1.53
+## b2_4        1.19       1.55
+## b2_5        1.18       1.53
+## b2_6        1.19       1.55
+## b2_7        1.19       1.54
+## b2_8        1.19       1.55
+## b2_9        1.19       1.54
+## b2_10       1.18       1.53
+## b2_11       1.19       1.54
+## b2_12       1.18       1.52
+## b2_13       1.17       1.50
+## b2_14       1.16       1.46
+## b3          1.00       1.01
+## 
+## Multivariate psrf
+## 
+## 1.11</code></pre>
+<p>b1 and b3 (the coefficients of year and gender) are acceptable, but the others would fail the test. Typically, the Rhats are just under 1.20 and the upper limits of their 95% CIs would stretch to around 1.50. For illustration, here is are the trace plots of b2_4 the 4th age category. The plot illustrates the problem detected by Rhat.</p>
+<pre class="r"><code># --- 3 chain trace plot of b2_4 -----------------------------------
+trace_plot(simBugs3DF, b2_4)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-17-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>The academic literature contains countless other plots and statistics for convergence assessment, but a combination of trace plots, the geweke test, autocorrelation and Rhat will suffice for most problems.</p>
+</div>
+<div id="merging-chains" class="section level2">
+<h2>Merging chains</h2>
+<p>When multiple chains are run and they all converge to the same distribution, then those chains can be combined into one for subsequent analysis.</p>
+</div>
+</div>
+<div id="simulation-accuracy" class="section level1">
+<h1>2. Simulation accuracy</h1>
+<p>Provided that we are happy that the algorithm has converged, i.e located and covered the true posterior, the next question is whether they describe the posterior with sufficient accuracy. Of course, the answer will depend on what you want from the posterior. Estimating the posterior mean is usually quite simple, but estimating the 99% percentile of the posterior would be much more demanding because that estimate would be sensitive to a small subset of extremely large simulations. Keeping this in mind, most people concentrate on the accuracy of the posterior mean.</p>
+<p>The key to accuracy is the standard error of the mean, but the autocorrelation in MCMC simulations makes this difficult to estimate. <code>Coda</code> uses a time series approach to estimating the standard error, which gives reasonable results.</p>
+<p>The standard error of the posterior mean is sometimes called the <strong>MCMC Error</strong>, a name that I prefer because it emphasises that it tell us about the accuracy of the MCMC chain, rather than anything about the parameter.</p>
+<p>We know that the nimble chain has very high autocorrelation, so I use that chain for illustration. <code>coda::summary()</code> produces two tables of results, but here I am only interested in the first of these.</p>
+<pre class="r"><code># --- first table returned by coda::summary() ------------------
+summary(nimbleCoda)[[1]]</code></pre>
+<pre><code>##              Mean          SD     Naive SE Time-series SE
+## b0    -0.27476242 0.356351606 1.126883e-02    0.289473864
+## b1     0.01193991 0.002867817 9.068835e-05    0.001303865
+## b2_1   0.00000000 0.000000000 0.000000e+00    0.000000000
+## b2_2   0.12143075 0.330514249 1.045178e-02    0.248454251
+## b2_3   1.15088000 0.328160617 1.037735e-02    0.260610968
+## b2_4   1.87299856 0.329783507 1.042867e-02    0.266510478
+## b2_5   2.42750142 0.330193195 1.044163e-02    0.268952478
+## b2_6   2.79904144 0.329082370 1.040650e-02    0.269984074
+## b2_7   2.98838024 0.330207155 1.044207e-02    0.273725537
+## b2_8   3.06305465 0.329449550 1.041811e-02    0.267751524
+## b2_9   3.03905896 0.330560969 1.045326e-02    0.271384005
+## b2_10  2.88153019 0.329186091 1.040978e-02    0.268113554
+## b2_11  2.52249280 0.329222017 1.041091e-02    0.266488262
+## b2_12  2.15396109 0.330057753 1.043734e-02    0.244815436
+## b2_13  1.67765258 0.331872046 1.049472e-02    0.256510828
+## b2_14  1.02544812 0.330460227 1.045007e-02    0.220627662
+## b3     0.76421914 0.010234748 3.236511e-04    0.002553265</code></pre>
+<p>So for b1 the naive estimate of the MCMC error that ignores autocorrelation is 0.000091, while the more appropriate time series MCMC error is 0.00130, about 14 times larger.</p>
+<p>Rounding everything for simplicity and taking the mean plus or minus 2 standard deviations as the range of a distribution. The analysis suggests that the coefficient of year, b1, is between 0.012-2*0.003=0.006 and 0.012-2*0.003=0.018 with the posterior mean at 0.012. However, these values are themselves estimates that become more accurate the longer the chain and at present the chain of length 1000 measured the mean, 0.012, to within about 2*0.001= 0.002. We expect the true posterior mean to be between 0.010 and 0.014. If this is not accurate enough for your purposes, then run the chain for longer.</p>
+<p>A useful measure of performance of the algorithm is the ratio of the two standard errors. It captures the loss due to autocorrelation.</p>
+<pre class="r"><code># --- Ratio of True (time-series) SE to ideal (naive) SE -----------
+summary(nimbleCoda)[[1]] %&gt;%
+  as_tibble( rownames=&quot;term&quot;) %&gt;%
+  mutate( ratio =  `Time-series SE` / `Naive SE`) %&gt;%
+  select( term, Mean, ratio)</code></pre>
+<pre><code>## # A tibble: 17 x 3
+##    term     Mean  ratio
+##    &lt;chr&gt;   &lt;dbl&gt;  &lt;dbl&gt;
+##  1 b0    -0.275   25.7 
+##  2 b1     0.0119  14.4 
+##  3 b2_1   0      NaN   
+##  4 b2_2   0.121   23.8 
+##  5 b2_3   1.15    25.1 
+##  6 b2_4   1.87    25.6 
+##  7 b2_5   2.43    25.8 
+##  8 b2_6   2.80    25.9 
+##  9 b2_7   2.99    26.2 
+## 10 b2_8   3.06    25.7 
+## 11 b2_9   3.04    26.0 
+## 12 b2_10  2.88    25.8 
+## 13 b2_11  2.52    25.6 
+## 14 b2_12  2.15    23.5 
+## 15 b2_13  1.68    24.4 
+## 16 b2_14  1.03    21.1 
+## 17 b3     0.764    7.89</code></pre>
+<p>This tells us that we are losing a lot of information due to the autocorrelation in the chain, but that is not the same as saying that the chain is not good enough. The information left may be sufficient for your needs.</p>
+<p>Often the information loss is summarised by the effective sample size, for which <code>coda</code> has a function.</p>
+<pre class="r"><code>effectiveSize(nimbleCoda)</code></pre>
+<pre><code>##        b0        b1      b2_1      b2_2      b2_3      b2_4      b2_5      b2_6 
+##  1.515440  4.837683  0.000000  1.769651  1.585578  1.531191  1.507249  1.485706 
+##      b2_7      b2_8      b2_9     b2_10     b2_11     b2_12     b2_13     b2_14 
+##  1.455266  1.513958  1.483661  1.507459  1.526236  1.817617  1.673902  2.243461 
+##        b3 
+## 16.068029</code></pre>
+<p>This says that the 1000 correlated nimble samples of b1 are equivalent to about 5 (4.84) random draws from the posterior of b1. The information loss is huge. The effective sample size is calculated as <code>Run length/(SEratio^2)</code>, i.e. 1000/14^2=5.</p>
+<p>Would you be willing to work with an analysis that describes a posterior by 5 random values drawn from that distribution. Probably not, in which case a longer chain is needed, or you could look for an algorithm with lower autocorrelation.</p>
+<p>If you wanted the equivalent of 50 random values from the posterior of b1, then you would need an equivalent nimble chain that is 10 times as long, i.e. 10,000 iterations.</p>
+</div>
+<div id="describing-the-posterior" class="section level1">
+<h1>4. Describing the posterior</h1>
+<p>I am going to take the next two questions out of order, because model evaluation, which logically should come next, requires samples from the predictive distribution as well as the posterior.</p>
+<p>Let’s move on to the situation in which we are happy with the model and the convergence and accuracy of the algorithm. Now we need to interpret the results. For illustration, I’ll concentrate on b1, the coefficient of year, and I’ll use the combined three <code>OpenBUGS</code> chains.</p>
+<p>I start by combining the 3 chains and plotting the posterior density</p>
+<pre class="r"><code># --- Posterior density ----------------------------------------
+simBugs3DF %&gt;%
+  ggplot( aes(x=b1)) +
+  geom_density( fill=&quot;steelblue&quot;)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-21-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>The message is that the distribution is fairly symmetrical and centred close to 0.0142. With high probability, b1 is between 0.0130 and 0.0155. We can be sure that alcohol related deaths are increasing over time because there is no support for a negative b1.</p>
+<p>In a Poisson regression, b1, is the log relative rate, so we might prefer to look at the relative rate, or even the percentage change. One of the nice features of simulations is that, unlike summary statistics, we can transform them.</p>
+<pre class="r"><code># --- density of the relative rate -----------------------------
+simBugs3DF %&gt;%
+  ggplot( aes(x=exp(b1))) +
+  geom_density( fill=&quot;steelblue&quot;) +
+  labs(x=&quot;relative annual increase in alcohol related deaths&quot;)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-22-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>On average, each year the number of deaths increases by a factor that we estimate to be about 1.0145 or 1.45%</p>
+<pre class="r"><code># --- density of the percentage increase per year --------------
+simBugs3DF %&gt;%
+  ggplot( aes(x=100*(exp(b1)-1))) +
+  geom_density( fill=&quot;steelblue&quot;) +
+  labs(x=&quot;annual percentage increase in alcohol related deaths&quot;)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-23-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>I could use the <code>summary()</code> function from <code>coda</code> to make these interpretations more precise. It is important to transform the raw simulations and then calculate the summary statistics. You cannot transform the summary statistics of the raw simulations.</p>
+<pre class="r"><code># --- max digits to display -----------------------------------
+options(pillar.sigfig = 7)
+# --- percentage changes associated with each coefficient -----
+simBugs3DF %&gt;%
+  select( -chain, -iter) %&gt;%
+  mutate( across(everything(), ~ 100*(exp(.)-1) ))  %&gt;%
+  mcmc() %&gt;%
+  summary() %&gt;%
+  { .[[1]]} %&gt;%
+  as_tibble(rownames=&quot;term&quot;) %&gt;%
+  filter( term != &quot;b0&quot; ) %&gt;%
+  select( term, Mean, SD) %&gt;%
+  mutate( across(Mean:SD, ~ round(., 2) ) )</code></pre>
+<pre><code>## # A tibble: 15 x 3
+##    term     Mean     SD
+##    &lt;chr&gt;   &lt;dbl&gt;  &lt;dbl&gt;
+##  1 b1       1.44   0.05
+##  2 b2_2   284.71  42.97
+##  3 b2_3   975.14 118.64
+##  4 b2_4  2117.15 243.51
+##  5 b2_5  3760.92 422.65
+##  6 b2_6  5490.2  612.03
+##  7 b2_7  6660.67 739   
+##  8 b2_8  7182.36 795.06
+##  9 b2_9  7013.71 778.13
+## 10 b2_10 5972.78 663.5 
+## 11 b2_11 4138.15 463.74
+## 12 b2_12 2835.84 323.16
+## 13 b2_13 1725.47 203.91
+## 14 b2_14  853.93 108.52
+## 15 b3     117.66   1.23</code></pre>
+<p>So the rate is about 1.4% higher each year, b3 says that men have a rate that is 118% (more than double) higher than women and relative to the baseline age group of 20-24 year olds, other age groups are much higher.</p>
+<p>The useful feature of posterior distributions is their probability interpretation. We could for example calculate the probability that the true annual increase is over 1.5%, which turns out to be about 0.09.</p>
+<pre class="r"><code>simBugs3DF %&gt;%
+  mutate( pct = 100*(exp(b1)-1) ) %&gt;%
+  summarise( prb = mean(pct &gt; 1.5))</code></pre>
+<pre><code>## # A tibble: 1 x 1
+##     prb
+##   &lt;dbl&gt;
+## 1 0.089</code></pre>
+</div>
+<div id="model-criticism" class="section level1">
+<h1>3. Model Criticism</h1>
+<p>Strictly, I should have addressed model criticism before interpreting the results, but criticism relies heavily on the predictive distribution, so it is convenient for me to deal with it last.</p>
+<p>Good models make accurate predictions, so the quality of a model can be assessed by comparing real data with model predictions. Ideally, the real data should be different from those that were used to fit the model, but that is not always practical and often we have to resort to model assessment based on predictions for the analysis dataset.</p>
+<p>Bayesian models produce predictive distributions, so unlike traditional statistics or machine learning, the model criticism will compare a real data point with a distribution.</p>
+<p>For illustration, I will take the example of the number of deaths in men aged 40-44 in 2005 and I’ll start by finding the observed number.</p>
+<pre class="r"><code># --- read the raw data --------------------------------------------
+home     &lt;- &quot;C:/Projects/kaggle/sliced/methods/methods_bayes_software&quot;
+filename &lt;- &quot;alcoholspecificdeaths2020.xlsx&quot;
+
+alcDF &lt;- readRDS( file.path(home, &quot;data/rData/alc.rds&quot;))
+
+# --- select the row of interest ------------------------------------
+alcDF %&gt;%
+  filter( age == &quot;40-44&quot; &amp; gender == &quot;male&quot; &amp; year == &quot;2005&quot;)</code></pre>
+<pre><code>## # A tibble: 1 x 5
+## # Groups:   gender, age [1]
+##    year age   gender deaths   pop
+##   &lt;dbl&gt; &lt;fct&gt; &lt;chr&gt;   &lt;dbl&gt; &lt;dbl&gt;
+## 1  2005 40-44 male      432 21.82</code></pre>
+<p>432 deaths in a population of 2.18million.</p>
+What does the model predict? I’ll use the<code>OpenBUGS</code> analysis based on a single chain of 1000 iterations. The predicted mean log number of deaths, <code>mu</code>, for the selected group is<br />
+
+<center>
+b0 + 4*b1 + b2_5 + b3 + log(21.8)
+</center>
+<p>The true values of the parameters b0, b1, b2_5, b3 are not known, but we do have 1000 estimates of their values, so we can create 1000 estimates of <code>mu</code>. The predicted number of deaths will be a poisson value with a mean of exp(<code>mu</code>).</p>
+<pre class="r"><code># --- seed for reproducibility -------------------------------------
+set.seed(9823)
+# --- predictions for the selected group ---------------------------
+simBugsDF %&gt;%
+  mutate( mu = b0 + 4*b1 + b2_5 + b3 + log(21.8),
+          pred_mean_deaths = exp(mu),
+          pred_deaths = rpois(1000, pred_mean_deaths)) %&gt;%
+  select( mu, pred_mean_deaths, pred_deaths) %&gt;%
+  print() -&gt; predictionDF</code></pre>
+<pre><code>## # A tibble: 1,000 x 3
+##          mu pred_mean_deaths pred_deaths
+##       &lt;dbl&gt;            &lt;dbl&gt;       &lt;int&gt;
+##  1 6.046010         422.4242         440
+##  2 6.032970         416.9515         409
+##  3 6.049150         423.7527         395
+##  4 6.036170         418.2879         390
+##  5 6.040970         420.3005         415
+##  6 6.025350         413.7864         377
+##  7 6.038490         419.2595         441
+##  8 6.023290         412.9349         417
+##  9 6.060390         428.5425         438
+## 10 6.047270         422.9568         434
+## # ... with 990 more rows</code></pre>
+<p>A density plot gives a good summary of the predictive distribution.</p>
+<pre class="r"><code># --- predicted number of deaths -----------------------------------
+predictionDF %&gt;%
+  ggplot( aes(x=pred_deaths)) +
+  geom_density( fill=&quot;steelblue&quot;) +
+  geom_vline( xintercept=432, size=2, colour=&quot;red&quot;) +
+  labs( title=&quot;Predict deaths in men aged 40-44 in 2005&quot;)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-28-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>The model predicts between about 370 and 470 deaths and there were, in fact, 432, which is consistent with the predictive distribution. So this observation gives us no reason to doubt the model.</p>
+<p>A number of measures have been suggested to capture the consistency of the observation and the predictive distribution, of which I will illustrate two. I find that the Bayesian residual, r, is the most useful summary unless the shape of the predictive distribution is very non-normal, in which case the Bayesian p-value is more reliable.</p>
+<p>Here are the two measures calculated for men aged 40-44 in 2005.</p>
+<pre class="r"><code># --- two measures of surprise -------------------------------------
+predictionDF %&gt;%
+  summarise( p = mean( pred_deaths &gt;= 432 ),
+             r = (432 - mean(pred_deaths))/sd(pred_deaths))</code></pre>
+<pre><code>## # A tibble: 1 x 2
+##       p         r
+##   &lt;dbl&gt;     &lt;dbl&gt;
+## 1  0.27 0.6361520</code></pre>
+<p>The predictive p-value is the tail probability associated with the actual observation. In this case the model suggests a 27% chance that the number of deaths would be 432 or more. So 432 is not that surprising. Had p been, say, 0.01 or 0.99 then there would be reason to question the model.</p>
+<p>The Bayesian residual, r, is 0.58 so the observed number of deaths is only just over half a standard deviation from the mean, not a very surprising result. Had r been outside -2 to +2, I might have questioned the model.</p>
+<p>All we need to do now is automate this calculation and find the measures of surprise for all of the observations. Places were the model predicts poorly should indicate ways of improving the model.</p>
+<pre class="r"><code># --- measures of surprise for all 560 observations -------------------
+set.seed(5619)
+# --- space in alcDF to hold the measures -----------------
+alcDF$p &lt;- alcDF$r &lt;- 0
+# --- loop over the 560 observations ----------------------
+nObs &lt;- nrow(alcDF)
+for( i in 1:nObs) {
+  # --- data for that row ---------------------------------
+  nYears &lt;- alcDF$year[i] - 2001
+  male   &lt;- as.numeric(alcDF$gender[i] == &quot;male&quot;)
+  ageGp  &lt;- as.numeric(alcDF$age[i])
+  offset &lt;- log(alcDF$pop[i])
+  d      &lt;- alcDF$deaths[i]
+  simBugsDF %&gt;%
+    mutate( mu = b0 + nYears*b1 + male*b3 + offset,
+            mu = ifelse( ageGp == 1, mu, mu + simBugsDF[[ageGp+3]]),
+            pred_mean_deaths = exp(mu),
+            pred_deaths = rpois(1000, pred_mean_deaths)) %&gt;%
+    summarise( p = mean( pred_deaths &gt; d ),
+               r = (d - mean(pred_deaths))/sd(pred_deaths)) -&gt; surpDF
+  # --- add measures to alcDF -----------------------------
+  alcDF$p[i] &lt;- surpDF$p
+  alcDF$r[i] &lt;- surpDF$r
+}
+alcDF %&gt;%
+  ungroup() -&gt; alcDF
+
+# --- show measures --------------------------------------------------
+alcDF %&gt;%
+  arrange( desc(abs(r)))</code></pre>
+<pre><code>## # A tibble: 560 x 7
+##     year age   gender deaths   pop         r     p
+##    &lt;dbl&gt; &lt;fct&gt; &lt;chr&gt;   &lt;dbl&gt; &lt;dbl&gt;     &lt;dbl&gt; &lt;dbl&gt;
+##  1  2018 70-74 male      471 12.33  9.226007     0
+##  2  2020 70-74 male      479 12.33  8.558862     0
+##  3  2019 40-44 male      349 21.82 -7.255436     1
+##  4  2020 75-79 male      259  9.23  7.169238     0
+##  5  2017 75-79 male      248  9.23  6.881285     0
+##  6  2020 55-59 female    534 19.62  6.399612     0
+##  7  2020 65-69 male      717 14.87  6.373617     0
+##  8  2009 40-44 male      563 21.82  5.746027     0
+##  9  2019 35-39 male      199 21.72 -5.495433     1
+## 10  2015 40-44 male      369 21.82 -5.468915     1
+## # ... with 550 more rows</code></pre>
+<p>It looks as though the model did a particularly poor job of predicting for men aged 70-74 in 2018, so let’s look at that particular predictive distribution.</p>
+<pre class="r"><code># --- seed for reproducibility ---------------------------------------
+set.seed(1323)
+# --- predictive distribution for men aged 70-74 in 2018 -------------
+simBugsDF %&gt;%
+  mutate( mu = b0 + 17*b1 + b2_11 + b3 + log(12.3),
+          pred_mean_deaths = exp(mu),
+          pred_deaths = rpois(1000, pred_mean_deaths)) %&gt;%
+  select( mu, pred_mean_deaths, pred_deaths) %&gt;%
+  ggplot( aes(x=pred_deaths)) +
+  geom_density( fill=&quot;steelblue&quot;) +
+  geom_vline( xintercept=471, size=2, colour=&quot;red&quot;)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-31-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>The model predicted about 320 deaths, with zero probability that there would be more than about 375, yet there were 471. The model fails quite dramatically for this category.</p>
+<p>Here is a plot of the Bayesian residuals by age and gender. The individual points represent different years within the age-gender categories.</p>
+<pre class="r"><code># --- Bayesian residuals ------------------------------------------
+alcDF %&gt;%
+  ggplot( aes(x=age, y=r, fill=gender)) + 
+  geom_boxplot() +
+  geom_hline( yintercept=c(-2,0,2), colour=&quot;red&quot;, lty=c(2,1,2)) +
+  labs(y=&quot;Residual&quot;,
+       title=&quot;Observations that are surprising under the model&quot;)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-32-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>In the older age groups the model often under predicts the data for men and over predicts the data for women. Perhaps, an age by gender interaction is needed.</p>
+<p>We get the same information from the predictive p-values.</p>
+<pre class="r"><code># --- Predictive p-values -------------------------------------------
+alcDF %&gt;%
+  ggplot( aes(x=age, y=p, fill=gender)) + 
+  geom_boxplot() +
+  geom_hline( yintercept=c(0.05, 0.5, 0.95), colour=&quot;red&quot;, lty=c(2,1,2)) +
+  labs(y=&quot;Predictive p-value&quot;,
+       title=&quot;Observations that are surprising under the model&quot;)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-33-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>Were the model perfect, the p-values would follow a uniform (0,1) distribution. So we could make a probability plot</p>
+<pre class="r"><code>alcDF %&gt;%
+  arrange(p) %&gt;%
+  mutate( expected = (row_number() - 0.5)/n() ) %&gt;%
+  ggplot( aes(x=expected, y=p)) +
+  geom_point() +
+  geom_abline() +
+  labs( x = &quot;Expected p-value&quot;,
+        y = &quot;Observed p-value&quot;,
+        title = &quot;Probability Plot for the Poisson Regression model&quot;)</code></pre>
+<p><img src="/post/bayes_methods_convergence/methods_bayes_convergence_files/figure-html/unnamed-chunk-34-1.png" width="480" style="display: block; margin: auto;" /></p>
+<p>The interpretation of this plot is that there are problems with the model fit because there are too many p-values close to 0 and 1.</p>
+</div>
+<div id="appendix" class="section level1">
+<h1>Appendix</h1>
+<p>My function for creating trace plots.</p>
+<pre class="r"><code>trace_plot &lt;- function(thisDF, parameter, layout=&quot;rows&quot;) {
+  chains &lt;- unique(thisDF$chain)
+  if( length(chains) == 1)  {
+    thisDF %&gt;% pull({{parameter}}) -&gt; y
+    q &lt;- quantile(y, prob=c(0.1, 0.5, 0.9)) 
+  # --- make the trace plot -------------------
+  thisDF %&gt;%
+    ggplot( aes(x=iter, y={{parameter}} )) +
+    geom_hline( yintercept=q, colour=&quot;red&quot;, lty=c(2, 1, 2), size=1) +
+    geom_line() +
+    geom_smooth( fill=&quot;cyan&quot;, colour=&quot;blue&quot;, size=1)
+  } else if( layout == &quot;overlay&quot; ) {
+    thisDF %&gt;% pull({{parameter}}) -&gt; y
+    q &lt;- quantile(y, prob=c(0.1, 0.5, 0.9)) 
+    thisDF %&gt;%
+      mutate(chain = factor(chain)) %&gt;%
+      ggplot( aes(x=iter, y={{parameter}}, colour=chain )) +
+      geom_hline( yintercept=q, colour=&quot;red&quot;, lty=c(2, 1, 2), size=1) +
+      geom_line( alpha=0.4) +
+      geom_smooth( aes(colour=chain), size=1.1) 
+  } else {
+    nc = length(chains)
+    lev &lt;- levels(factor(thisDF$chain))
+    stat &lt;- data.frame(chain=paste(&quot;chain&quot;, lev), q1=rep(0,nc), q2=rep(0,nc), q3=rep(0,nc))
+    i &lt;- 0
+    for( c in chains) {
+     i &lt;- i + 1
+     thisDF %&gt;% filter( chain == c ) %&gt;% pull(b1) -&gt; y
+     q &lt;- quantile(y, prob=c(0.1, 0.5, 0.9)) 
+     stat[i, 2:4] &lt;- q
+    }
+    thisDF %&gt;%
+      mutate(chain = factor(chain, levels=lev,
+                            labels=paste(&quot;chain&quot;, lev))) %&gt;%
+      ggplot( aes(x=iter, y=b1 ), colour=&quot;black&quot;) +
+      geom_hline( data=stat, aes( yintercept=q1), colour=&quot;red&quot;, lty=2, size=1) +
+      geom_hline( data=stat, aes( yintercept=q2), colour=&quot;red&quot;, lty=1, size=1) +
+      geom_hline( data=stat, aes( yintercept=q3), colour=&quot;red&quot;, lty=2, size=1) +
+      geom_line( alpha=0.7) +
+      geom_smooth( aes(group=chain), colour=&quot;blue&quot;, fill=&quot;cyan&quot;, size=1.1) +
+      facet_grid( . ~ chain)
+  }
+}</code></pre>
+</div>
+
+  
+
+  
+    <div id="disqus_thread"></div>
+<script type="application/javascript">
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "John" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+  
+
+
+
+    <footer class="site-footer">
+  <span class="site-footer-credits">
+    Made with <a href="https://gohugo.io/">Hugo</a>. Themed by <a href="https://github.com/zwbetz-gh/cayman-hugo-theme">Cayman</a>. Deployed to <a href="https://www.netlify.com/">Netlify</a>.
+  </span>
+</footer>
+
+  </section>
+  
+  
+  <script>
+  window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+  ga('create', 'UA-123456789-1', 'auto');
+  ga('send', 'pageview');
+  </script>
+  <script async src='https://www.google-analytics.com/analytics.js'></script>
+  
+
+</body>
+</html>

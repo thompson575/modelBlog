@@ -6,7 +6,97 @@
     <description>Recent content in Tags on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Sat, 12 Mar 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Mon, 21 Mar 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Bayesian model checking</title>
+      <link>https://modelling-with-r.netlify.app/tags/bayesian-model-checking/</link>
+      <pubDate>Mon, 21 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/bayesian-model-checking/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Bayesian p-values</title>
+      <link>https://modelling-with-r.netlify.app/tags/bayesian-p-values/</link>
+      <pubDate>Mon, 21 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/bayesian-p-values/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Bayesian residuals</title>
+      <link>https://modelling-with-r.netlify.app/tags/bayesian-residuals/</link>
+      <pubDate>Mon, 21 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/bayesian-residuals/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>coda package</title>
+      <link>https://modelling-with-r.netlify.app/tags/coda-package/</link>
+      <pubDate>Mon, 21 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/coda-package/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Gelman-Rubin-Brooks</title>
+      <link>https://modelling-with-r.netlify.app/tags/gelman-rubin-brooks/</link>
+      <pubDate>Mon, 21 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/gelman-rubin-brooks/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Geweke</title>
+      <link>https://modelling-with-r.netlify.app/tags/geweke/</link>
+      <pubDate>Mon, 21 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/geweke/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>MCMC convergence</title>
+      <link>https://modelling-with-r.netlify.app/tags/mcmc-convergence/</link>
+      <pubDate>Mon, 21 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/mcmc-convergence/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>MCMC summary</title>
+      <link>https://modelling-with-r.netlify.app/tags/mcmc-summary/</link>
+      <pubDate>Mon, 21 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/mcmc-summary/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Rhat</title>
+      <link>https://modelling-with-r.netlify.app/tags/rhat/</link>
+      <pubDate>Mon, 21 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/rhat/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Trace plot interpretation</title>
+      <link>https://modelling-with-r.netlify.app/tags/trace-plot-interpretation/</link>
+      <pubDate>Mon, 21 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/trace-plot-interpretation/</guid>
+      <description></description>
+    </item>
+    
     <item>
       <title>BUGS</title>
       <link>https://modelling-with-r.netlify.app/tags/bugs/</link>
