@@ -6,7 +6,61 @@
     <description>Recent content in Tags on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Mon, 21 Mar 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Mon, 28 Mar 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Bayesian model</title>
+      <link>https://modelling-with-r.netlify.app/tags/bayesian-model/</link>
+      <pubDate>Mon, 28 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/bayesian-model/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>bugs</title>
+      <link>https://modelling-with-r.netlify.app/tags/bugs/</link>
+      <pubDate>Mon, 28 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/bugs/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>generalised additive model (GAM)</title>
+      <link>https://modelling-with-r.netlify.app/tags/generalised-additive-model-gam/</link>
+      <pubDate>Mon, 28 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/generalised-additive-model-gam/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>OpenBUGS</title>
+      <link>https://modelling-with-r.netlify.app/tags/openbugs/</link>
+      <pubDate>Mon, 28 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/openbugs/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Sliced</title>
+      <link>https://modelling-with-r.netlify.app/tags/sliced/</link>
+      <pubDate>Mon, 28 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/sliced/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>splines</title>
+      <link>https://modelling-with-r.netlify.app/tags/splines/</link>
+      <pubDate>Mon, 28 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/splines/</guid>
+      <description></description>
+    </item>
+    
     <item>
       <title>Bayesian model checking</title>
       <link>https://modelling-with-r.netlify.app/tags/bayesian-model-checking/</link>
@@ -98,15 +152,6 @@
     </item>
     
     <item>
-      <title>BUGS</title>
-      <link>https://modelling-with-r.netlify.app/tags/bugs/</link>
-      <pubDate>Sat, 12 Mar 2022 00:00:00 +0000</pubDate>
-      
-      <guid>https://modelling-with-r.netlify.app/tags/bugs/</guid>
-      <description></description>
-    </item>
-    
-    <item>
       <title>furrr</title>
       <link>https://modelling-with-r.netlify.app/tags/furrr/</link>
       <pubDate>Sat, 12 Mar 2022 00:00:00 +0000</pubDate>
@@ -130,15 +175,6 @@
       <pubDate>Sat, 12 Mar 2022 00:00:00 +0000</pubDate>
       
       <guid>https://modelling-with-r.netlify.app/tags/nimble/</guid>
-      <description></description>
-    </item>
-    
-    <item>
-      <title>OpenBUGS</title>
-      <link>https://modelling-with-r.netlify.app/tags/openbugs/</link>
-      <pubDate>Sat, 12 Mar 2022 00:00:00 +0000</pubDate>
-      
-      <guid>https://modelling-with-r.netlify.app/tags/openbugs/</guid>
       <description></description>
     </item>
     
@@ -265,15 +301,6 @@
       <pubDate>Mon, 06 Dec 2021 00:00:00 +0000</pubDate>
       
       <guid>https://modelling-with-r.netlify.app/tags/mean-absolute-error/</guid>
-      <description></description>
-    </item>
-    
-    <item>
-      <title>Sliced</title>
-      <link>https://modelling-with-r.netlify.app/tags/sliced/</link>
-      <pubDate>Mon, 06 Dec 2021 00:00:00 +0000</pubDate>
-      
-      <guid>https://modelling-with-r.netlify.app/tags/sliced/</guid>
       <description></description>
     </item>
     
@@ -530,11 +557,29 @@
     </item>
     
     <item>
+      <title>Bayes Factor</title>
+      <link>https://modelling-with-r.netlify.app/tags/bayes-factor/</link>
+      <pubDate>Sun, 12 Sep 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/bayes-factor/</guid>
+      <description></description>
+    </item>
+    
+    <item>
       <title>data cleaning</title>
       <link>https://modelling-with-r.netlify.app/tags/data-cleaning/</link>
       <pubDate>Sun, 12 Sep 2021 00:00:00 +0000</pubDate>
       
       <guid>https://modelling-with-r.netlify.app/tags/data-cleaning/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>informative priors</title>
+      <link>https://modelling-with-r.netlify.app/tags/informative-priors/</link>
+      <pubDate>Sun, 12 Sep 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/informative-priors/</guid>
       <description></description>
     </item>
     
@@ -548,20 +593,29 @@
     </item>
     
     <item>
+      <title>pseudo-priors</title>
+      <link>https://modelling-with-r.netlify.app/tags/pseudo-priors/</link>
+      <pubDate>Sun, 12 Sep 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/pseudo-priors/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>random walk Metropolis-Hastings</title>
+      <link>https://modelling-with-r.netlify.app/tags/random-walk-metropolis-hastings/</link>
+      <pubDate>Sun, 12 Sep 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/random-walk-metropolis-hastings/</guid>
+      <description></description>
+    </item>
+    
+    <item>
       <title>generalised additive models</title>
       <link>https://modelling-with-r.netlify.app/tags/generalised-additive-models/</link>
       <pubDate>Fri, 10 Sep 2021 00:00:00 +0000</pubDate>
       
       <guid>https://modelling-with-r.netlify.app/tags/generalised-additive-models/</guid>
-      <description></description>
-    </item>
-    
-    <item>
-      <title>splines</title>
-      <link>https://modelling-with-r.netlify.app/tags/splines/</link>
-      <pubDate>Fri, 10 Sep 2021 00:00:00 +0000</pubDate>
-      
-      <guid>https://modelling-with-r.netlify.app/tags/splines/</guid>
       <description></description>
     </item>
     

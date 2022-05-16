@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="generator" content="Hugo 0.82.0" />
+  
+  <meta name="description" content="SummaryBackground: In episode 1 of the 2021 series of Sliced, the competitors were given two hours to analyse a set of data on boardgames. The aim was to predict the games’ ratings.
+My approach: In an earlier post entitled Sliced Episode 1: Boardgame Ratings, I analysed these data using traditional methods. That post describes my data cleaning, feature selection and data exploration. In this analysis, I take those same cleaned data and analyse them using a Bayesian model.">
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/normalize.css">
+  <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
+  
+  
+  
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/cayman.ea0e967413f3851071cc8ace3621bc4205fe8fa79b2abe3d7bf94ff2841f0d47.css">
+  
+  
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.css" integrity="sha384-yFRtMMDnQtDRO8rLpMIKrtPCD5jdktao2TV19YiZYWMDkUR5GQZR/NOVTdquEx1j" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.js" integrity="sha384-9Nhn55MVVN0/4OFx7EE5kpFBPsEMZxKTCnA+4fqDmg12eCTqGi6+BB2LjY8brQxJ" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/contrib/auto-render.min.js" integrity="sha384-kWPLUVMOks5AQFrykwIup5lo0m3iMkkHrD0uJ4H5cjeGihAutqP0yW0J6dpFiVkI" crossorigin="anonymous" onload="renderMathInElement(document.body);"></script>
+
+  <title>Bayesian Sliced 1: Boardgame Ratings | Modelling with R</title>
+</head>
+
+<body>
+  <section class="page-header">
+  <h1 class="project-name">
+    Modelling with R
+  </h1>
+  <h2 class="project-tagline">
+    contrasting statistical and machine learning approaches
+  </h2>
+  <nav>
+    
+    
+      
+      
+      
+      
+      <a href="/post/" class="btn">Blog</a>
+    
+      
+      
+      
+      
+      <a href="/tags/" class="btn">Tags</a>
+    
+      
+      
+      
+      
+      <a href="/about/" class="btn">About</a>
+    
+  </nav>
+</section>
+
+  <section class="main-content">
+    
+  <h1>Bayesian Sliced 1: Boardgame Ratings</h1>
+  <div>
+    
+    <strong>Publish date: </strong>2022-03-28
+  </div>
+  
+  
+    <div>
+      <strong>Tags: </strong>
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+      <a href="https://modelling-with-r.netlify.app/tags/sliced/">Sliced</a>, <a href="https://modelling-with-r.netlify.app/tags/bayesian-model/">Bayesian model</a>, <a href="https://modelling-with-r.netlify.app/tags/bugs/">bugs</a>, <a href="https://modelling-with-r.netlify.app/tags/openbugs/">OpenBUGS</a>, <a href="https://modelling-with-r.netlify.app/tags/splines/">splines</a>, <a href="https://modelling-with-r.netlify.app/tags/generalised-additive-model-gam/">generalised additive model (GAM)</a>
+    </div>
+  
+  
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+
+
+<div id="summary" class="section level1">
+<h1>Summary</h1>
+<p><strong>Background:</strong> In episode 1 of the 2021 series of <em>Sliced</em>, the competitors were given two hours to analyse a set of data on boardgames. The aim was to predict the games’ ratings.<br />
+<strong>My approach:</strong> In an earlier post entitled <em>Sliced Episode 1: Boardgame Ratings</em>, I analysed these data using traditional methods. That post describes my data cleaning, feature selection and data exploration. In this analysis, I take those same cleaned data and analyse them using a <em>Bayesian model</em>. As in my original analysis, I use a spline-based regression model to predict the ratings. The Bayesian version is fitted using <code>OpenBUGS</code> called from within R.<br />
+<strong>Result:</strong> The results from the Bayesian model are very similar to those obtained from a spline-based model fitted with <code>mgcv</code>. Inspecting the predictive distributions highlights a weakness in the model that I used previously. An improved model preforms only marginally better.<br />
+<strong>Conclusion:</strong> A Bayesian model is a practical alternative to a traditional approach. Bayesian models give a more complete picture of both the predictions and the certainty of those predictions.</p>
+</div>
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>In the first episode of <em>Sliced 2021</em> the contestants were asked to build a model for predicting the ratings given to boardgames by the website <a href="https://boardgamegeek.com/" class="uri">https://boardgamegeek.com/</a>. Model evaluation was by root mean square error (RMSE).</p>
+<p>I analysed these data in an earlier post called <code>Spliced Episode 1: Boardgames</code>. That post describes data cleaning, feature extraction, data exploration and a spline model fitted using the R package <code>mgcv</code>.</p>
+<p>This is the first of a series of posts in which I will re-analyse the <em>Sliced</em> data using Bayesian methods. For this episode, I stay with spline models, but fit them in R with code that calls <em>OpenBUGS</em>.</p>
+<p>This post assumes some basic knowledge of Bayesian methods, so if you are not already familiar with Bayesian modelling in R, you might find it helpful to start by reading my methods posts,</p>
+<ul>
+<li>Methods: Introduction to the Bayesian Analyses<br />
+</li>
+<li>Methods: MCMC algorithms<br />
+</li>
+<li>Methods: R Software for Bayesian Analysis<br />
+</li>
+<li>Methods: Assessing MCMC output</li>
+</ul>
+<p>In this post I describe three Bayesian models,</p>
+<ul>
+<li>Splines with 5 knots and a vague prior<br />
+</li>
+<li>Splines with 20 knots and a smoothing prior<br />
+</li>
+<li>Splines with 20 knots, a smoothing prior and an improved transformation of the geek rating</li>
+</ul>
+<p>Describing a Bayesian analysis properly requires an exploration of convergence and a careful summary of the final MCMC simulations. Add the investigation of the predictive distributions and this would make for an exceptionally long post, so I have been forced to omit some of the details. I give a full account of the first analysis, but leave out parts of the other analyses where they would have been repetitive.</p>
+</div>
+<div id="reading-the-data" class="section level1">
+<h1>Reading the data</h1>
+<p>I start by reading the clean data and log transforming the response and the continuous predictors, as I did in my earlier non-Bayesian analysis.</p>
+<pre class="r"><code># --- set libraries &amp; options ------------------------
+library(tidyverse)
+
+theme_set( theme_light())
+
+# --- set home directory -------------------------------
+oldHome &lt;- &quot;C:/Projects/kaggle/sliced/s01-e01&quot;
+home    &lt;- &quot;C:/Projects/kaggle/sliced/Bayes-s01-e01&quot;
+
+# --- read clean training data ------------------------------
+readRDS( file.path(oldHome, &quot;data/rData/clean_train.rds&quot;)) %&gt;%
+  mutate( geek_rating = log10(geek_rating - 5.5),
+          owned       = log10(owned), 
+          num_votes   = log10(num_votes),
+          min_players = log10(min_players),
+          max_players = log10(max_players),
+          min_time    = log10(min_time),
+          max_time    = log10(max_time),
+          avg_time    = log10(avg_time)) -&gt; trainDF 
+
+# --- print variable names ----------------------------------
+names(trainDF)</code></pre>
+<pre><code>##  [1] &quot;game_id&quot;     &quot;names&quot;       &quot;min_players&quot; &quot;max_players&quot; &quot;avg_time&quot;   
+##  [6] &quot;min_time&quot;    &quot;max_time&quot;    &quot;year&quot;        &quot;geek_rating&quot; &quot;num_votes&quot;  
+## [11] &quot;age&quot;         &quot;owned&quot;       &quot;M1&quot;          &quot;M2&quot;          &quot;M3&quot;         
+## [16] &quot;M4&quot;          &quot;M5&quot;          &quot;M6&quot;          &quot;M7&quot;          &quot;M8&quot;         
+## [21] &quot;M9&quot;          &quot;M10&quot;         &quot;C1&quot;          &quot;C2&quot;          &quot;C3&quot;         
+## [26] &quot;C4&quot;          &quot;C5&quot;          &quot;C6&quot;          &quot;C7&quot;          &quot;C8&quot;         
+## [31] &quot;C9&quot;          &quot;C10&quot;</code></pre>
+<p>The training set contains two identifiers (game_id and names), the response (geek_rating), nine continuous predictors (min_players to owned), ten binary predictors derived from the description of the game mechanics (M1 to M10) and ten binary predictors derived from the categorisation of game type (C1 to C10).</p>
+</div>
+<div id="the-5-knot-model" class="section level1">
+<h1>The 5 Knot Model</h1>
+<p>In my first Bayesian models, I have chosen to fit splines for <code>year</code>, <code>num_votes</code> and <code>owned</code> and to use quadratics for the other continuous predictors. A predictor such as <code>age</code> (minimum age to play the game) has a limited range of possible values and does not really justify a spline.</p>
+<p>For my first model, I’ll use splines with 5 knots and because the number of knots is small there will be plenty of data between each knot and vague priors will suffice for the model coefficients.</p>
+<div id="preparing-the-data" class="section level2">
+<h2>Preparing the data</h2>
+<p>The predictors are all <code>scaled</code> by subtracting their means and dividing by their standard deviations. Having the predictors on a common scale will ensure that their coefficients are of similar size, which often helps with the convergence of Bayesian algorithms and it makes it easier to set sensible priors.</p>
+<pre class="r"><code># --- scaled predictors ------------------------------
+trainDF %&gt;%
+  select( -game_id, -names, -geek_rating) %&gt;%
+  mutate( across( everything(), scale)) %&gt;%
+  as.matrix() -&gt; X
+
+# --- scaled response --------------------------------
+trainDF %&gt;%
+  mutate( geek_rating = scale(geek_rating)) %&gt;%
+  pull(geek_rating) %&gt;%
+  as.numeric() -&gt; Y</code></pre>
+<p><code>year</code> is in column 6 of the matrix X, <code>num_votes</code> is in column 7 and <code>owned</code> is in column 9. I choose my knots based on quantiles</p>
+<pre class="r"><code># --- sets of 5 knots ------------------------------------------
+yearKnots  &lt;- quantile(X[,6], probs=c(0.1, 0.3, 0.5, 0.7, 0.9))
+voteKnots  &lt;- quantile(X[,7], probs=c(0.1, 0.3, 0.5, 0.7, 0.9))
+ownedKnots &lt;- quantile(X[,9], probs=c(0.1, 0.3, 0.5, 0.7, 0.9))
+
+# --- knots for owned as an example ----------------------------
+print(ownedKnots)</code></pre>
+<pre><code>##        10%        30%        50%        70%        90% 
+## -1.1593183 -0.5959975 -0.1296044  0.4057671  1.3717000</code></pre>
+<p>A cubic spline with 5 knots has 8 coefficients (5 for knots + 3 for cubic + 0 as I omit the intercept), so the three splines require a total of 24 coefficients, to which must be added an overall intercept, the two coefficients of each quadratic and the twenty coefficients for binary predictors.</p>
+<p>The package <code>splines</code> calculates the design matrix for fitting cubic splines. Below I create a design matrix, S, for all of the terms in the model.</p>
+<pre class="r"><code>library(splines)
+
+# --- quadratic terms for six predictors --------------------------
+S &lt;- matrix(0, nrow=3499, ncol=12)
+k &lt;- 0
+for( i in c(1:5, 8)) {
+   k &lt;- k + 1
+   S[, k] &lt;- X[, i]
+   k &lt;- k + 1
+   S[, k] &lt;- X[, i]*X[, i]
+}
+# --- splines for three predictors --------------------------------
+S &lt;- cbind(S, as.matrix( bs(X[, 6], knots=yearKnots,
+                     degree=3,
+                     intercept = FALSE) ))
+S &lt;- cbind(S, as.matrix( bs(X[, 7], knots=voteKnots,
+                     degree=3,
+                     intercept = FALSE) ))
+S &lt;- cbind(S, as.matrix( bs(X[, 9], knots=ownedKnots,
+                     degree=3,
+                     intercept = FALSE) ))
+# --- 20 binary predictors ----------------------------------------
+S &lt;- cbind(S, X[, 10:29])</code></pre>
+<p>I have chosen to use cubic(degree 3), basis-spines (bs) without an intercept. Rather than directly fit cubics to the regions between the knots, this method sets up a mathematically equivalent set of basis functions such that the cubic spline curve is created as a linear combination of the basis functions.</p>
+<p>Let’s look at the 8 basis functions created for <code>owned</code>. The basis splines depend on the chosen knots plus boundary knots placed automatically at the minimum and maximum of the data.</p>
+<pre class="r"><code># --- a range of values for the standardised owned ------------
+x &lt;- seq(min(X[, 9]), max(X[, 9]), 0.1)
+# --- coefficients of the basis functions ---------------------
+SO &lt;- as.matrix( bs(x, knots=ownedKnots,
+                     degree=3,
+                     intercept = FALSE) )
+# --- plot the 8 basis functions ------------------------------
+tibble( y = as.numeric(SO),
+        x = rep(x, 8),
+        f = rep(1:8, each=69)) %&gt;%
+  ggplot( aes(x=x, y=y, group=f)) +
+  geom_line() +
+  geom_vline( xintercept=ownedKnots, lty=2) +
+  labs(title = &quot;8 Basis functions for owned&quot;,
+       x = &quot;Standardised number who own the game&quot;,
+       y = &quot;Value of the basis function&quot;)</code></pre>
+<p><img src="/post/bayes_boardgames/bayes_boardgames_files/figure-html/unnamed-chunk-5-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>To illustrate how the spline curves are created, I generate some random coefficients and look at the corresponding spline curve.</p>
+<pre class="r"><code># --- a random set of coefficients ------------------------
+set.seed(8720)
+b &lt;- rnorm(8, 0, 0.5)
+print(b)</code></pre>
+<pre><code>## [1]  0.03183952 -0.19061582  0.02222144  0.80216086 -0.50519207  0.28324566
+## [7]  0.09720137  1.30996759</code></pre>
+<pre class="r"><code># --- plot the implied spline curve -----------------------
+tibble( y = SO %*% b,
+        x = x) %&gt;%
+  ggplot( aes(x=x, y=y)) +
+  geom_line() +
+  geom_vline( xintercept=ownedKnots, lty=2)</code></pre>
+<p><img src="/post/bayes_boardgames/bayes_boardgames_files/figure-html/unnamed-chunk-6-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The curve is pinned to zero (there is no intercept) at its lower boundary remains fairly flat (the first random coefficient is close to zero), dips (negative coefficient), rises (coefficient of 0.8), dips again (coefficient of -0.5) and finally rises (coefficient of 1.3).</p>
+</div>
+<div id="a-key-step" class="section level2">
+<h2>A Key Step</h2>
+<p>I have the design matrix, S, for fitting my model, but for Gibbs Sampling to work efficiently, it helps greatly if the columns of S are centred. The idea behind this step is to reduce the correlation between the intercept and the coefficients associated with the columns of S.</p>
+<p>Correlation between the intercept and the slope is always a problem in regression but with splines it is particularly acute. Since splines are so flexible, it is easy to compensate for a change in the intercept by making a small change in the spline coefficients. The impact of the high correlation is that the Gibbs Sampler moves very, very slowly across the joint posterior.</p>
+<p>Centring reduces the correlation by moving the intercept from the left edge of the data to the centre of the data.</p>
+<pre class="r"><code># --- centre all columns of S -------------------------------------
+for(i in 1:ncol(S)) {
+  S[, i] &lt;- S[, i] - mean(S[, i])
+}</code></pre>
+</div>
+<div id="back-to-the-analysis" class="section level2">
+<h2>Back to the analysis</h2>
+<p>Now I have all of the data needed for the model, so they are placed in a list ready for passing to <code>OpenBUGS</code>.</p>
+<pre class="r"><code># --- place the data in a list to be passed to bugs ---------------
+bugsData &lt;- list(S=S, Y=Y)
+# --- save the bugs data in an rds file --------------------------
+saveRDS( bugsData, file.path(home, &quot;bugs/spline_data.rds&quot;))</code></pre>
+<p>The response is in a 3499x1 column vector, Y, and the predictors are in a 3499x56 matrix, S.</p>
+</div>
+</div>
+<div id="generalised-additive-models" class="section level1">
+<h1>Generalised Additive Models</h1>
+<p>My <code>OpenBUGS</code> code for this model is written to a text file called <code>bugs/spline_model.txt</code>. Here is the content of that file.</p>
+<pre class="r"><code>model { 
+  for( i in 1:3499 ) {
+
+    # quadratics for 6 predictors
+    
+    quad[i] &lt;- a[1]*S[i, 1] + a[2]*S[i, 2] + a[3]*S[i, 3] +  
+               a[4]*S[i, 4] + a[5]*S[i, 5] + a[6]*S[i, 6] +
+               a[7]*S[i, 7] + a[8]*S[i, 8] + a[9]*S[i, 9] +  
+               a[10]*S[i, 10] + a[11]*S[i, 11] + a[12]*S[i, 12]
+    
+    # spline for year
+    
+    sYr[i] &lt;- b[1]*S[i, 13] + b[2]*S[i, 14] + b[3]*S[i, 15] +  
+              b[4]*S[i, 16] + b[5]*S[i, 17] + b[6]*S[i, 18] +  
+              b[7]*S[i, 19] + b[8]*S[i, 20]  
+              
+    # spline for num_votes
+    
+    sVo[i] &lt;- b[ 9]*S[i, 21] + b[10]*S[i, 22] + b[11]*S[i, 23] + 
+              b[12]*S[i, 24] + b[13]*S[i, 25] + b[14]*S[i, 26] + 
+              b[15]*S[i, 27] + b[16]*S[i, 28] 
+              
+    # spline for owned
+    
+    sOw[i] &lt;- b[17]*S[i, 29] + b[18]*S[i, 30] + b[19]*S[i, 31] +
+              b[20]*S[i, 32] + b[21]*S[i, 33] + b[22]*S[i, 34] +                          b[23]*S[i, 35] + b[24]*S[i, 36]
+
+    # game mechanism
+    
+    mec[i] &lt;- c[1]*S[i, 37] + c[2]*S[i, 38] + c[3]*S[i, 39] +
+              c[4]*S[i, 40] + c[5]*S[i, 41] + c[6]*S[i, 42] +
+              c[7]*S[i, 43] + c[8]*S[i, 44] + c[9]*S[i, 45] +
+              c[10]*S[i, 46] 
+      
+    # game category
+    
+    cat[i] &lt;- c[11]*S[i, 47] + c[12]*S[i, 48] + c[13]*S[i, 49] +
+              c[14]*S[i, 50] + c[15]*S[i, 51] + c[16]*S[i, 52] +
+              c[17]*S[i, 53] + c[18]*S[i, 54] + c[19]*S[i, 55] +
+              c[20]*S[i, 56] 
+      
+    # combined linear predictor        
+
+    mu[i] &lt;- a0 + quad[i] + sYr[i] + sVo[i] + sOw[i] + mec[i] + cat[i]
+
+    # distribution of the game rating         
+
+    Y[i] ~ dnorm(mu[i], tau)
+  }
+
+# Priors
+
+  # intercept
+  
+  a0 ~ dnorm(0.0, 0.01)
+  
+  # quadratics 
+  
+  for( j in 1:12) {
+    a[j] ~ dnorm(0, 0.01)
+  }
+  # spline coefficients 
+  
+  for(j in 1:24 ) {
+    b[j] ~ dnorm(0, 0.01)
+  }
+  
+  # categorical predictors
+
+  for(j in 1:20 ) {
+    c[j] ~ dnorm(0, 0.01)
+  }
+  
+  # residual precision
+  
+  tau ~ dgamma(2, 1)
+  }</code></pre>
+<p>I am fitting a linear regression with constant variance and 56 predictors. I place priors on the coefficients that are zero centred and have a precision of 0.01. This precision is equivalent to a variance of 100 or a standard deviation of 10. The net result is that I am expecting all of the coefficients to be in the range -20 to 20. Given that the scales have been standardised, this seems sufficiently vague to me.</p>
+<p>The prior on the precision of the residuals, <code>tau</code>, has a mean of 2 (2/1) and a standard deviation of 1.4 (sqrt(2)/1). A precision of 2 is equivalent to a variance of 0.5. Since Y is standardised to have a variance of 1, a residual variance of 0.5 would imply that the regression equation explains 50% of the variance, which again seems reasonable to me.</p>
+<p>Arguably, since I know that <code>tau</code> will be greater than 1, a gamma prior is inappropriate and I ought to use a truncated distribution. While this is true, a gamma prior leads to a gamma posterior for <code>tau</code>, which greatly improves the speed of the sampling and since <code>tau</code> is estimated from over three thousand observations, I anticipate that a truncated prior would have little impact.</p>
+<div id="fitting-the-model" class="section level2">
+<h2>Fitting the model</h2>
+<p>I have no idea how well <code>OpenBUGS</code> with perform with this model, so I am forced to make guesses. I will run three chains, each with a burn-in of 2000 iterations and a run length of a further 1000.</p>
+<p>To start with I create a tibble that contains all of the details needed to control my three chains.</p>
+<pre class="r"><code># --- create the analysis tibble ---------------------------------
+set.seed(1782)
+tibble( 
+        model   = rep( file.path(home, &quot;bugs/spline_model.txt&quot;), 3),
+        data    = rep( file.path(home, &quot;bugs/spline_data.rds&quot;), 3),
+        niter   = rep(3000, 3),
+        nburnin = rep(2000, 3),
+        thin    = rep(1, 3),
+        seed   = c(3, 4, 5),
+        inits   = list(
+                    list(a0  = rnorm(1, 0, 0.25), 
+                         a   = rnorm(12, 0, 0.25), 
+                         b   = rnorm(24, 0, 0.25),
+                         c   = rnorm(20, 0, 0.25),
+                         tau = rgamma(1, shape=5, rate=1)),
+                    list(a0  = rnorm(1, 0, 0.25), 
+                         a   = rnorm(12, 0, 0.25), 
+                         b   = rnorm(24, 0, 0.25),
+                         c   = rnorm(20, 0, 0.25),
+                         tau = rgamma(1, shape=5, rate=1)),
+                    list(a0  = rnorm(1, 0, 0.25), 
+                         a   = rnorm(12, 0, 0.25), 
+                         b   = rnorm(24, 0, 0.25),
+                         c   = rnorm(20, 0, 0.25),
+                         tau = rgamma(1, shape=5, rate=1)) ),
+        wDir    = paste(
+          file.path(home, &quot;temp/chain&quot;), 1:3, sep=&quot;&quot;),
+        sims    = paste(
+          file.path(home, &quot;data/dataStore/spline_1_&quot;), 1:3,&quot;.rds&quot;, sep=&quot;&quot;)
+  ) %&gt;%
+  print() -&gt; bugsRunDF</code></pre>
+<pre><code>## # A tibble: 3 x 9
+##   model                 data  niter nburnin  thin  seed inits        wDir  sims 
+##   &lt;chr&gt;                 &lt;chr&gt; &lt;dbl&gt;   &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;list&gt;       &lt;chr&gt; &lt;chr&gt;
+## 1 C:/Projects/kaggle/s~ C:/P~  3000    2000     1     3 &lt;named list&gt; C:/P~ C:/P~
+## 2 C:/Projects/kaggle/s~ C:/P~  3000    2000     1     4 &lt;named list&gt; C:/P~ C:/P~
+## 3 C:/Projects/kaggle/s~ C:/P~  3000    2000     1     5 &lt;named list&gt; C:/P~ C:/P~</code></pre>
+<pre class="r"><code>  # --- save as permanent record of the analysis ---------------------
+  saveRDS( bugsRunDF, file.path(home, &quot;data/dataStore/spline_1_table.rds&quot;)) </code></pre>
+<p>To enable me to run the chains in parallel, I place the code for a single chain in a function.</p>
+<pre class="r"><code># --- function to run a single chain ------------------------------
+# arguments correspond to the columns of the analysis tibble
+#
+# returns
+#    nothing .. results written to rds files
+#
+run_bugs &lt;- function(model, data, niter, nburnin, thin, seed,
+                          inits, wDir, sims)
+{
+  library(R2OpenBUGS)
+  
+  # --- OpenBUGS executable
+  obExe   &lt;- &quot;C:/Software/OpenBUGS/OpenBUGS323/OpenBUGS.exe&quot;
+  
+  # --- call to bugs() ---------------------------------------------
+  bugs( data = readRDS(data),
+        inits = list(inits),
+        parameters = c(&quot;a0&quot;, &quot;a&quot;, &quot;b&quot;, &quot;c&quot;, &quot;tau&quot;),
+        model.file = model,
+        n.chains = 1,
+        n.iter = niter,
+        n.burnin = nburnin,
+        n.thin = thin,
+        digits = 5,
+        codaPkg = FALSE,
+        bugs.seed = seed,
+        OpenBUGS = obExe,
+        working.directory = wDir
+  ) %&gt;%
+  # --- save the returned bugs object -----------------------------
+     saveRDS(sims)
+}</code></pre>
+<p>I need to keep the three parallel chains isolated from one another, so I create three working directories.</p>
+<pre class="r"><code># --- Create 3 working directories ---------------------------------
+for( i in 1:3 ) {
+  # --- address of the working directory ---------------------------
+  folder &lt;- file.path( home, paste(&quot;temp/chain&quot;, i, sep=&quot;&quot;))
+  # --- delete it if it already exists -----------------------------
+  if( dir.exists(folder)) {
+    unlink(folder, recursive=TRUE)
+  }
+  # --- create the working directory -------------------------------
+  dir.create(folder)
+}</code></pre>
+<p>Now the three chains can be run on separate cores using the <code>furrr</code> package.</p>
+<pre class="r"><code>library(furrr)
+# --- run three independent R sessions --------------
+plan(multisession, workers=3)
+
+# --- run the chains in parallel --------------------
+bugsRunDF %&gt;%
+  future_pwalk(run_bugs) %&gt;%
+  system.time()
+
+# --- switch back to sequential processing ----------
+plan(sequential)</code></pre>
+<p>This run took 14 minutes on my ancient desktop.</p>
+<p>In my methods posts, I describedmy functions for extracting the simulations into a data frame. Here, I use <code>bayes_to_df()</code>.</p>
+<pre class="r"><code>library(MyPackage)
+
+# --- read the simulations --------------------------------
+bayes_to_df(bugsRunDF$sims) %&gt;%
+  print() -&gt; simDF</code></pre>
+<pre><code>## # A tibble: 3,000 x 61
+##    chain  iter        a0      a_1     a_2     a_3    a_4     a_5     a_6    a_7
+##    &lt;fct&gt; &lt;int&gt;     &lt;dbl&gt;    &lt;dbl&gt;   &lt;dbl&gt;   &lt;dbl&gt;  &lt;dbl&gt;   &lt;dbl&gt;   &lt;dbl&gt;  &lt;dbl&gt;
+##  1 1         1 -0.00482   0.00389 0.00294 -0.0841 0.0289 -0.199  -0.104  0.136 
+##  2 1         2 -0.00403  -0.00963 0.0134  -0.0857 0.0348 -0.285  -0.137  0.164 
+##  3 1         3  0.00133   0.0103  0.0172  -0.0785 0.0288 -0.227  -0.158  0.160 
+##  4 1         4  0.000331 -0.00897 0.0146  -0.0848 0.0345 -0.173  -0.0926 0.119 
+##  5 1         5 -0.00206  -0.00268 0.00999 -0.0790 0.0269 -0.166  -0.190  0.139 
+##  6 1         6 -0.00827  -0.00548 0.0108  -0.0800 0.0326 -0.164  -0.113  0.142 
+##  7 1         7 -0.00492  -0.00782 0.0118  -0.0802 0.0276 -0.175  -0.0979 0.155 
+##  8 1         8  0.00176  -0.00975 0.0108  -0.0872 0.0297 -0.0777 -0.120  0.105 
+##  9 1         9 -0.00184  -0.00463 0.0127  -0.0784 0.0361 -0.124  -0.0634 0.0779
+## 10 1        10 -0.00173  -0.00670 0.0112  -0.0979 0.0366 -0.145  -0.116  0.129 
+## # ... with 2,990 more rows, and 51 more variables: a_8 &lt;dbl&gt;, a_9 &lt;dbl&gt;,
+## #   a_10 &lt;dbl&gt;, a_11 &lt;dbl&gt;, a_12 &lt;dbl&gt;, b_1 &lt;dbl&gt;, b_2 &lt;dbl&gt;, b_3 &lt;dbl&gt;,
+## #   b_4 &lt;dbl&gt;, b_5 &lt;dbl&gt;, b_6 &lt;dbl&gt;, b_7 &lt;dbl&gt;, b_8 &lt;dbl&gt;, b_9 &lt;dbl&gt;,
+## #   b_10 &lt;dbl&gt;, b_11 &lt;dbl&gt;, b_12 &lt;dbl&gt;, b_13 &lt;dbl&gt;, b_14 &lt;dbl&gt;, b_15 &lt;dbl&gt;,
+## #   b_16 &lt;dbl&gt;, b_17 &lt;dbl&gt;, b_18 &lt;dbl&gt;, b_19 &lt;dbl&gt;, b_20 &lt;dbl&gt;, b_21 &lt;dbl&gt;,
+## #   b_22 &lt;dbl&gt;, b_23 &lt;dbl&gt;, b_24 &lt;dbl&gt;, c_1 &lt;dbl&gt;, c_2 &lt;dbl&gt;, c_3 &lt;dbl&gt;,
+## #   c_4 &lt;dbl&gt;, c_5 &lt;dbl&gt;, c_6 &lt;dbl&gt;, c_7 &lt;dbl&gt;, c_8 &lt;dbl&gt;, c_9 &lt;dbl&gt;, ...</code></pre>
+<p>Usually, the intercept and the precision are the most difficult parameters to estimate, so I check them first using my <code>trace_plot()</code> function, which is also described in my methods posts.</p>
+<pre class="r"><code># --- trace plot of the intercept ------------------------------
+trace_plot(simDF, a0) +
+  labs(title = &quot;Intercept&quot;)</code></pre>
+<p><img src="/post/bayes_boardgames/bayes_boardgames_files/figure-html/unnamed-chunk-15-1.png" width="528" style="display: block; margin: auto;" /></p>
+<pre class="r"><code># --- trace plot of the residual standard deviation ------------
+simDF %&gt;%
+  mutate( sigma = 1/sqrt(tau) ) %&gt;%
+  trace_plot(sigma) +
+  labs( title = &quot;Residual Standard Deviation&quot;)</code></pre>
+<p><img src="/post/bayes_boardgames/bayes_boardgames_files/figure-html/unnamed-chunk-15-2.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The mixing within chains is quite good, so locally the chains are moving freely across the posterior. The agreement between the chains suggests that they have converged to the same solution.</p>
+<p>A good measure of performance that is easy to apply to all parameters is the Gelman-Rubin-Brooks statistic, Rhat. This can be obtained from the coda package. So I put the simulations into coda format.</p>
+<pre class="r"><code>library(coda)
+# --- coda format of the 3 OpenBUGS chains ------------------------
+bugsCoda &lt;- mcmc.list( mcmc( simDF %&gt;%
+                                filter( chain == 1) %&gt;% 
+                                select(-chain, -iter)),
+                       mcmc( simDF %&gt;%
+                                filter( chain == 2) %&gt;% 
+                                select(-chain, -iter)),
+                       mcmc( simDF %&gt;%
+                                filter( chain == 3) %&gt;% 
+                                select(-chain, -iter)) )
+
+# --- Gelman-Rubin-Brooks statistics ------------------------------
+gelman.diag(bugsCoda)</code></pre>
+<pre><code>## Potential scale reduction factors:
+## 
+##          Point est. Upper C.I.
+## a0            1.002      1.007
+## a_1           1.000      1.002
+## a_2           1.003      1.011
+## a_3           1.000      1.002
+## a_4           1.001      1.002
+## a_5           1.950      3.251
+## a_6           1.653      2.606
+## a_7           1.976      3.285
+## a_8           1.520      2.310
+## a_9           1.751      2.852
+## a_10          1.694      2.698
+## a_11          1.004      1.005
+## a_12          1.004      1.017
+## b_1           1.005      1.021
+## b_2           1.005      1.015
+## b_3           1.021      1.075
+## b_4           1.014      1.034
+## b_5           1.033      1.107
+## b_6           1.020      1.064
+## b_7           1.026      1.083
+## b_8           1.018      1.058
+## b_9           1.046      1.138
+## b_10          1.037      1.096
+## b_11          1.054      1.158
+## b_12          1.057      1.154
+## b_13          1.095      1.286
+## b_14          1.042      1.088
+## b_15          1.164      1.494
+## b_16          1.005      1.009
+## b_17          1.442      2.142
+## b_18          1.446      2.148
+## b_19          1.712      2.752
+## b_20          1.675      2.652
+## b_21          1.775      2.880
+## b_22          1.513      2.304
+## b_23          1.397      2.042
+## b_24          1.026      1.062
+## c_1           1.005      1.017
+## c_2           1.001      1.004
+## c_3           1.002      1.007
+## c_4           0.999      1.000
+## c_5           1.000      1.001
+## c_6           1.002      1.007
+## c_7           0.999      0.999
+## c_8           1.000      1.003
+## c_9           1.000      1.004
+## c_10          1.000      1.001
+## c_11          1.012      1.044
+## c_12          1.034      1.118
+## c_13          1.013      1.045
+## c_14          1.002      1.007
+## c_15          1.001      1.006
+## c_16          1.014      1.047
+## c_17          0.999      1.000
+## c_18          1.000      1.000
+## c_19          1.003      1.010
+## c_20          1.003      1.013
+## tau           1.005      1.020
+## deviance      1.005      1.018
+## 
+## Multivariate psrf
+## 
+## 1.84</code></pre>
+<p>The point estimates of Rhat are below 1.05 for most parameters, suggesting good agreement between chains. The noticeable exceptions are the parameters of the third spline, which describes the pattern for the number of people who own the game. It appear that more iterations would be needed for this curve to stabilise. Given the short run that was used to create these simulations, I am more encouraged by the overall performance than discouraged by the spline for <code>owned</code>.</p>
+<p>Finally. I look at the shapes of the shapes of the three spline curves based on the posterior mean estimates of the coefficients.</p>
+<pre class="r"><code># --- Simple function to plot a spline curve ---------------
+# arguments
+#    x  ... range of values for plotting
+#    knots ... positions of the knots
+#    coef  ... model coefficients
+#
+plot_spline &lt;- function(x, knots, coef) {
+  S &lt;- as.matrix( bs(x, knots=knots,
+                     degree=3,
+                     intercept = FALSE) )
+  y &lt;- as.numeric(S %*% b)
+
+  tibble( x=x, y=y) %&gt;%
+    ggplot( aes(x=x, y=y)) +
+    geom_line() +
+    geom_vline( xintercept=knots, lty=2)
+}
+
+# --- place 24 spline coefficients in matrix ---------------
+simDF %&gt;%
+  select( starts_with(&quot;b&quot;)) %&gt;%
+  as.matrix() -&gt; splCoef
+
+# --- &#39;Average&#39; spline curve for Year ----------------------
+x &lt;- seq(min(X[, 6]), max(X[, 6]), 0.1)
+b &lt;- apply(splCoef[, 1:8], 2, mean)
+plot_spline(x, yearKnots, b) +
+  labs(x=&quot;Standardised Year&quot;)</code></pre>
+<p><img src="/post/bayes_boardgames/bayes_boardgames_files/figure-html/unnamed-chunk-17-1.png" width="528" style="display: block; margin: auto;" /></p>
+<pre class="r"><code># --- &#39;Average&#39; spline curve for Votes ---------------------
+x &lt;- seq(min(X[, 7]), max(X[, 7]), 0.1)
+b &lt;- apply(splCoef[, 9:16], 2, mean)
+plot_spline(x, voteKnots, b) +
+  labs(x=&quot;Standardised Number of Votes&quot;)</code></pre>
+<p><img src="/post/bayes_boardgames/bayes_boardgames_files/figure-html/unnamed-chunk-17-2.png" width="528" style="display: block; margin: auto;" /></p>
+<pre class="r"><code># --- &#39;Average&#39; spline curve for Owned ---------------------
+x &lt;- seq(min(X[, 9]), max(X[, 9]), 0.1)
+b &lt;- apply(splCoef[, 17:24], 2, mean)
+plot_spline(x, ownedKnots, b) +
+  labs(x=&quot;Standardised Number who Own the Game&quot;)</code></pre>
+<p><img src="/post/bayes_boardgames/bayes_boardgames_files/figure-html/unnamed-chunk-17-3.png" width="528" style="display: block; margin: auto;" /></p>
+<p>I could run a longer chain for this model in order to improve the estimation, but since it was only intended as a preliminary investigation, I will skip that stage and move to the model with 20 knots.</p>
+</div>
+</div>
+<div id="the-20-knot-model" class="section level1">
+<h1>The 20 Knot Model</h1>
+<p>In my first model, I used 5 knots for each spline and I placed the knots using quantiles of the data. This choice was completely arbitrary and leaves open the question of whether a different choice of knots might have led to a better model.</p>
+<p>I could try different sets of knots until I hit on a curve that looks good by eye, but this would be a terrible idea,<br />
+* The process would be very time consuming<br />
+* The chosen curve would not be reproducible<br />
+* Other data analysts would not be able to judge or criticise my choice<br />
+* I would use the same data to fit the model and to guide my ‘by-eye’ model choice, which would probably result in over-fitting</p>
+<p>One solution is use so many knots that the actual number or placement hardly matters, but in that case, it would be possible for the curve to be extremely wiggly. When the coefficients for one strip are similar to those in the next strip the spline curve will not be able to wiggle. What I need is a large number of knots together with a prior that says that I anticipate that successive spline coefficients will be similar.</p>
+<p>I’ve chosen to have 20 knots placed at evenly spread quantiles, which means 23 coefficients for each spline. <code>year</code> takes integer values and is dominated by values after 2000. When the quantile function is used, there are only 18 unique values, so I end with 18 knots for this predictor.</p>
+<pre class="r"><code># --- target number of knots, K --------------------------------
+K &lt;- 20
+# --- sequence of quantiles ------------------------------------
+pr &lt;- seq( 1/(2*K), 1 - 1/(2*K), length=K)
+# --- sets of knots --------------------------------------------
+yearKnots  &lt;- unique(quantile(X[,6], probs=pr))
+nYearKnots &lt;- length(yearKnots)
+voteKnots  &lt;- unique(quantile(X[,7], probs=pr))
+nVoteKnots &lt;- length(voteKnots)
+ownedKnots &lt;- unique(quantile(X[,9], probs=pr))
+nOwnedKnots &lt;- length(ownedKnots)
+
+# --- numbers of unique knots ----------------------------------
+print( c(nYearKnots, nVoteKnots, nOwnedKnots))</code></pre>
+<pre><code>## [1] 18 20 20</code></pre>
+<p>The design matrix is created and centred, just as it was for the 5 knot model.</p>
+<p>My bugs code also resembles that for the 5 knot model. I just give the code for the expanded <code>year</code> spline, this has 21 coefficients (18 knots + 3).</p>
+<pre class="r"><code># the spline curve for year
+sYr[i] &lt;- b[ 1]*S[i,13] + b[ 2]*S[i,14] + b[ 3]*S[i,15] + b[ 4]*S[i,16] + 
+          b[ 5]*S[i,17] + b[ 6]*S[i,18] + b[ 7]*S[i,19] + b[ 8]*S[i,20] + 
+          b[ 9]*S[i,21] + b[10]*S[i,22] + b[11]*S[i,23] + b[12]*S[i,24] + 
+          b[13]*S[i,25] + b[14]*S[i,26] + b[15]*S[i,27] + b[16]*S[i,28] + 
+          b[17]*S[i,29] + b[18]*S[i,30] + b[19]*S[i,31] + b[20]*S[i,32] + 
+          b[21]*S[i,33] 
+
+........................................
+
+# the smoothing prior on the coefficients
+b[1] ~ dnorm(0, 0.01)
+for(j in 2: 21 ) {
+  b[j] ~ dnorm(b[j-1], eta1)
+}
+eta1 ~ dgamma(1, 0.04)</code></pre>
+<p>My prior on the spline coefficients for <code>year</code> says that each spline coefficient is a small deviation from the previous one with the deviations having a precision eta1. The eta has an expected precision of 25, so the variance is 0.04 and the standard deviation is 0.2. My prior on eta leans towards small deviations but is vague enough that their is scope for the data to influence the wiggliness.</p>
+<p>The code for fitting the model is essentially the same as for the preliminary model, so I do not repeat it. I run 3 chains of length 10,000 of which the first 5,000 iterations were discarded as the burn-in. The code took almost exactly 2 hours to run.</p>
+<p>Convergence is reasonable although I do not show details. It is in the nature of a Bayesian analysis that one would always like a few more iterations, but I judged that my run length was an acceptable compromise.</p>
+<p>Here is a plot that looks at the 21 spline coefficients for <code>year</code>. The plot shows the median and 95% credible intervals and demonstrates how the coefficients change gradually.</p>
+<pre class="r"><code>library(coda)
+library(MyPackage)
+
+# --- extract and combine --------------------------------------
+simDF &lt;- NULL
+for( i in 1:3 ) {
+  rf       &lt;- file.path( home,
+                         paste(&quot;data/dataStore/finalSplineP0&quot;, i, &quot;.rds&quot;,sep=&quot;&quot;))
+  simDF &lt;- bind_rows( simDF,
+                      bugs_to_df( readRDS(rf)) %&gt;% mutate( chain = i) )
+}
+# --- convert chain into a factor -------------------------------
+simDF %&gt;%
+  mutate( chain = factor(chain)) -&gt; simDF
+# --- show the tibble -------------------------------------------
+print(simDF)</code></pre>
+<pre><code>## # A tibble: 15,000 x 106
+##    chain  iter        a0      a_1     a_2     a_3    a_4      a_5     a_6    a_7
+##    &lt;fct&gt; &lt;int&gt;     &lt;dbl&gt;    &lt;dbl&gt;   &lt;dbl&gt;   &lt;dbl&gt;  &lt;dbl&gt;    &lt;dbl&gt;   &lt;dbl&gt;  &lt;dbl&gt;
+##  1 1         1  0.00200   5.19e-3 0.00642 -0.0794 0.0300 -0.121   -0.0936 0.082 
+##  2 1         2 -0.00907  -1.99e-3 0.0167  -0.0798 0.0392 -0.101   -0.144  0.0934
+##  3 1         3  0.00177  -1.39e-2 0.00988 -0.0698 0.0339 -0.139   -0.0788 0.117 
+##  4 1         4  0.00944  -6.98e-3 0.0114  -0.0805 0.0201 -0.0595  -0.0783 0.0499
+##  5 1         5  0.00489  -5.09e-4 0.0160  -0.0882 0.0359 -0.209   -0.161  0.161 
+##  6 1         6  0.000593 -6.28e-3 0.00603 -0.0764 0.0348 -0.0818  -0.103  0.0807
+##  7 1         7  0.00187  -6.25e-3 0.0185  -0.0932 0.0219 -0.166   -0.164  0.146 
+##  8 1         8 -0.00762  -1.57e-2 0.00259 -0.0774 0.0313 -0.00532 -0.183  0.104 
+##  9 1         9  0.0113   -1.05e-3 0.0162  -0.0797 0.0299 -0.157   -0.122  0.131 
+## 10 1        10 -0.00707   1.46e-4 0.00842 -0.0839 0.0295 -0.0702  -0.135  0.0751
+## # ... with 14,990 more rows, and 96 more variables: a_8 &lt;dbl&gt;, a_9 &lt;dbl&gt;,
+## #   a_10 &lt;dbl&gt;, a_11 &lt;dbl&gt;, a_12 &lt;dbl&gt;, b_1 &lt;dbl&gt;, b_2 &lt;dbl&gt;, b_3 &lt;dbl&gt;,
+## #   b_4 &lt;dbl&gt;, b_5 &lt;dbl&gt;, b_6 &lt;dbl&gt;, b_7 &lt;dbl&gt;, b_8 &lt;dbl&gt;, b_9 &lt;dbl&gt;,
+## #   b_10 &lt;dbl&gt;, b_11 &lt;dbl&gt;, b_12 &lt;dbl&gt;, b_13 &lt;dbl&gt;, b_14 &lt;dbl&gt;, b_15 &lt;dbl&gt;,
+## #   b_16 &lt;dbl&gt;, b_17 &lt;dbl&gt;, b_18 &lt;dbl&gt;, b_19 &lt;dbl&gt;, b_20 &lt;dbl&gt;, b_21 &lt;dbl&gt;,
+## #   b_22 &lt;dbl&gt;, b_23 &lt;dbl&gt;, b_24 &lt;dbl&gt;, b_25 &lt;dbl&gt;, b_26 &lt;dbl&gt;, b_27 &lt;dbl&gt;,
+## #   b_28 &lt;dbl&gt;, b_29 &lt;dbl&gt;, b_30 &lt;dbl&gt;, b_31 &lt;dbl&gt;, b_32 &lt;dbl&gt;, b_33 &lt;dbl&gt;, ...</code></pre>
+<pre class="r"><code># --- convert results to code format ----------------------------
+bugsCoda &lt;- mcmc(simDF %&gt;% select(-chain, -iter))
+
+# --- use code function summary() to obtain the quantiles -------
+summary(bugsCoda)[2] %&gt;%
+  as.data.frame() %&gt;%
+  as_tibble(rownames=&quot;term&quot;) %&gt;%
+  mutate( term = str_replace(term, &quot;_&quot;, &quot;&quot;)) %&gt;%
+  # --- extract coefficients for the year spline ----------------
+  slice( 14:34 ) %&gt;%
+  mutate( term=factor(term, levels=paste(&quot;b&quot;, 1:21, sep=&quot;&quot;))) %&gt;%
+  # --- plot medians and 95% CrI --------------------------------
+  ggplot( aes(x=term, y=quantiles.50.)) +
+    geom_point() +
+    geom_errorbar( aes(ymin=quantiles.2.5.,
+                       ymax=quantiles.97.5.), width=0.2) +
+    labs(title = &quot;Spline Coefficients for Year&quot;,
+         y = &quot;Median Coefficient &amp; 95% CrI&quot;)</code></pre>
+<p><img src="/post/bayes_boardgames/bayes_boardgames_files/figure-html/unnamed-chunk-21-1.png" width="528" style="display: block; margin: auto;" /></p>
+<div id="the-predictive-distribution" class="section level2">
+<h2>The Predictive Distribution</h2>
+<p>For illustration, I look at some predictive distributions for a single individual in the training set. As usual I embed the calculation in a function that is given in the Appendix. I start by looking at the results for row 1, a game called <em>Hecatomb</em> with a geek rating of 5.70.</p>
+<p>The first plot shows the predictive distribution of the transformed and scaled rating, on this scale <em>Hecatomb</em> scored -1.02 meaning that its score of 5.70 placed it in the bottom 20% of games.</p>
+<p>The predictive distribution is simulated, so a seed is set for reproducibility.</p>
+<pre class="r"><code>set.seed(8118)
+# --- Predictive Distribution for hecatomb ------------------
+pred_dist(as.matrix(simDF %&gt;% select(-iter, -chain)), 
+          simDF$tau,
+          as.numeric(S[1, ]),
+          Y[1])</code></pre>
+<p><img src="/post/bayes_boardgames/bayes_boardgames_files/figure-html/unnamed-chunk-23-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The predictive distribution tells us that the model anticipates a transformed rating between 0 and -2 with the most likely value being just below -1. The mean of the distribution (red) is very close to the true value (green).</p>
+<p>The blue dashed line shows the prediction obtained using the posterior means of the coefficients. The importance of this is that it is much quicker to calculate this prediction, as it does not depend on first simulating the predictive distribution.</p>
+<p>Performance is clearer if the scaling and transformation are reversed and the predictive distribution is viewed on the original 0-10 scale. I use a function <code>inv_trans_pred_dist()</code> given in the appendix.</p>
+<p>The interpretation is unaffected but the plot is easier to understand.</p>
+<pre class="r"><code>set.seed(8118)
+inv_trans_pred_dist(as.matrix(simDF %&gt;% select(-iter, -chain)), 
+          simDF$tau, 
+          as.numeric(S[1, ]),
+          Y[1])</code></pre>
+<p><img src="/post/bayes_boardgames/bayes_boardgames_files/figure-html/unnamed-chunk-25-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Game 1 is one of the least popular games, so I also look at the predictive distribution of one of the most popular. I’ve chosen row 2053 a game called <em>Gaia Project</em>, which has a rating of 8.00. I show the distribution on the original (0,10) scale.</p>
+<pre class="r"><code>set.seed(8118)
+inv_trans_pred_dist(as.matrix(simDF %&gt;% select(-iter, -chain)), 
+          simDF$tau, 
+          as.numeric(S[2053, ]),
+          Y[2053])</code></pre>
+<p><img src="/post/bayes_boardgames/bayes_boardgames_files/figure-html/unnamed-chunk-26-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Unfortunately, the model places a small probability on the rating being over 10, which by definition is impossible. It probably makes little difference, but it is somewhat dissatisfying to use a model that makes impossible predictions even if such predictions are rare.</p>
+</div>
+</div>
+<div id="final-20-knot-model" class="section level1">
+<h1>Final 20 knot Model</h1>
+<p>To ensure that predictions are never over 10, I re-ran the 20 knot model using a different transformation of the geek rating. The logit-style transformation ensures that all predictions back-transform to a value in the range (5.5, 10).</p>
+<pre class="r"><code># --- read clean training data ------------------------------
+readRDS( file.path(oldHome, &quot;data/rData/clean_train.rds&quot;)) %&gt;%
+  mutate( geek_rating = log10((geek_rating - 5.5)/(10.0 - geek_rating)),
+          owned       = log10(owned), 
+          num_votes   = log10(num_votes),
+          min_players = log10(min_players),
+          max_players = log10(max_players),
+          min_time    = log10(min_time),
+          max_time    = log10(max_time),
+          avg_time    = log10(avg_time)) -&gt; trainDF </code></pre>
+<p>Here is the new predictive distribution for <em>Gaia Project</em>.</p>
+<p><img src="/post/bayes_boardgames/bayes_boardgames_files/figure-html/unnamed-chunk-28-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The apparent increase in the difference between the prediction and the actual rating of 8, is partly a reflection of the change in scale of the graph and partly a result of a lower mean when there are no predictions over 10.</p>
+</div>
+<div id="submission" class="section level1">
+<h1>Submission</h1>
+<p>I’ll make my submission based on the blue lines for the new transformation. This involves taking the average of the posterior distributions of each coefficient and predicting using those point estimates.</p>
+<p>First I read the test data</p>
+<pre class="r"><code># --- read the test data -------------------------------------
+readRDS( file.path(oldHome, &quot;data/rData/clean_test.rds&quot;)) %&gt;%
+  mutate( owned       = log10(owned), 
+          num_votes   = log10(num_votes),
+          min_players = log10(min_players),
+          max_players = log10(max_players),
+          min_time    = log10(min_time),
+          max_time    = log10(max_time),
+          avg_time    = log10(avg_time)) -&gt; testDF</code></pre>
+<p>Next I scale it using the mean and standard deviation of the training data. I do this with my own scaling function, <code>myScale</code></p>
+<pre class="r"><code># --- scaled predictors ------------------------------
+myScale &lt;- function(col) {
+  trainDF %&gt;%
+    summarise( m = mean({{col}}),
+               s = sd({{col}}),
+               .groups=&quot;drop&quot;
+               ) -&gt; statDF
+  return( (col-statDF$m)/statDF$s)
+}
+
+# --- scale and write as a matrix --------------------
+testDF %&gt;%
+  select( -game_id, -names) %&gt;%
+  mutate( across( everything(), myScale)) %&gt;%
+  as.matrix() -&gt; XT</code></pre>
+<p>Now I calculate the splines for the test set values of each continuous predictor, saving them in the design matrix <code>ST</code>. Because the basis functions depend on both my choice of knots and the boundaries of the data, I supplement the data with extra points.</p>
+<p>Finally I build up the prediction from the intercept and the terms in the linear predictor.</p>
+<pre class="r"><code># --- average simulated regression coefficients ----------
+simDF %&gt;%
+  select( 4:102 ) %&gt;%
+  summarise( across(everything(), mean)) %&gt;%
+  as.numeric() -&gt; cf
+
+# --- estimate of the mean scaled rating -----------------
+mu &lt;- as.numeric( mean(simDF$a0) + ST %*% cf )
+
+# --- reverse the transformations ------------------------
+pred &lt;- mean(trainDF$geek_rating) + sd(trainDF$geek_rating) * mu 
+pred &lt;- (10 ^ (pred + 1) + 5.5)/(10 ^ pred + 1)
+
+# --- show prediction for test set game 1 ----------------
+pred[1]</code></pre>
+<pre><code>## [1] 7.736849</code></pre>
+<p>Now I place the predictions in a file using the <em>Sliced</em> format.</p>
+<pre class="r"><code># --- create a submission file -----------------------
+testDF %&gt;%
+  mutate( geek_rating = pred ) %&gt;%
+  select( game_id, geek_rating) %&gt;%
+  write_csv( file.path(home, &quot;temp/submission.csv&quot;))</code></pre>
+<p>When these predictions were submitted, they scored 0.172 on the private leaderboard, good enough for a respectable 8th place.</p>
+<p>In my original (non-Bayesian) submission I scored 0.169 with a model that used the transformation of geek_rating that did not impose an upper bound of 10, but which had splines for all of the continuous predictors fitted with the package <code>mgcv</code>.</p>
+</div>
+<div id="what-this-example-shows" class="section level1">
+<h1>What this example shows</h1>
+<p>This is the first of my attempts to re-analyse the <em>Sliced</em> datasets using Bayesian models. For these data, the Bayesian analysis produces predictions that are very close to those that I obtained previously. Despite the size of this dataset, Bayesian computation is still just about feasible, with the final model taking 2 hours to fit. Computation time did deter me from using splines for all of the continuous predictors, although there are other grounds for not using splines with, for example, <code>age</code> which only takes integer values in the range 2 to 18.</p>
+<p>My prior on the coefficients of the B-splines penalises values that fluctuate wildly and so limits the wiggliness of the final curve. It is not obvious to me how the similarity of the coefficients relates to the degree of wiggle and so it was not easy to decide what prior to place on the deviations. The sizes of the deviations are largely constrained by the data, so that you do not get curves that are smooth over most of their range, but then have an isolated wiggle. Ideally, more thought should go into this prior. <code>mgcv</code> uses a penalty based on the second derivatives, effectively constraining the changes in the coefficients, rather than their values; this approach could also be used in a Bayesian model.</p>
+<p>Looking at predictive distributions rather than point predictions conveys much more information and in this example it highlighted a weakness in my original transformation of <code>geek_rating</code>. This was easily rectified, although the improvement has little impact on performance.</p>
+<p>The example illustrates both the strengths and weaknesses of Bayesian analysis. Here are the pros and cons that seem important to me</p>
+<p>Disadvantages</p>
+<ul>
+<li>longer computation time<br />
+</li>
+<li>specifying priors is not easy<br />
+</li>
+<li>there is more to check</li>
+</ul>
+<p>Advantages</p>
+<ul>
+<li>posterior distributions are more informative than point estimates<br />
+</li>
+<li>predictive distributions are more informative than point predictions<br />
+</li>
+<li>priors provide a logical basis for penalisation<br />
+</li>
+<li>the model and its assumptions are more transparent</li>
+</ul>
+<p>Of these factors, the most important is probably the computation time. It is hard to justify a Bayesian analysis when the computational burden restricts one’s choice of model.</p>
+</div>
+<div id="appendix" class="section level1">
+<h1>Appendix</h1>
+<p>Functions for displaying the predictive distribution</p>
+<pre reval="FALSE"><code>pred_dist &lt;- function(sims, tau, s, y) {
+  dim(sims)
+  length(s)
+  mu &lt;- sims[,1] + sims[,2:100] %*% s
+  yStar &lt;- rnorm(nrow(sims), mu, 1/sqrt(tau))
+  yMean &lt;- mean(sims[,1]) + apply(sims[,2:100], 2, mean) %*% s
+  yPredMean &lt;- mean(yStar)
+  tibble( x = yStar) %&gt;%
+    ggplot( aes(x=x)) +
+    geom_histogram( bins=100, fill=&quot;grey50&quot;) +
+    geom_vline( xintercept=y, colour=&quot;green&quot;, size=1) +
+    geom_vline( xintercept=yMean, colour=&quot;red&quot;, size=1, lty=1) +
+    geom_vline( xintercept=yPredMean, colour=&quot;blue&quot;, size=1, lty=2) +
+    labs(x = &quot;Predicted Rating&quot;,
+         title= &quot;Predictive Distribution of the Transformed Rating&quot;)
+}
+
+inv_trans &lt;- function(y) {
+  y &lt;- sd(trainDF$geek_rating) * y + mean(trainDF$geek_rating)
+  y &lt;- 5.5 + 10 ^ y
+  return(y)
+}
+
+inv_trans_pred_dist &lt;- function(sims, tau, s, y) {
+  mu &lt;- sims[,1] + sims[,2:100] %*% s
+  yStar &lt;- rnorm(nrow(sims), mu, sd=1/sqrt(tau))
+  yPredMean &lt;- mean(yStar)
+  yMean &lt;- mean(sims[,1]) + apply(sims[,2:100], 2, mean) %*% s
+  yStar &lt;- inv_trans(yStar)
+  yMean &lt;- inv_trans(yMean)
+  yPredMean &lt;- inv_trans(yPredMean)
+  tibble( x = yStar) %&gt;%
+    ggplot( aes(x=x)) +
+    geom_histogram( bins=100, fill=&quot;grey50&quot;) +
+    geom_vline( xintercept=inv_trans(y), colour=&quot;green&quot;, size=1) +
+    geom_vline( xintercept=yMean, colour=&quot;red&quot;, size=1, lty=1) +
+    geom_vline( xintercept=yPredMean, colour=&quot;blue&quot;, size=1, lty=2) +
+    labs(x = &quot;Predicted Rating&quot;,
+         title= &quot;Predictive Distribution of the Rating&quot;)
+}
+</code></pre>
+</div>
+
+  
+
+  
+    <div id="disqus_thread"></div>
+<script type="application/javascript">
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "John" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+  
+
+
+
+    <footer class="site-footer">
+  <span class="site-footer-credits">
+    Made with <a href="https://gohugo.io/">Hugo</a>. Themed by <a href="https://github.com/zwbetz-gh/cayman-hugo-theme">Cayman</a>. Deployed to <a href="https://www.netlify.com/">Netlify</a>.
+  </span>
+</footer>
+
+  </section>
+  
+  
+  <script>
+  window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+  ga('create', 'UA-123456789-1', 'auto');
+  ga('send', 'pageview');
+  </script>
+  <script async src='https://www.google-analytics.com/analytics.js'></script>
+  
+
+</body>
+</html>

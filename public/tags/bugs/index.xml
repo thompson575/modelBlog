@@ -1,12 +1,22 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>BUGS on Modelling with R</title>
+    <title>bugs on Modelling with R</title>
     <link>https://modelling-with-r.netlify.app/tags/bugs/</link>
-    <description>Recent content in BUGS on Modelling with R</description>
+    <description>Recent content in bugs on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Sat, 12 Mar 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/bugs/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Mon, 28 Mar 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/bugs/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Bayesian Sliced 1: Boardgame Ratings</title>
+      <link>https://modelling-with-r.netlify.app/bayes_boardgames/</link>
+      <pubDate>Mon, 28 Mar 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/bayes_boardgames/</guid>
+      <description>SummaryBackground: In episode 1 of the 2021 series of Sliced, the competitors were given two hours to analyse a set of data on boardgames. The aim was to predict the games’ ratings.
+My approach: In an earlier post entitled Sliced Episode 1: Boardgame Ratings, I analysed these data using traditional methods. That post describes my data cleaning, feature selection and data exploration. In this analysis, I take those same cleaned data and analyse them using a Bayesian model.</description>
+    </item>
+    
     <item>
       <title>Methods: R Software for Bayesian Analysis</title>
       <link>https://modelling-with-r.netlify.app/methods_software/</link>

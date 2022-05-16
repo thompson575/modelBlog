@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>random walk Metropolis-Hastings on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/random-walk-metropolis-hastings/</link>
+    <description>Recent content in random walk Metropolis-Hastings on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Sun, 12 Sep 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/random-walk-metropolis-hastings/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Bayes Sliced 2: Wildlife Strikes</title>
+      <link>https://modelling-with-r.netlify.app/bayes_wildlife_strikes/</link>
+      <pubDate>Sun, 12 Sep 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/bayes_wildlife_strikes/</guid>
+      <description>Summary:Background: In episode 2 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on wildlife strikes with aircraft. The aim was to predict whether or not the aircraft was damaged in the collision.
+My approach: The database was created by the FAA from reports filed by pilots that are clearly incomplete. For my previous post, I spent the vast majority of the time cleaning the data and afterwards used a logistic regression model.</description>
+    </item>
+    
+  </channel>
+</rss>
