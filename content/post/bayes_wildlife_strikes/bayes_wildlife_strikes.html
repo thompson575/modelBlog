@@ -1,7 +1,7 @@
 ---
 title: "Bayes Sliced 2: Wildlife Strikes"
 author: "John Thompson"
-date: "2021-09-12"
+date: "2022-05-19"
 layout: post
 tags:
 - Sliced
@@ -23,14 +23,14 @@ editor_options:
 <div id="summary" class="section level1">
 <h1>Summary:</h1>
 <p><strong>Background:</strong> In episode 2 of the 2021 series of <em>Sliced</em>, the competitors were given two hours in which to analyse a set of data on wildlife strikes with aircraft. The aim was to predict whether or not the aircraft was damaged in the collision.<br />
-<strong>My approach:</strong> The database was created by the FAA from reports filed by pilots that are clearly incomplete. For my previous post, I spent the vast majority of the time cleaning the data and afterwards used a logistic regression model. In this post, I take the cleaned data from 2012 and fit a Bayesian logistic regression, using the <code>nimble</code> package. My aim was to investigate the practicality of using <code>nimble</code> to try model selection based on the Bayes Factor.<br />
+<strong>My approach:</strong> The database was created by the FAA from reports filed by pilots that are clearly incomplete. For my previous post, I spent the vast majority of the time cleaning the data and afterwards used a logistic regression model. In this post, I take the cleaned data from 2012 and fit a Bayesian logistic regression, using the <code>nimble</code> package. My aims were to investigate the practicality of using <code>nimble</code> and to try model selection based on the Bayes Factor.<br />
 <strong>Results:</strong> <code>nimble</code> solves the problem in a reasonably efficient way. Comparing models, with and without <code>species_quantity</code>, I find that the data cause my prior probability of including <code>species_quantity</code> to drop from 0.80 to 0.59, equivalent to a Bayes Factor of 0.36.<br />
 <strong>Conclusion:</strong> <code>nimble</code> is quick and easy to use, but its default random walk Metropolis-Hastings algorithm produces autocorrelated chains that require long run lengths if they are to give usable accuracy. Well-chosen prior distributions are needed for meaningful results and for model convergence. There is not a great deal of information in the sample of data from 2012, hence the small Bayes Factor. If you believed before hand that <code>species_quantity</code> should be included in the model, then you would stay with that opinion, but if you believed that it would not be predictive, the data would not cause you to change your mind.</p>
 </div>
 <div id="introduction" class="section level1">
 <h1>Introduction</h1>
-<p>The data for this analysis can be downloaded from <a href="https://www.kaggle.com/c/Sliced-s01e02-xunyc52" class="uri">https://www.kaggle.com/c/Sliced-s01e02-xunyc52</a>. They were collected by the United States FAA (Federal Aviation Authority) who keep a database of wildlife strikes. There is a questionnaire that should be filled in when an aircraft collides with a bird or animal; it can be found on the FAA website (<a href="https://www.faa.gov/documentLibrary/media/form/faa5200-7.pdf" class="uri">https://www.faa.gov/documentLibrary/media/form/faa5200-7.pdf</a>). Not all of the fields from the questionnaire are available for this competition.</p>
-<p>I analysed the wildlife strikes data in an earlier post called <code>Spliced Episode 2: Wildlife strikes</code>. I cleaned the data, explored the individual predictors and used a logistic regression model for prediction. The original analysis was primarily an exercise in data cleaning and feature selection and I kept the modelling simple and relied on a standard logistic regression model.</p>
+<p>The data for this analysis can be downloaded from <a href="https://www.kaggle.com/c/Sliced-s01e02-xunyc52" class="uri">https://www.kaggle.com/c/Sliced-s01e02-xunyc52</a>. They were collected by the United States FAA (Federal Aviation Authority) who keep a database of wildlife strikes. There is a questionnaire that should be filled in when an aircraft collides with a bird or animal; it can be found on the FAA website (<a href="https://www.faa.gov/documentLibrary/media/form/faa5200-7.pdf" class="uri">https://www.faa.gov/documentLibrary/media/form/faa5200-7.pdf</a>). Not all of the fields from the questionnaire were available for this competition.</p>
+<p>I analysed the wildlife strikes data in an earlier post called <code>Spliced Episode 2: Wildlife strikes</code>. The original analysis was primarily an exercise in data cleaning and feature selection and I kept the modelling simple and relied on a standard logistic regression model.</p>
 <p>The aim in my previous post was to predict whether the aircraft was damaged in the strike, but in this post, I set myself a different objective; to investigate model selection using the <code>nimble</code> package.</p>
 <p><em>nimble</em> (<a href="https://r-nimble.org/" class="uri">https://r-nimble.org/</a>) is a project that combines the <em>BUGS</em> language with a range of MCMC samplers written in C++ but accessed via R. My methods post entitled <em>Methods: Bayesian Software</em> provides an elementary example of the use of <em>nimble</em>, which this post builds on. If you are new to <em>nimble</em> then it might help to read that post first.</p>
 </div>
@@ -174,7 +174,7 @@ sampleDF %&gt;%
 <p>Notice that the estimates associated with PARKED and TAXI are ridiculous and have gigantic standard errors as a result of the small numbers of incidents all of which left the aircraft undamaged. I am a little uneasy about the quadratic effect of nmiss, but it is probably OK as a first approximation. The maximum of the quadratic occurs when there are 0.898/(2*0.307) or about 1.5 missing values.</p>
 <div id="interpretation-of-the-intercept" class="section level3">
 <h3>Interpretation of the intercept</h3>
-<p>The intercept of -2.35 corresponds to the log odds of damage when all predictors are zero. So no missing data and the base level for flight_phase, which is the missing category. This amounts to, no missing data and a missing flight phase. The intercept extrapolates beyond the data to a set of predictors that cannot exist. This type of meaningless extrapolation is actually quite common in linear models, but it creates a problem for a Bayesian analysis, because I will need to place a prior on the intercept.</p>
+<p>The intercept of -2.35 corresponds to the log odds of damage when all predictors are zero. So no missing data together with the base level for flight_phase, which is the missing category. This amounts to, no missing data and a missing flight phase. The intercept extrapolates beyond the data to a set of predictors that cannot exist. This type of meaningless extrapolation is actually quite common in linear models, but it creates a problem for a Bayesian analysis, because I will need to place a prior on that intercept.</p>
 </div>
 <div id="centring-the-number-of-missing-values" class="section level3">
 <h3>Centring the number of missing values</h3>
@@ -228,18 +228,18 @@ sampleDF %&gt;%
 <h2>Bayesian analysis</h2>
 <div id="setting-priors" class="section level3">
 <h3>Setting Priors</h3>
-<p>First I need to place priors on the parameters and in doing so, I need to pretend that I have not seen the actual data.</p>
-<p>I know very little about the risk of damage to an aircraft in a wildlife strike, I guess it depends on what the pilots classify as damage. I am working on a logit scale, so an intercept of zero means a 50% chance of damage in the baseline category, an intercept of -1 would mean a 25% chance, -5 would mean a 0.5% chance. It is subjective but N(-4, sd=2) feels OK to me.</p>
+<p>First, I need to place priors on the parameters and in doing so, I need to pretend that I have not seen the actual data.</p>
+<p>I know very little about the risk of damage to an aircraft in a wildlife strike, I guess it depends on what the pilots consider to be damage. I am working on a logit scale, so an intercept of zero means a 50% chance of damage in the baseline category, an intercept of -1 would mean a 25% chance, -5 would mean a 0.5% chance. It is subjective but N(-4, sd=2) feels OK to me.</p>
 <p>The coefficient for <code>nmiss2</code> is harder to assess, partly because the choice of a quadratic was data driven. The interpretation of this coefficient is the log odds ratio associated with a change of 1 in <code>nmiss2</code>. I know that the coefficient will be negative and that it will not be huge. I’ll opt for N(-0.5, 0.25).</p>
-<p>The other coefficients could be almost anything. A log odds ratio of 3 would mean an odds ratio of exp(3)=20 and I do not believe that the the odds would change that much depending on the phase of the flight. I’ll opt for N(0, 1.5). My prior is centred on zero, which corresponds to no difference between that category and a missing flight phase.</p>
+<p>The other coefficients could be almost anything. A log odds ratio of 3 would mean an odds ratio of exp(3)=20 and I do not believe that the the odds would change that much depending on the phase of the flight. I’ll opt for N(0, 1.5). My prior is centred on zero, which corresponds to no difference between that category and the baseline (missing) flight phase.</p>
 <p>Why such informative priors? Why not use vague priors and let the data do the work? There are two reasons</p>
 <ul>
-<li>the data are quite sparse, e.g. there are zero damaged planes in some of the categories, so the priors will help keep the coefficients sensible,<br />
+<li>the data are quite sparse, e.g. there are zero damaged planes in some of the categories, so the informative priors will help keep the coefficients sensible,<br />
 </li>
-<li>the priors will help the algorithm to converge. We know that the algorithm would struggle to estimate the coefficient of TAXI with a vague prior, as the likelihood analysis has a standard error of over 1000.</li>
+<li>informative priors will help the algorithm to converge. In the likelihood analysis, TAXI has a standard error of over 1000, so we know that the algorithm will struggle to estimate the coefficient.</li>
 </ul>
-<p>Now an analysis in <code>nimble</code>. I have gone for a relative long run length of 20,000 because of the anticipated correlation between the parameters. <code>nimble</code> is quick so that number is not unreasonable.</p>
-<p>I use the approach of putting the details of the run in a data frame, partly for neatness and partly as a record of the analysis. The method is set out in my post on <code>Methods: Bayesian Software</code>.</p>
+<p>Now I try an analysis in <code>nimble</code>. I have gone for a relatively long run length of 20,000 because of the anticipated correlation between the parameters. <code>nimble</code> is quick so that number is not unreasonable.</p>
+<p>I use the approach of putting the details of the run in a data frame, partly for neatness and partly as a record of the analysis. This method is set out in my post on <code>Methods: Bayesian Software</code>.</p>
 <pre class="r"><code># ==============================================================
 # NIMBLE ANALYSIS
 #
@@ -344,8 +344,8 @@ designDF %&gt;%
 
 # --- switch back to sequential processing ----------
 plan(sequential)</code></pre>
-<p>The compilation and three chains of length 20,000 together took almost exactly 100 seconds on my desktop.</p>
-<p>Here are trace plots of some of the parameters. The chains have converged to the same solution, but the autocorrelations in the chains is obvious. <code>bayes-to_df()</code> is my function and is described in the methods post on Bayesian software.</p>
+<p>The compilation and three chains of length 20,000 took almost exactly 100 seconds on my desktop.</p>
+<p>Here are trace plots of some of the parameters. The chains have converged to the same solution, but the autocorrelations in the chains is obvious. <code>bayes_to_df()</code> is my function and is described in the methods post on Bayesian software.</p>
 <pre class="r"><code>library(MyPackage)
 # --- Read the simulations into a tibble ------------
 # combining the three chains
@@ -364,7 +364,7 @@ trace_plot(simDF, b_1) +
 <pre class="r"><code>trace_plot(simDF, b_10) +
   labs(title=&quot;b_10: TAXI&quot;)</code></pre>
 <p><img src="/post/bayes_wildlife_strikes/bayes_wildlife_strikes_files/figure-html/unnamed-chunk-11-4.png" width="528" style="display: block; margin: auto;" /></p>
-<p>The high autocorrelation is expected given the high correlation between parameters. The chains have converged and yet the long run length is essential to provide sufficient accuracy for the posterior.</p>
+<p>The high autocorrelation is expected given the high correlation between parameters. The chains have converged, but the long run length was essential to provide sufficient accuracy.</p>
 <p>Below I create a table of summary statistics for comparing the Bayesian and Likelihood analyses.</p>
 <pre class="r"><code># --- LIKELIHOOD ANALYSIS ---------------------------------------
 sampleDF %&gt;%
@@ -400,7 +400,7 @@ summary(codaSims)[[1]] %&gt;%
 ##  9 b_9   -0.672 1.22      0.0153   -13.3    725.    
 ## 10 b_10  -0.393 1.32      0.0160   -13.1   1029.</code></pre>
 <p>The MCMC_Error shows that the algorithm estimates the posterior means to within about 0.03 (i.e. twice the MCMC error).</p>
-<p>The likelihood and Bayesian analyses are in broad agreement both in terms of the posterior mean and the posterior standard deviation. The Bayesian estimates for b_9 and b_10 are more sensible and I would be happy to use them for prediction rather than the values from the likelihood analysis.</p>
+<p>The likelihood and Bayesian analyses are in broad agreement both in terms of the posterior mean and the posterior standard deviation. The Bayesian estimates for b_9 and b_10 are more sensible and I would prefer to use them for prediction rather than the values from the likelihood analysis.</p>
 </div>
 </div>
 <div id="model-comparison" class="section level2">
@@ -449,19 +449,19 @@ sampleDF %&gt;%
 <p>Assuming that the model assumptions hold (I have not checked them yet) then the deviance can be judged by a chi-squared test.</p>
 <pre class="r"><code>pchisq(6.017, 3, lower=FALSE)</code></pre>
 <pre><code>## [1] 0.1107861</code></pre>
-<p>So the test for addition of <code>species_quantity</code> has a p-value of 0.11, suggesting that the evidence for adding <code>species_quantity</code> is very weak.</p>
+<p>So the test for addition of <code>species_quantity</code> has a p-value of 0.11, suggesting that the evidence for adding <code>species_quantity</code> is pretty weak.</p>
 </div>
 <div id="bayesian-model-comparison" class="section level2">
 <h2>Bayesian Model Comparison</h2>
 <p>The traditional analysis compares the base model with the expanded model in terms of the difference in their deviances. In contrast, a Bayesian analysis either compares the models in terms of either their posterior probability, or their Bayes Factor.</p>
 <p>Posterior probability is perhaps the purest measure, but it requires the analyst to give a prior on the probability that the “correct” model includes <code>species_quantity</code>.</p>
-<p>The Bayes Factor calculates the change in the prior odds of two models with their posterior odds; that is to say it measures the impact of the data on the model choice. On the ratio of odds scale, that change is independent of what we originally thought about the inclusion of species_quantity.</p>
+<p>In contrast, the Bayes Factor calculates the change between the prior odds of two models and their posterior odds; that is to say, it measures the impact of the data on the model choice. On the ratio of odds scale, that change is independent of what we originally thought about the inclusion of species_quantity.</p>
 <p>I will look at both Bayesian approaches in one analysis.</p>
 <p>I need a prior for the probability based method. In my opinion, there is an 80% chance that species quantity is predictive of damage after adjusting for the other factors. I tend to the view that the lack of significance in the likelihood analysis is down to the sparsity of the data.</p>
 <p>My prior odds for including <code>species_quantity</code> is therefore 0.8/(1-0.8) = 4.</p>
 <div id="model-probability" class="section level3">
 <h3>Model Probability</h3>
-<p>I need to create an MCMC algorithm that is free to switch between the two models (i.e. with and without <code>species_quantity</code>) and I do this by including an indicator variable, <code>z</code> in my model code.</p>
+<p>I need to create an MCMC algorithm that is free to switch between the two models (i.e. with and without <code>species_quantity</code>) and I do this by including an indicator variable in my model code.</p>
 <p>The <code>nimble</code> run follows much the same pattern as before. First, I set up the data in a list().</p>
 <pre class="r"><code># ==============================================================
 # NIMBLE ANALYSIS
@@ -479,7 +479,7 @@ sampleDF %&gt;%
 myData &lt;- list(X=X, Y=Y)
 
 saveRDS( myData, file.path(home, &quot;nimble/data02.rds&quot;))</code></pre>
-<p>In my model code I will include the indicator, zSQ, (z for Species Quantity) which will be zero when <code>species_quantity</code> is omitted from the model and one when that predictor is included. In each iteration, a Metropolis-Hastings algorithm will decide whether zSQ should be 0 or 1. This algorithm will require values for the coefficients of <code>species_quantity</code> even when previously zSQ was 0. The values that are used for the coefficients of the unused predictor are arbitrary and will not alter the solution. However, they can have a big impact on the speed of convergence. Choose poorly and the algorithm will be very slow to switch from a model without <code>species_quantity</code> (zSQ=0) to one with <code>species_quantity</code> (zSQ=1). A sensible choice would be to use values close to the mean coefficient in a model that includes <code>species_quantity</code>. I use a likelihood analysis will help guide that choice.</p>
+<p>In my model code, I include the indicator, zSQ, (z for Species Quantity) which is zero when <code>species_quantity</code> is omitted from the model and one when that predictor is included. In each iteration, a Metropolis-Hastings algorithm will decide whether zSQ should be 0 or 1. This algorithm will require values for the coefficients of <code>species_quantity</code> even when previously zSQ was 0. The values that are used for the coefficients of the unused predictor are arbitrary and will not alter the solution. However, they can have a big impact on the speed of convergence. Choose poorly and the algorithm will be very slow to switch from a model without <code>species_quantity</code> (zSQ=0) to one with <code>species_quantity</code> (zSQ=1). A sensible choice would be to use values close to the mean coefficient in a model that includes <code>species_quantity</code>. I use a likelihood analysis to help guide that choice.</p>
 <pre class="r"><code># --- LIKELIHOOD ANALYSIS ---------------------------------------
 sampleDF %&gt;%
   mutate( nmiss  = nmiss - 1.5,
@@ -495,7 +495,7 @@ sampleDF %&gt;%
 ## 1 species_quantity2-10         0.358     0.425     0.842  0.400 
 ## 2 species_quantity(Missing)    1.72      0.876     1.96   0.0495
 ## 3 species_quantity11-100       2.25      1.17      1.92   0.0548</code></pre>
-<p>The distribution that is used to create regression coefficients for terms not in the model is called a pseudo-prior. In the code below, my pseudo-priors are based on this likelihood analysis, remembering that the choice only needs to be sensible; there is no correct choice.</p>
+<p>The distribution that is used to create regression coefficients for terms not in the model is called a <code>pseudo-prior</code>. In the code below, my pseudo-priors are based on this likelihood analysis, remembering that the choice only needs to be sensible; there is no correct choice.</p>
 <pre class="r"><code># --- Model in BUGS style --------------------------------------
 library(nimble)
 
@@ -572,7 +572,6 @@ tibble(
 ## 3 C:/Projects/kaggle/Sliced/… C:/P… 20000   10000     1  3477 &lt;named list&gt; C:/P…</code></pre>
 <pre class="r"><code># --- Run three chains in parallel --------------------------
 library(furrr)
-library(tictoc)
 
 # --- run three independent R sessions --------------
 plan(multisession, workers=3)
@@ -615,22 +614,22 @@ trace_plot(simDF, b_1) +
 ##     0     1 
 ## 12186 17814</code></pre>
 <p>So after adjusting for the data, the posterior probability that the model includes <code>species_quantity</code> is 17814/30000=0.59 and the posterior odds is 0.59/(1-0.59)=1.43</p>
-<p>The data have caused me to adjust my odds by a factor of 1.43/4 = 0.36, this is the Bayes Factor. The data move me away from including species_quantity, from 80% sure to 59% sure, a drop of 0.36 in the odds.</p>
+<p>The data have caused me to adjust my odds by a factor of 1.43/4 = 0.36, this is the Bayes Factor. The data move me away from including species_quantity, from 80% sure to 59% sure, a drop by a factor of 0.36 in the odds.</p>
 <p>The data have not had a big influence, because there is not much data. If you had started believing that the including species_quantity was 50:50, i.e a probability of 0.5 and an odds of 1, the data would have reduced your odds by the same Bayes Factor, so your new odds would have been 0.36, equivalent to a posterior probability of 0.26.</p>
 </div>
 </div>
 </div>
 <div id="what-we-learn-from-this-analysis" class="section level1">
 <h1>What we learn from this analysis</h1>
-<p>In the past, I have run this type of analysis in <code>OpenBUGS</code> with reasonable results and I was interested to see whether or not <code>nimble</code> is a practical alternative. The answer seems to be a qualified yes. The default in <code>nimble</code> for non-conjugate parameters is to use random walk Metropolis-Hastings algorithms that are automatically tuned prior during the burn-in. The algorithm is quick, but my experience suggests that long run lengths are needed for all but the most trivial models.</p>
-<p><code>nimble</code> is an ambitious project that offers a wide range of other samplers, but the user is left to search for the best combination of samplers without much guidance from the package. I am a fan of leaving the analyst in control, but even I would like a more intelligent choice of default behaviour. At present, <code>nimble</code> does not include an HMC algorithm, which is a shame as it works without much tuning from the analyst and would serve as a better default.</p>
-<p>My approach to Bayesian analysis differs from that of the most statisticians in that I believe in the use of informative priors. Most people are happier with vague priors that leave the data to dictate the model fit. This example has illustrated some of the advantages of my preferred approach.</p>
+<p>In the past, I have run this type of analysis in <code>OpenBUGS</code> with reasonable results and I was interested to see whether or not <code>nimble</code> is a practical alternative. The answer seems to be a qualified yes. The default in <code>nimble</code> for non-conjugate parameters is to use a random walk Metropolis-Hastings algorithm that is automatically tuned prior during the burn-in. The algorithm is quick, but my experience suggests that very long run lengths are needed for all but the most trivial models.</p>
+<p><code>nimble</code> is an ambitious project that offers a wide range of other samplers, but the user is left to search for the best combination of samplers without much guidance from the package. I am a fan of leaving the analyst in control, but even I would like a more intelligent choice of default behaviour. At present, <code>nimble</code> does not include an HMC algorithm, which is a shame as that algorithm works without much tuning from the analyst and would serve as a better default.</p>
+<p>My approach to Bayesian analysis differs from that of the majority of statisticians in that I believe in the use of informative priors. Most people are happier with vague priors that leave the data to dictate the model fit. This example has illustrated some of the advantages of my preferred approach.</p>
 <ol style="list-style-type: lower-alpha">
 <li><p>Informative priors produce more sensible estimates when the data are sparse. In the first model, we saw how the likelihood analysis, which is equivalent to a bayesian model with a very vague prior, gave log odds ratio estimates of -13, equivalent to an odds ratio of around 2x10-6. Since damage is a reasonably uncommon outcome the odds ratio approximates a ratio of probabilities, so the model would have us believe that a missing flight phase is 2 million times more risky than one in the TAXI category.</p></li>
 <li><p>It is usually the case that MCMC algorithms converge faster when the priors are informative. An MCMC algorithm will try to cover the posterior. In the case of the TAXI category the likelihood analysis suggests a standard error of around 1000, this gives us a good indication of the size of the posterior standard deviation. So the algorithm will try to cover parameter values in the range -2000 to +2000. Not only are these values ridiculous, but they run the risk of crashing the run due to numerical overflow or overflow.</p></li>
 <li><p>Vague priors are sometimes not quite as vague as was intended. This would almost certainly not be a problem for this example, but with more complex models a supposedly vague prior on one parameter can have an unanticipated impact on other parameters, perhaps limiting their range.</p></li>
-<li><p>Informative priors allow the analyst to use extra knowledge with the potential for better predictions. Birdstrikes are more common during periods of migration, some aircraft incorporate extra safety features to protect against birdstrikes and some airports do more than others to keep wildlife away. If you know such things, it is sensible to incorporate that information.</p></li>
+<li><p>Informative priors allow the analyst to use extra knowledge with the potential for better predictions. Birdstrikes are more common during periods of migration, some aircraft incorporate extra safety features to protect against birdstrikes and some airports do more than others to keep wildlife away. If you know such things, it is sensible to make use of that information.</p></li>
 </ol>
-<p>The final aspect that was touched upon in this post is the contrast between p-values and Bayes Factors for model comparison. The p-value of 0.11 associated adding <code>species_quantity</code> to the model is hard to interpret. Is it non-significant due to the poor predictive performance of that measure, or is it due to low sample size? With the large datasets that are more the norm in machine learning the opposite behaviour is often observed. Small p-values arise from adding predictors that make no material contribution to overall performance and machine learning models end up becoming unnecessarily complex.</p>
-<p>The interpretation of a Bayes Factor of 0.36 is more direct, especially when it is related to model probability. I started with a prior probability of 0.8 that <code>species_quantity</code> should be included, equivalent to odds ratio of 4. The data gave a BF of 0.36, so combining my prior with the data reduces the odds ratio to 4x0.36=1.43, which translates into a posterior probability of 0.59. One can see that the data do not help with the decision and we have a metric on an easily understood probability scale.</p>
+<p>The final aspect that was touched upon in this post is the contrast between p-values and Bayes Factors for model comparison. The p-value of 0.11 associated adding <code>species_quantity</code> to the model is hard to interpret. Is it non-significant due to the poor predictive performance of that measure, or is it due to low sample size? With large datasets that are more the norm in machine learning, the opposite behaviour is often observed. Small p-values arise from adding predictors that make no material contribution to overall performance and machine learning models often become unnecessarily complex.</p>
+<p>The interpretation of a Bayes Factor of 0.36 is more direct, especially when it is converted to a model probability. I started with a prior probability of 0.8 that <code>species_quantity</code> should be included, equivalent to odds ratio of 4. The data gave a BF of 0.36, so combining my prior with the data reduced the odds ratio to 4x0.36=1.43, which translates into a posterior probability of 0.59. One can see that the data do not help with the decision and we have a metric on an easily understood probability scale.</p>
 </div>
