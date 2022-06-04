@@ -6,7 +6,17 @@
     <description>Recent content in logistic regression on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Thu, 16 Sep 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/logistic-regression/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Thu, 19 May 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/logistic-regression/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Bayes Sliced 2: Wildlife Strikes</title>
+      <link>https://modelling-with-r.netlify.app/bayes_wildlife_strikes/</link>
+      <pubDate>Thu, 19 May 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/bayes_wildlife_strikes/</guid>
+      <description>Summary:Background: In episode 2 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on wildlife strikes with aircraft. The aim was to predict whether or not the aircraft was damaged in the collision.
+My approach: The database was created by the FAA from reports filed by pilots that are clearly incomplete. For my previous post, I spent the vast majority of the time cleaning the data and afterwards used a logistic regression model.</description>
+    </item>
+    
     <item>
       <title>Sliced Episode 4: Rain Tomorrow</title>
       <link>https://modelling-with-r.netlify.app/rain_tomorrow/</link>
@@ -15,16 +25,6 @@
       <guid>https://modelling-with-r.netlify.app/rain_tomorrow/</guid>
       <description>Summary:Background: In episode 4 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on daily weather patterns in different parts of Australia. The aim was to predict whether or not it will rain the next day.
 My approach: I started with the idea that location would be key to a good model and I tried two approaches, one based on average rainfall patterns for the time of year and the other based on a day’s weather predicting the weather on the following day.</description>
-    </item>
-    
-    <item>
-      <title>Bayes Sliced 2: Wildlife Strikes</title>
-      <link>https://modelling-with-r.netlify.app/bayes_wildlife_strikes/</link>
-      <pubDate>Sun, 12 Sep 2021 00:00:00 +0000</pubDate>
-      
-      <guid>https://modelling-with-r.netlify.app/bayes_wildlife_strikes/</guid>
-      <description>Summary:Background: In episode 2 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on wildlife strikes with aircraft. The aim was to predict whether or not the aircraft was damaged in the collision.
-My approach: The database was created by the FAA from reports filed by pilots that are clearly incomplete. For my previous post, I spent the vast majority of the time cleaning the data and afterwards used a logistic regression model.</description>
     </item>
     
     <item>

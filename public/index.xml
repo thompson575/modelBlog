@@ -6,7 +6,17 @@
     <description>Recent content in Blog on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Mon, 28 Mar 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Thu, 19 May 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Bayes Sliced 2: Wildlife Strikes</title>
+      <link>https://modelling-with-r.netlify.app/bayes_wildlife_strikes/</link>
+      <pubDate>Thu, 19 May 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/bayes_wildlife_strikes/</guid>
+      <description>Summary:Background: In episode 2 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on wildlife strikes with aircraft. The aim was to predict whether or not the aircraft was damaged in the collision.
+My approach: The database was created by the FAA from reports filed by pilots that are clearly incomplete. For my previous post, I spent the vast majority of the time cleaning the data and afterwards used a logistic regression model.</description>
+    </item>
+    
     <item>
       <title>Bayesian Sliced 1: Boardgame Ratings</title>
       <link>https://modelling-with-r.netlify.app/bayes_boardgames/</link>
@@ -173,16 +183,6 @@ My approach: I started with the idea that location would be key to a good model 
       <guid>https://modelling-with-r.netlify.app/superstore_profits/</guid>
       <description>Summary:Background: In episode 3 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on superstore sales. The aim was to predict the profit on a sale.
 My approach: This is a good example of a problem for which we have knowledge about the structure of the data. In particular, we know the relation between sales, cost, discount and profit.</description>
-    </item>
-    
-    <item>
-      <title>Bayes Sliced 2: Wildlife Strikes</title>
-      <link>https://modelling-with-r.netlify.app/bayes_wildlife_strikes/</link>
-      <pubDate>Sun, 12 Sep 2021 00:00:00 +0000</pubDate>
-      
-      <guid>https://modelling-with-r.netlify.app/bayes_wildlife_strikes/</guid>
-      <description>Summary:Background: In episode 2 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on wildlife strikes with aircraft. The aim was to predict whether or not the aircraft was damaged in the collision.
-My approach: The database was created by the FAA from reports filed by pilots that are clearly incomplete. For my previous post, I spent the vast majority of the time cleaning the data and afterwards used a logistic regression model.</description>
     </item>
     
     <item>

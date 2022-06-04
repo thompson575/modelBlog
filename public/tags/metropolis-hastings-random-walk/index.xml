@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>Bayes Factor on Modelling with R</title>
-    <link>https://modelling-with-r.netlify.app/tags/bayes-factor/</link>
-    <description>Recent content in Bayes Factor on Modelling with R</description>
+    <title>Metropolis-Hastings (random walk) on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/metropolis-hastings-random-walk/</link>
+    <description>Recent content in Metropolis-Hastings (random walk) on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Thu, 19 May 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/bayes-factor/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Thu, 19 May 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/metropolis-hastings-random-walk/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>Bayes Sliced 2: Wildlife Strikes</title>
       <link>https://modelling-with-r.netlify.app/bayes_wildlife_strikes/</link>
