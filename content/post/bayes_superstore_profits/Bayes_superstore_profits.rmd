@@ -203,7 +203,7 @@ Convergence is very good and the results mirror those of the model fitted by `lm
 ```{r echo=FALSE}
 library(targets)
 
-tar_read(coefDF) %>%
+tar_read(coefDF, store=file.path(home, "_targets")) %>%
   select(term, lmCf, lmSe, bay1Mn, bay1Sd)
 ```
 
@@ -263,7 +263,7 @@ The model takes a similar time to compile, but much longer to run, about 100 sec
 
 The posterior means for the modified model are very similar to those of the original model, but the posterior standard deviations are very different, reflecting the greater uncertainty about the profit in some sub-categories compared to others. 
 ```{r echo=FALSE}
-tar_read(coefDF)
+tar_read(coefDF, store=file.path(home, "_targets"))
 ```
 
 # Bayes Factor
