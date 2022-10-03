@@ -1,0 +1,402 @@
+---
+title: "Bayesian Sliced 3: Superstore profits"
+author: "John Thompson"
+date: "2022-10-03"
+layout: post
+tags:
+- Sliced
+- stan
+- rstan
+- linear model
+- offset
+- bayes factor
+- marginal likelihood
+- bridge sampling
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE, fig.align='center', fig.height=4, fig.width=5.5)
+```
+# Summary:
+
+**Background:** In episode 3 of the 2021 series of *Sliced*, the competitors were given two hours in which to analyse a set of data on superstore sales. The aim was to predict the profit on each sale in the test set.    
+**My approach:** I start with the model used in my non-Bayesian analysis of these data, which transformed the profit to the profit that would have been obtained had there not been a discount. I use this example to illustrate analysis with `stan` and so I start by using `stan` to fit an equivalent Bayesian model. Noting that the variance is not constant across sub-categories of items, I extend the Bayesian model and then used a Bayes Factor to compare the original and the modified Bayesian models.  
+**Result:** My first Bayesian model gives almost the same results to a linear model fitted with lm(). The modified model gives similar posterior means, but very different posterior standard deviations. The Bayes Factor greatly favours the modified analysis.  
+**Conclusion:** The modified model makes similar predictions to a basic linear model, but it conveys much more information, in particular, it identifies those predictions that are made with high confidence and those that are more uncertain.   
+
+# Introduction
+
+The third of the *Sliced* tasks is to predict the profits on items sold by a unnamed superstore and as usual the evaluation metric is RMSE. The data can be downloaded from https://www.kaggle.com/c/sliced-s01e03-DcSXes. 
+
+I analysed these profit data in an earlier post called `Spliced Episode 3: Siperstore profits`. I cleaned the data, explored the individual predictors and used a linear regression model for prediction. The problem illustrates the importance of using known structure when modelling data. In this particular case, I use the data on discounts to convert all profits to what they would have been without a discount. I then developed a predictive model for the undiscounted profit.
+
+This is the third of a series of posts in which I re-analyse the *Sliced* data using Bayesian methods. I will not repeat the data cleaning and visualisation and so this post needs to be read in conjunction with my earlier post.
+
+# Reading the data
+
+I will pick up the previous analysis at the point where I read the clean data. The transformations between sales and undiscounted sales (`baseSales`) and between profit and undiscounted profit (`baseProfit`) are explained in the earlier post.
+
+```{r}
+# --- setup: libraries & options ------------------------
+library(tidyverse)
+
+theme_set( theme_light())
+
+# --- set home directories ------------------------------
+oldHome <- "C:/Projects/sliced/s01-e03"
+home    <- "C:/Projects/sliced/Bayes-s01-e03"
+
+# --- read downloaded data -----------------------------
+readRDS( file.path(oldHome, "data/rData/train.rds") ) %>%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) -> trainDF
+```
+
+# Models
+
+## Linear Model
+
+I will start with the model structure used in my original post. It was created with the code
+```{r}
+library(broom)
+
+# --- base model: coefficients -----------------------------
+trainDF %>%
+  filter( baseProfit > 0.5 ) %>%
+  { lm( log10(baseProfit) ~  - 1 + sub_category, 
+              offset=log10(baseSales), 
+              data=.) } %>%
+  tidy() %>%
+  select( -statistic) %>%
+  mutate(term = str_replace(term, "sub_category", "")) %>%
+  print() -> modDF
+```
+
+The model consists of a series of  45^o^ lines one for each sub_category of product. The intercepts are log10 of the proportion of the sales price that goes in profit.
+
+```{r}
+trainDF %>%
+  filter( baseProfit > 0.5 ) %>%
+  { lm( log10(baseProfit) ~  sub_category, 
+              offset=log10(baseSales), 
+              data=.) } %>%
+  augment() %>% 
+  arrange( sub_category, `(offset)`) %>%
+  ggplot( aes(x=`(offset)`, y=.fitted, colour=sub_category)) +
+  geom_line() +
+  labs( x= "log10(baseSales)", y="log10(baseProfit)",
+        title = "Predicted profit for a given undiscounted sales price")
+```
+
+The main limitation of the this model is that it assumes that it is possible to predict profits in every sub-category with the same accuracy. We know from my previous analysis that this is not true. Some sub-categories are quite homogeneous, but other include items that produce very different percentage profit. This effect can be seen in the plot below.
+
+```{r}
+# --- profit and sales for 3 categories of item -------------
+trainDF %>%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) %>%
+  mutate( discount = factor(discount)) %>%
+  filter( baseProfit > 0.5 ) %>%
+  filter( sub_category %in% c("Tables", "Phones", "Binders") ) %>%
+  ggplot( aes(x=log10(baseSales), y=log10(baseProfit)) ) +
+  geom_point() +
+  geom_abline( slope=1, intercept=0) +
+  facet_wrap( ~ sub_category) +
+  labs( title="Undiscounted profit and  sales price on a log scale")
+```
+
+The variation about the trend line varies considerably with sub-category.
+
+## Linear Model in Stan
+
+Despite the limitations of the linear model with constant variance, I start with its equivalent in `stan` and then I'll improve the Bayesian model.
+
+Here is the model code for the equivalent to the linear model.
+```{r eval=FALSE}
+data { 
+  int N;               // number of data points i.e. 7087 
+  int M;               // number of sub_categories of product 17
+  vector[N] Y;         // the response log10(baseProfit)
+  vector[N] sales;     // log10(baseSales)
+  int cat[N];          // sub-category 1-17
+} 
+parameters { 
+  vector[M] a;                // coefficients
+  real<lower=0> sigma;        // sd about regression line
+  real<lower=0> tau;          // sd of sub_category avg profit
+}
+transformed parameters { 
+  vector[N] Yhat;             // fitted values
+  Yhat = sales + a[cat]; 
+} 
+model { 
+  Y ~ normal(Yhat, sigma);    // regression model
+  a ~ normal(0, tau);         // prior on coefficients
+  sigma ~ cauchy(0, 1);       // vague prior on sd of model
+  tau ~ cauchy(0, 1);         // vague prior on sd of sub_cat
+} 
+```
+
+I saved this model code in a text file called `profit_mod1.stan` within a folder called `stan`.
+
+The data are prepared and stored in a list.
+```{r}
+# --- transform the data ----------------------------------
+trainDF %>%
+  filter( baseProfit > 0.5 ) %>%
+  mutate( Y = log10(baseProfit),
+          S = log10(baseSales),
+          C = as.numeric( factor(sub_category))) -> tempDF
+
+# --- Save in a list() ------------------------------------
+stanData <- list( N=7087, M=17, 
+                   Y     = tempDF$Y,
+                   sales = tempDF$S,
+                   cat   = tempDF$C )
+```
+
+`stan` runs 3 chains in parallel in 90 seconds on my desktop. The computation took about 5 seconds and the rest of the time was taken with compilation and saving the results.
+
+```{r eval=FALSE}
+# --- fit model using stan --------------------------------
+library(rstan)
+
+stan(file   = 'stan/profit_mod1.stan', 
+     data   = stanData,
+     chains = 3,
+     cores  = 3,
+     iter   = 2000,
+     warmup = 1000,
+     pars   = c("a", "sigma", "tau"),
+     seed   = 3982) %>%
+  saveRDS( file.path(home, "data/dataStore/profit_mod1.rds")) %>%
+  system.time()
+```
+
+The results are saved in `stan` format, but can be extracted by my `stan_to_df()` function as described in the methods post on `Bayesian Software`.
+
+```{r}
+library(MyPackage)
+
+readRDS( file.path(home, "data/dataStore/profit_mod1.rds")) %>%
+  stan_to_df() %>%
+  print() -> sim1DF
+```  
+
+The results file includes the warmup in which the algorithm is tuned, so this portion needs to be discarded. You only need to look at it when something goes wrong.
+
+The likelihood analysis with `lm()` estimated the intercept to be -0.59 with a standard error of 0.009, very close to the Bayesian posterior.
+```{r}
+# --- trace plot of the first coefficient -------------------
+sim1DF %>%
+  filter( iter > 1000 ) %>%
+  trace_plot(a_1, "Accessories")
+```
+
+Convergence is very good and the results mirror those of the model fitted by `lm()`.
+
+```{r echo=FALSE}
+library(targets)
+
+tar_read(coefDF) %>%
+  select(term, lmCf, lmSe, bay1Mn, bay1Sd)
+```
+
+## Improved Bayesian Model
+
+The modified model has a different standard deviation for each sub-category of product. The log(sd) of each sub-category is assumed to be drawn from a normal distribution with unknown precision.
+
+```{r eval=FALSE}
+data { 
+  int N;           // number of data points i.e. 7087 
+  int M;           // number of sub_categories of product 17
+  vector[N] Y;     // the response log10(baseProfit)
+  vector[N] sales; // log10(baseSales)
+  int cat[N];      // sub-category 1-17
+} 
+parameters { 
+  vector[M] a;            // coefficients
+  vector[M] logsigma;     // log of sd about regression line
+  real<lower=0> tau;      // sd of sub_category avg profit
+  real<lower=0> psi;      // sd of sub_category logsigma
+}
+transformed parameters { 
+  vector[M] sigma;
+  sigma = exp(logsigma);
+} 
+model { 
+  Y ~ normal(sales + a[cat], sigma[cat]);    // regression model
+  a ~ normal(-0.65, tau);        // prior on coefficients
+  logsigma ~ normal(-1.5, psi);  // vague prior on sd of model
+  tau ~ cauchy(0, 1);            // vague prior on sd of sub_cat
+  psi ~ cauchy(0, 1);            // vague prior on sd of logsigma
+}
+```
+
+The prior on `a[]` is centred on -0.65 and as we are modelling the log10 undiscounted profit, this is equivalent to a profit of around 20%-25%. Looking at the linear model coefficients, this profit is probably a little low, but it is not unreasonable. The figure must, of course, be chosen without reference to these data. It is my guess at what profit stores might make.
+
+The distribution of log(sd) is centred on -1.5, equivalent to a standard deviation of about 0.2. So, if the coefficient for a sub-category were -0.65, I would be allowing items within that sub-category to vary between about -0.25 and -1.05, equivalent to profits between 9% and and 56%. 
+
+I could have chosen to replace my guesses, -0.65 and -1.5, which unknown parameters, placed a prior on those parameters and then allowed the data to have a say in their values. I have not tried it, but my feeling is that it would make very little difference.
+
+Fitting precedes in the same way.
+
+```{r eval=FALSE}
+# --- fit model using stan ------------------------------------------
+stan(file = 'stan/profit_mod2.stan', 
+     data = stanData,
+     chains = 3,
+     cores  = 3,
+     iter   = 2000,
+     warmup = 1000,
+     pars   = c("a", "sigma", "tau", "psi")) %>%
+  saveRDS( file.path(home, "data/dataStore/profit_mod2.rds")) %>%
+  system.time()
+```
+
+The model takes a similar time to compile, but much longer to run, about 100 seconds as opposed to 5 seconds.
+
+The posterior means for the modified model are very similar to those of the original model, but the posterior standard deviations are very different, reflecting the greater uncertainty about the profit in some sub-categories compared to others. 
+```{r echo=FALSE}
+tar_read(coefDF)
+```
+
+# Bayes Factor
+
+Now that we have two competing Bayesian models, the obvious question is whether the more complex model fits any better.
+
+When comparing two models, say $M_1$ and $M_2$, for a set of data, $y$, Bayes theorem tells us that
+\[
+\frac{p(M_1 \ | \ y)}{p(M_2 \ | \ y)} = \frac{p(y \ | \ M_1)  \ \ p(M_1)}{p(y \ | \ M_2) \ \ p(M_2)}
+\]
+In words the ratio of the posterior probability of model $M_1$ to model $M_2$ is equal to the ratio of the marginal likelihoods times the ratio of the prior probabilities. The ratio of the marginal likelihoods is known as the Bayes Factor (BF) and it captures the way that the data cause us to modify our prior beliefs about the two models. A BF of 1 would tells us that the data have had no impact on our beliefs, while a large BF says that the data have moved us towards $M_1$ and a small BF says that we have been moved towards $M_2$. 
+
+In my Bayesian post on the wildlife strike data (episode 2) I calculated the Bayes Factor for comparing two models using pseudo priors and an algorithm that was free to move between the two models. In that way, I was able to calculate the ratio of the posterior probabilities and since I fixed the prior probabilities, I was able to deduce the BF.
+
+By way of contrast, I will calculate the marginal likelihoods of my models directly and then find the Bayes Factor as the their ratio. Calculation of the marginal likelihoods is not trivial. You will notice that the parameters of the models do not appear in the updating formula; this is because they are integrated out of the marginal likelihoods.  
+
+\[
+p(y \ | \ M_1) = \int p(y \ | \ \theta, M_1) \ \ p(\theta \ | \ M_1) \ \ d\theta
+\]
+
+I will drop the conditioning on $M_1$ and introduce an arbitrary proposal distribution $g(\theta)$.
+
+\[
+p(y) = \frac{\int p(y \ | \ \theta) \ \ p(\theta) \ g(\theta) \ \ d\theta}{\int \frac{p(y \ | \ \theta) \ \ p(\theta)}{p(y)} \ g(\theta) \ \ d\theta}
+\]
+
+which reduces to
+\[
+p(y) = \frac{\int p(y \ | \ \theta) \ \ p(\theta) \ g(\theta) \ \ d\theta}{\int  \ g(\theta) \ \ p(\theta \ | \ y) \ d\theta}
+\]
+
+The top integral can be approximated using a sample of values of $\theta$ drawn from the proposal distribution and the lower integral can be approximated using a sample of values from the posterior. The MCMC algorithm has provided a sample from the posterior and the proposal distribution is deliberately chosen so that it is easy to sample from.  
+
+\[
+p(y) = \frac{E_g \left\{  p(y \ | \ \theta) \ \ p(\theta) \right\} } { E_p \left\{  g(\theta) \right\} }
+\]
+
+So far we have employed classic importance sampling. The method works, but its accuracy is highly dependent on choosing a proposal that closely resembles the posterior. To improve the accuracy, we could add a second function $h(\theta)$ to the top and bottom. $h(\theta)$ is called a bridge function, because it is chosen to bridge the gap between the posterior and the proposal.
+
+\[
+p(y) = \frac{E_g \left\{  p(y \ | \ \theta) \ \ p(\theta) \ h(\theta) \right\} } { E_p \left\{  g(\theta) \ h(\theta) \right\} }
+\]
+
+Our remaining problem is to choose $h(\theta)$, since it bridges the gap between the proposal and the posterior, the optimal choice will depend on both distributions. The proposal distribution is not a problem, because it is chosen by us and so is known exactly. The posterior is a problem, because it must be known exactly, which means that we need to know the normalising constant $p(y)$. This is just the marginal likelihood that we set out to find. We have entered a loop and the solution requires us to iterate. Guess $p(y)$, find the bridge function $h(\theta)$, re-calculate $p(y)$, refine the bridge function and so on until convergence. Fortunately, this process has been automated in an R package called `bridgesampling`.  
+
+When we calculate a likelihood ratio for comparing two alternative sets of parameters from the *same* distribution, the constants in the formula for the density can be dropped as they cancel. These constants are also dropped when MCMC algorithms sample from the posterior. However, when the marginal likelihood is required, it is vital that these constants are retained. To do this in `Stan`, the model code needs to be written in a different way. The log posterior (target) is accumulated in a series of calls to the log probability density functions (lpdf) of the distributions. 
+
+Here is the re-structured code for model 1.
+
+```{r eval=FALSE}
+data { 
+  int N;           // number of data points i.e. 7087 
+  int M;           // number of sub_categories of product 17
+  vector[N] Y;     // the response log10(baseProfit)
+  vector[N] sales; // log10(baseSales)
+  int cat[N];      // sub-category 1-17
+} 
+parameters { 
+  vector[M] a;            // coefficients
+  real<lower=0> sigma;    // sd about regression line
+  real<lower=0> tau;      // sd of sub_category avg profit
+}
+transformed parameters { 
+  vector[N] Yhat;          // fitted values
+  Yhat = sales + a[cat]; 
+} 
+model { 
+  target += normal_lpdf(Y | Yhat, sigma );
+  target += normal_lpdf(a | 0, tau);
+  target += cauchy_lpdf(sigma | 0, 1);
+  target += cauchy_lpdf(tau | 0, 1);
+}  
+```
+
+I placed this code in a file called `profit_mod1bf.stan` and rather than use the `stan()` function, I sampled from the posterior in two stages. `stan_model()` compiles the code and `sampling()` runs the HMC sampler, in this case with default values for number and length of chains, etc.
+
+```{r eval=FALSE}
+# --- compile the model code ------------------------------
+stanmodelH1 <- stan_model(file = 'stan/profit_mod1bf.stan',
+                          model_name="stanmodel1")
+
+# --- sample from the posterior ---------------------------
+stanfitH1 <- sampling(stanmodelH1, data = stanData)
+```
+
+The `bridgesampling` package can now be used to evaluate the log of the marginal likelihood.
+```{r eval=FALSE}
+library(bridgesampling)
+
+# --- use bridge sampling to approximate the marginal likelihood ---
+mod1Bridge <- bridge_sampler(stanfitH1, silent = TRUE)
+```
+
+```{r echo=FALSE}
+library(bridgesampling)
+mod1Bridge <- readRDS( file.path(home, "data/dataStore/profit_mod1Bridge.rds")) 
+```
+
+The package approximates the integral and gives an indication of the accuracy of its approximation. In this case, the log marginal likelihood is about 1203 as calculated after 5 iterations of the bridge sampling and is accurate to within about 1%. If you need more accuracy, run stan's sampler for longer.
+
+```{r}
+# --- print the marginal likelihood -------------------------------
+print(mod1Bridge)
+
+# --- print the percentage error of the approximation -------------
+error_measures(mod1Bridge)$percentage
+```
+
+Next, I run the equivalent calculations for the second model, which has different standard deviations for each category of product.
+
+```{r echo=FALSE}
+mod2Bridge <- readRDS( file.path(home, "data/dataStore/profit_mod2Bridge.rds"))
+```
+
+```{r}
+# --- print the marginal likelihood -------------------------------
+print(mod2Bridge)
+
+# --- print the percentage error in the approximation -------------
+error_measures(mod2Bridge)$percentage
+```
+
+The log marginal likelihood is 8323. So the Bayes Factor in favour of model 2 is exp(8323-1203), which is off-the-scale huge. There is a slightly unnecessary function that performs this calculation 
+
+```{r}
+# --- find the Bayes Factor ---------------------------------------
+bf(mod2Bridge, mod1Bridge)
+```
+
+The evidence in favour of model 2 is Inf, i.e. overwhelming.
+
+
+# What this example shows:
+
+The model with difference variances for each class of product provides a massively better fit to the data, as we already knew from the plots made for the original analysis of these data. Yet, the point predictions under the two models are almost identical, so a Bayesian statistician sees model 2 as being much better, while a data scientist concludes that the two models are almost equivalent. The difference, of course, is that the two are interested in different things. The Bayesian is concerned with the predictive distribution, not just the point prediction. For this problem, we can make separate predictions for `accessories` and `office furniture`, but we know that the accuracy of those predictions will vary. For some product types, we expect our prediction to be highly accurate, because the profit is similar for everything within that category, while for more variable categories the prediction will be much less reliable. The Bayesian cares about this difference, while machine learning with its reliance on a loss function, does not.  
+
