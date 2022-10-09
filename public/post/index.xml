@@ -6,7 +6,35 @@
     <description>Recent content in Posts on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Thu, 19 May 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Mon, 03 Oct 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Bayesian Sliced 3: Superstore profits</title>
+      <link>https://modelling-with-r.netlify.app/bayes_superstore_profits/</link>
+      <pubDate>Mon, 03 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/bayes_superstore_profits/</guid>
+      <description>Summary:Background: In episode 3 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on superstore sales. The aim was to predict the profit on each sale in the test set.
+My approach: I start with the model used in my non-Bayesian analysis of these data, which transformed the profit to the profit that would have been obtained had there not been a discount.</description>
+    </item>
+    
+    <item>
+      <title>Methods: Nimble HMC (Second thoughts)</title>
+      <link>https://modelling-with-r.netlify.app/methods_nimble_hmc2/</link>
+      <pubDate>Tue, 27 Sep 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/methods_nimble_hmc2/</guid>
+      <description>IntroductionIt is only yesterday that I wrote a post on nimbleHMC and already I have had second thoughts, some positive and some not so positive. In yesterday’s post, I hit a problem with dynamic indexing and I needed a work around based on dummy variables. Shortly, after posting I realised that there was a much simpler solution, which I’ll explain below. However, when I tested my new code, I realised that there were other issues that I had missed.</description>
+    </item>
+    
+    <item>
+      <title>Methods: Nimble HMC</title>
+      <link>https://modelling-with-r.netlify.app/methods_nimble_hmc/</link>
+      <pubDate>Mon, 26 Sep 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/methods_nimble_hmc/</guid>
+      <description>IntroductionIn my methods post entitled “R Software for Bayesian Analysis”, I discussed the problem of fitting Bayesian models using various R packages including, R2OpenBUGS, nimble, rstan and greta. nimble is particularly interesting because it is specifically written for use in R. It is very fast, but its default algorithm is based on Gibbs sampling with a series random walk Metropolis-Hastings samplers and this algorithm can mix poorly, leading to very long run times.</description>
+    </item>
+    
     <item>
       <title>Bayesian Sliced 2: Wildlife Strikes</title>
       <link>https://modelling-with-r.netlify.app/bayes_wildlife_strikes/</link>

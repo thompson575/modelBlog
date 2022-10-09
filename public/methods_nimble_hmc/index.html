@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="generator" content="Hugo 0.82.0" />
+  
+  <meta name="description" content="IntroductionIn my methods post entitled “R Software for Bayesian Analysis”, I discussed the problem of fitting Bayesian models using various R packages including, R2OpenBUGS, nimble, rstan and greta. nimble is particularly interesting because it is specifically written for use in R. It is very fast, but its default algorithm is based on Gibbs sampling with a series random walk Metropolis-Hastings samplers and this algorithm can mix poorly, leading to very long run times.">
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/normalize.css">
+  <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
+  
+  
+  
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/cayman.ea0e967413f3851071cc8ace3621bc4205fe8fa79b2abe3d7bf94ff2841f0d47.css">
+  
+  
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.css" integrity="sha384-yFRtMMDnQtDRO8rLpMIKrtPCD5jdktao2TV19YiZYWMDkUR5GQZR/NOVTdquEx1j" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.js" integrity="sha384-9Nhn55MVVN0/4OFx7EE5kpFBPsEMZxKTCnA+4fqDmg12eCTqGi6+BB2LjY8brQxJ" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/contrib/auto-render.min.js" integrity="sha384-kWPLUVMOks5AQFrykwIup5lo0m3iMkkHrD0uJ4H5cjeGihAutqP0yW0J6dpFiVkI" crossorigin="anonymous" onload="renderMathInElement(document.body);"></script>
+
+  <title>Methods: Nimble HMC | Modelling with R</title>
+</head>
+
+<body>
+  <section class="page-header">
+  <h1 class="project-name">
+    Modelling with R
+  </h1>
+  <h2 class="project-tagline">
+    contrasting statistical and machine learning approaches
+  </h2>
+  <nav>
+    
+    
+      
+      
+      
+      
+      <a href="/post/" class="btn">Blog</a>
+    
+      
+      
+      
+      
+      <a href="/tags/" class="btn">Tags</a>
+    
+      
+      
+      
+      
+      <a href="/about/" class="btn">About</a>
+    
+  </nav>
+</section>
+
+  <section class="main-content">
+    
+  <h1>Methods: Nimble HMC</h1>
+  <div>
+    
+    <strong>Publish date: </strong>2022-09-26
+  </div>
+  
+  
+    <div>
+      <strong>Tags: </strong>
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+      <a href="https://modelling-with-r.netlify.app/tags/nimble/">nimble</a>, <a href="https://modelling-with-r.netlify.app/tags/hmc/">HMC</a>, <a href="https://modelling-with-r.netlify.app/tags/generalised-linear-models/">generalised linear models</a>
+    </div>
+  
+  
+
+
+<div id="introduction" class="section level2">
+<h2>Introduction</h2>
+<p>In my methods post entitled “<strong>R Software for Bayesian Analysis</strong>”, I discussed the problem of fitting Bayesian models using various R packages including, <code>R2OpenBUGS</code>, <code>nimble</code>, <code>rstan</code> and <code>greta</code>. <strong>nimble</strong> is particularly interesting because it is specifically written for use in R. It is very fast, but its default algorithm is based on Gibbs sampling with a series random walk Metropolis-Hastings samplers and this algorithm can mix poorly, leading to very long run times.</p>
+<p>Earlier this summer, <strong>nimble</strong> released a beta version that includes the same Hamiltonian Markov Chain (HMC) sampler that has made <strong>stan</strong> so popular. In this post, I will try HMC in nimble.</p>
+</div>
+<div id="reading-the-data" class="section level2">
+<h2>Reading the data</h2>
+<p>In my previous post, I modelled ONS (Office of National Statistics) data on deaths due to alcohol in the UK. The data can be downloaded as an Excel workbook from <a href="https://www.ons.gov.uk/peoplepopulationandcommunity/healthandsocialcare/causesofdeath/datasets/alcoholspecificdeathsintheukmaindataset" class="uri">https://www.ons.gov.uk/peoplepopulationandcommunity/healthandsocialcare/causesofdeath/datasets/alcoholspecificdeathsintheukmaindataset</a>.</p>
+<p>I used a version of the data that covered the period 2001 to 2020. These data are updated annually, so beware if you download the latest dataset, it might have changed.</p>
+<p>Previously, I cleaned the downloaded Excel file and saved the data in rds format. My cleaning script is included in the earlier post.</p>
+<pre class="r"><code>library(tidyverse)
+
+# --- paths on my desktop --------------------------------------
+home     &lt;- &quot;C:/Projects/sliced/methods/methods_bayes_software&quot;
+filename &lt;- &quot;data/rData/alc.rds&quot;
+
+# --- read the clean data --------------------------------------
+alcDF &lt;- readRDS( file.path(home, filename))</code></pre>
+</div>
+<div id="lets-try-nimble-hmc" class="section level2">
+<h2>Let’s try nimble HMC</h2>
+<p>What follows uses the beta version of <strong>nimble</strong> downloaded from github on 26 September 2022.</p>
+<pre class="r"><code># install from github
+remotes::install_github(&quot;nimble-dev/nimble&quot;, 
+                        ref=&quot;AD-rc0&quot;, 
+                        subdir=&quot;packages/nimble&quot;, 
+                        quiet=TRUE)
+# install the HMC package
+remotes::install_github(&quot;nimble-dev/nimbleHMC&quot;, subdir = &quot;nimbleHMC&quot;)</code></pre>
+<p>For more details of HMC in nimble, there is a draft manual that can be found at <a href="https://r-nimble.org/ADuserManual_draft/chapter_AD.html" class="uri">https://r-nimble.org/ADuserManual_draft/chapter_AD.html</a>.</p>
+<p>I discovered that I needed to update all of the other packages in my library before I could install the beta version of nimble.</p>
+</div>
+<div id="preparing-the-model-code" class="section level2">
+<h2>Preparing the model code</h2>
+<p><em>nimble</em> uses the BUGS language with a few tweaks and additions. For my first attempt, I use the same model as I had previously.</p>
+<pre class="r"><code>library(nimble)
+
+# --- Model code as used previously ------------------------------
+nimbleCode( {
+  for( i in 1:560 ) {
+    log(mu[i]) &lt;- b0 + b1*year[i] + b2[age[i]] + b3*gender[i] + offset[i]
+    deaths[i] ~ dpois(mu[i])
+  }
+  b0 ~ dnorm(0, 0.0001)
+  b1 ~ dnorm(0, 0.0001)
+  b2[1] &lt;- 0.0
+  for(j in 2:14) {
+    b2[j] ~ dnorm(0, 0.0001)
+  }
+  b3 ~ dnorm(0, 0.0001)
+} )                       -&gt; modelCode</code></pre>
+<p>This code worked fine for MCMC with Gibbs sampling, but unfortunately there is a problem with HMC. In its current form, nimble cannot calculate derivatives for terms that include dynamic indexing, i.e. <code>b2[age[i]]</code>.</p>
+<p>There are two alternatives, use MCMC for <code>b2</code> and HMC for the other parameters, or expand the age term as a set of dummy variables. I’ll try the later approach first.</p>
+<pre class="r"><code># --- create dummy variables for age -----------------------------
+alcDF %&gt;%
+  mutate(dummy = paste0(&quot;age&quot;, as.numeric(age)), 
+         value = 1) %&gt;%
+  pivot_wider(names_from  = dummy, 
+              values_from = value, 
+              values_fill = 0) %&gt;%
+  ungroup() %&gt;%
+  select(-age, -age1) %&gt;%
+  print() -&gt; dummyAgeDF</code></pre>
+<pre><code>## # A tibble: 560 × 17
+##     year gender deaths   pop  age2  age3  age4  age5  age6  age7  age8  age9
+##    &lt;dbl&gt; &lt;chr&gt;   &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+##  1  2020 male        4  20.8     0     0     0     0     0     0     0     0
+##  2  2020 female      5  23.5     0     0     0     0     0     0     0     0
+##  3  2020 male       23  21.1     1     0     0     0     0     0     0     0
+##  4  2020 female     23  21.3     1     0     0     0     0     0     0     0
+##  5  2020 male      115  21.3     0     1     0     0     0     0     0     0
+##  6  2020 female     71  21.5     0     1     0     0     0     0     0     0
+##  7  2020 male      272  21.7     0     0     1     0     0     0     0     0
+##  8  2020 female    159  22.1     0     0     1     0     0     0     0     0
+##  9  2020 male      457  21.8     0     0     0     1     0     0     0     0
+## 10  2020 female    232  22.2     0     0     0     1     0     0     0     0
+## # … with 550 more rows, and 5 more variables: age10 &lt;dbl&gt;, age11 &lt;dbl&gt;,
+## #   age12 &lt;dbl&gt;, age13 &lt;dbl&gt;, age14 &lt;dbl&gt;</code></pre>
+<p>Here is the model code rewritten in terms of the dummy variables.</p>
+<pre class="r"><code># --- Model code with dummy variables ---------------------------
+nimbleCode( {
+  for( i in 1:560 ) {
+    log(mu[i]) &lt;- b0 + b1*year[i] + 
+      b2[ 2]*age2[i]  + b2[ 3]*age3[i]  + b2[ 4]*age4[i] + 
+      b2[ 5]*age5[i]  + b2[ 6]*age6[i]  + b2[ 7]*age7[i] + 
+      b2[ 8]*age8[i]  + b2[ 9]*age9[i]  + b2[10]*age10[i] + 
+      b2[11]*age11[i] + b2[12]*age12[i] + b2[13]*age13[i] + 
+      b2[14]*age14[i] + b3*gender[i] + offset[i]
+    deaths[i] ~ dpois(mu[i])
+  }
+  b0 ~ dnorm(0, 0.0001)
+  b1 ~ dnorm(0, 0.0001)
+  b2[1] &lt;- 0.0
+  for(j in 2:14) {
+    b2[j] ~ dnorm(0, 0.0001)
+  }
+  b3 ~ dnorm(0, 0.0001)
+} )                       -&gt; modelCode</code></pre>
+</div>
+<div id="creating-a-model-object" class="section level2">
+<h2>Creating a Model Object</h2>
+<p>In <em>nimble</em> a model object is a combination of the model code, the data and the initial values. The data and initial values are placed in a list.</p>
+<p>The HMC algorithm in <em>stan</em> does not require initial values, <em>stan</em> finds an approximate solution during its warm-up. The manual is not clear, but it suggests that nimble does need initial values, so I use the same crude initial values that I had previously.</p>
+<pre class="r"><code># --- list containing the data -------------------------
+nimbleData &lt;- list( deaths = dummyAgeDF$deaths,
+                    offset = log(dummyAgeDF$pop),
+                    year   = dummyAgeDF$year - 2001,
+                    gender = as.numeric( dummyAgeDF$gender == &quot;male&quot;),
+                    age2     = dummyAgeDF$age2,
+                    age3     = dummyAgeDF$age3,
+                    age4     = dummyAgeDF$age4,
+                    age5     = dummyAgeDF$age5,
+                    age6     = dummyAgeDF$age6,
+                    age7     = dummyAgeDF$age7,
+                    age8     = dummyAgeDF$age8,
+                    age9     = dummyAgeDF$age9,
+                    age10    = dummyAgeDF$age10,
+                    age11    = dummyAgeDF$age11,
+                    age12    = dummyAgeDF$age12,
+                    age13    = dummyAgeDF$age13,
+                    age14    = dummyAgeDF$age14 )
+
+# --- initial values -----------------------------------
+nimbleInits &lt;- 
+  list( b1=0, b2=c( NA, rep(0,13)), b3=0)</code></pre>
+<p>Notice that I have not centred the covariates. Mean centring usually improves mixing for Gibbs samplers, but should not matter as much for HMC.</p>
+<p>Next, I combine the components and add a new argument that tells nimble to build the derivatives. <em>nimble</em> uses an automatic differentiation (AD) package that has been around for a while. The package is called <code>CppAD</code> and as the name suggests is written in C++.</p>
+<p>Once defined, I compile the model to produce the necessary C code.</p>
+<pre class="r"><code># --- create the model ---------------------------------
+nimbleModel(
+  code  = modelCode,
+  data  = nimbleData,
+  inits = nimbleInits,
+  # --- ADDITION: add derivatives
+  buildDerivs = TRUE ) -&gt; model
+
+# --- Compile the model ---------------------------------
+modelCompiled &lt;- compileNimble(model)</code></pre>
+</div>
+<div id="building-the-hmc-sampler" class="section level2">
+<h2>Building the HMC sampler</h2>
+<p>Next the samplers are allocated in a build phase. Where before I used <code>buildMCMC()</code>, the new builder is <code>buildHMC()</code> which is found in the <code>nimbleHMC</code> package.</p>
+<pre class="r"><code># --- select the samplers ---------------------------------
+library(nimbleHMC)
+
+modelHMC &lt;- buildHMC(model)</code></pre>
+<p>Once samplers have been chosen, the algorithm needs to be compiled and linked to the previously compiled model code.</p>
+<pre class="r"><code># --- compile the sampling algorithm ----------------------
+hmcCompiled &lt;- compileNimble(modelHMC, project=model)</code></pre>
+<p><code>hmcCompiled</code> points to the full C code needed needed for the analysis.</p>
+</div>
+<div id="run" class="section level2">
+<h2>Run</h2>
+<p>When the compiled C program is run, the number of iterations and chains must be specified. As this is a demonstration, I will only run one chain. My earlier post describes how multiple chains can be run in parallel. A seed is set for reproducibility.</p>
+<p>I have not specified the burn-in although the manual implies that you should. HMC has a warm-up period during which the algorithm is tuned, but no burn-in in the sense of MCMC. As an experiment, I tried without a specified burn-in and it worked fine.</p>
+<pre class="r"><code># --- run the compiled nimble code ----------------------
+runMCMC(
+  mcmc    = hmcCompiled,
+  niter   = 1000,
+  setSeed = 1832
+  )  %&gt;%
+  saveRDS( file.path( home, &quot;data/dataStore/alcNimbleHMC01.rds&quot;)) %&gt;%
+  system.time()</code></pre>
+<p>The sampling took 11.25 seconds. This compares with about 3.5 seconds needed by nimble’s MCMC algorithm to run 1500 simulations and discard the first 500. HMC is always slower because it needs to calculate the exact derivatives of the log posterior, the hope is that this will be balanced by better mixing and much faster convergence.</p>
+</div>
+<div id="extract-the-results" class="section level2">
+<h2>Extract the results</h2>
+<p>The structure returned by <code>runMCMC()</code> is just a matrix, but a little wrangling is needed to get it into a more usable format. My function <code>nimble_to_df()</code> does the job. The code for this function is in the previous post.</p>
+<pre class="r"><code>library(MyPackage)
+
+# --- read the result -----------------------------------------
+results &lt;- readRDS(file.path( home, &quot;data/dataStore/alcNimbleHMC01.rds&quot;))
+
+# --- read the results for the example ------------------------
+simDF &lt;- nimble_to_df(results)
+
+# --- show the results ----------------------------------------
+print(simDF)</code></pre>
+<pre><code>## # A tibble: 1,000 × 19
+##    chain  iter    b0     b1  b2_1  b2_2  b2_3  b2_4  b2_5  b2_6  b2_7  b2_8
+##    &lt;fct&gt; &lt;int&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+##  1 1         1 -1.57 0.0147     0  1.37  2.39  3.14  3.70  4.06  4.24  4.33
+##  2 1         2 -1.57 0.0147     0  1.37  2.39  3.14  3.70  4.06  4.24  4.33
+##  3 1         3 -1.57 0.0141     0  1.37  2.39  3.15  3.69  4.06  4.25  4.30
+##  4 1         4 -1.57 0.0143     0  1.36  2.41  3.12  3.69  4.06  4.26  4.32
+##  5 1         5 -1.57 0.0143     0  1.36  2.41  3.12  3.69  4.06  4.26  4.32
+##  6 1         6 -1.57 0.0148     0  1.37  2.41  3.12  3.69  4.05  4.25  4.33
+##  7 1         7 -1.66 0.0137     0  1.46  2.52  3.22  3.78  4.17  4.35  4.42
+##  8 1         8 -1.66 0.0142     0  1.48  2.52  3.22  3.78  4.14  4.34  4.42
+##  9 1         9 -1.66 0.0142     0  1.48  2.52  3.22  3.78  4.14  4.34  4.42
+## 10 1        10 -1.68 0.0144     0  1.46  2.52  3.26  3.82  4.19  4.37  4.44
+## # … with 990 more rows, and 7 more variables: b2_9 &lt;dbl&gt;, b2_10 &lt;dbl&gt;,
+## #   b2_11 &lt;dbl&gt;, b2_12 &lt;dbl&gt;, b2_13 &lt;dbl&gt;, b2_14 &lt;dbl&gt;, b3 &lt;dbl&gt;</code></pre>
+</div>
+<div id="visualise-the-results" class="section level2">
+<h2>Visualise the results</h2>
+<p>Now that the samples are in a tibble, the chain can be inspected. By way of illustration, I show a trace plot of the year coefficient, <code>b1</code>. The code for the <code>trace_plot()</code> function is also available in the earlier post.</p>
+<pre class="r"><code># --- trace plot of b1 -------------------------------
+trace_plot(simDF, b1, iter) +
+  labs(title=&quot;HMC: Year coefficient (median and 80% interval)&quot;)</code></pre>
+<p><img src="/post/bayes_nimble_hmc/methods_nimble_hmc_files/figure-html/unnamed-chunk-12-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>For comparison, I went to my archive and extracted the chain that I created for my previous post using nimble’s default MCMC sampler.</p>
+<pre class="r"><code>readRDS(file.path( home, &quot;data/dataStore/alcNimble01.rds&quot;)) %&gt;%
+  nimble_to_df() %&gt;%
+  trace_plot(b1, iter) +
+  labs(title=&quot;MCMC: Year coefficient (median and 80% interval)&quot;)</code></pre>
+<p><img src="/post/bayes_nimble_hmc/methods_nimble_hmc_files/figure-html/unnamed-chunk-13-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>No competition, HMC converges much quicker.</p>
+</div>
+<div id="half-and-half" class="section level2">
+<h2>Half and Half</h2>
+<p>I wanted to try HMC for <code>b0</code>, <code>b1</code> and <code>b3</code> together with a random walk block sampler for <code>b2</code>. In theory this should overcome the problem of the dynamic indexing of <code>b2</code>. However, I could not get this to work and there is not enough information in the draft manual to make it clear how it should be done.</p>
+<p>In truth, I am not convinced that this is a good idea anyway. HMC is slow but only requires a short run, while MCMC is fast but needs a long run. Will the mixture be a medium length run of a medium speed algorithm, or will we now need a long, slow run? It is unclear to me whether combining MCMC and HMC is a good option.</p>
+</div>
+<div id="conclusions" class="section level2">
+<h2>Conclusions</h2>
+<p>It is early days and <code>nimbleHMC</code> still needs work, but it looks very promising. The developers have addressed a major weakness in nimble and turned it into a serious option for Bayesian model fitting. The test will be how well it scales to larger problems and whether nimble can compete with stan in terms of speed.</p>
+<p>The remaining issue, as I see it, is that nimble is so versatile that the range of its options will prove off-putting to users who are not relatively expert in R. There is a parallel here with <code>mlr3</code> a competitor of <code>tidymodels</code> that I have used in other of my posts. In my opinion, <code>mlr3</code> is the better option for building machine learning pipelines, but like <code>nimble</code> it relies on OOP with <code>R6</code> and this fact is not completely hidden from the user. Somehow, both packages need to simplify their interfaces, while maintaining their amazing flexibility and that will not be easy.</p>
+</div>
+
+  
+
+  
+    <div id="disqus_thread"></div>
+<script type="application/javascript">
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "John" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+  
+
+
+
+    <footer class="site-footer">
+  <span class="site-footer-credits">
+    Made with <a href="https://gohugo.io/">Hugo</a>. Themed by <a href="https://github.com/zwbetz-gh/cayman-hugo-theme">Cayman</a>. Deployed to <a href="https://www.netlify.com/">Netlify</a>.
+  </span>
+</footer>
+
+  </section>
+  
+  
+  <script>
+  window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+  ga('create', 'UA-123456789-1', 'auto');
+  ga('send', 'pageview');
+  </script>
+  <script async src='https://www.google-analytics.com/analytics.js'></script>
+  
+
+</body>
+</html>

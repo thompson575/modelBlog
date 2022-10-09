@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="generator" content="Hugo 0.82.0" />
+  
+  <meta name="description" content="Summary:Background: In episode 3 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on superstore sales. The aim was to predict the profit on each sale in the test set.
+My approach: I start with the model used in my non-Bayesian analysis of these data, which transformed the profit to the profit that would have been obtained had there not been a discount.">
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/normalize.css">
+  <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
+  
+  
+  
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/cayman.ea0e967413f3851071cc8ace3621bc4205fe8fa79b2abe3d7bf94ff2841f0d47.css">
+  
+  
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.css" integrity="sha384-yFRtMMDnQtDRO8rLpMIKrtPCD5jdktao2TV19YiZYWMDkUR5GQZR/NOVTdquEx1j" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.js" integrity="sha384-9Nhn55MVVN0/4OFx7EE5kpFBPsEMZxKTCnA+4fqDmg12eCTqGi6+BB2LjY8brQxJ" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/contrib/auto-render.min.js" integrity="sha384-kWPLUVMOks5AQFrykwIup5lo0m3iMkkHrD0uJ4H5cjeGihAutqP0yW0J6dpFiVkI" crossorigin="anonymous" onload="renderMathInElement(document.body);"></script>
+
+  <title>Bayesian Sliced 3: Superstore profits | Modelling with R</title>
+</head>
+
+<body>
+  <section class="page-header">
+  <h1 class="project-name">
+    Modelling with R
+  </h1>
+  <h2 class="project-tagline">
+    contrasting statistical and machine learning approaches
+  </h2>
+  <nav>
+    
+    
+      
+      
+      
+      
+      <a href="/post/" class="btn">Blog</a>
+    
+      
+      
+      
+      
+      <a href="/tags/" class="btn">Tags</a>
+    
+      
+      
+      
+      
+      <a href="/about/" class="btn">About</a>
+    
+  </nav>
+</section>
+
+  <section class="main-content">
+    
+  <h1>Bayesian Sliced 3: Superstore profits</h1>
+  <div>
+    
+    <strong>Publish date: </strong>2022-10-03
+  </div>
+  
+  
+    <div>
+      <strong>Tags: </strong>
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+      <a href="https://modelling-with-r.netlify.app/tags/sliced/">Sliced</a>, <a href="https://modelling-with-r.netlify.app/tags/stan/">stan</a>, <a href="https://modelling-with-r.netlify.app/tags/rstan/">rstan</a>, <a href="https://modelling-with-r.netlify.app/tags/linear-model/">linear model</a>, <a href="https://modelling-with-r.netlify.app/tags/offset/">offset</a>, <a href="https://modelling-with-r.netlify.app/tags/bayes-factor/">bayes factor</a>, <a href="https://modelling-with-r.netlify.app/tags/marginal-likelihood/">marginal likelihood</a>, <a href="https://modelling-with-r.netlify.app/tags/bridge-sampling/">bridge sampling</a>
+    </div>
+  
+  
+
+
+<div id="summary" class="section level1">
+<h1>Summary:</h1>
+<p><strong>Background:</strong> In episode 3 of the 2021 series of <em>Sliced</em>, the competitors were given two hours in which to analyse a set of data on superstore sales. The aim was to predict the profit on each sale in the test set.<br />
+<strong>My approach:</strong> I start with the model used in my non-Bayesian analysis of these data, which transformed the profit to the profit that would have been obtained had there not been a discount. I use this example to illustrate analysis with <code>stan</code> and so I start by using <code>stan</code> to fit an equivalent Bayesian model. Noting that the variance is not constant across sub-categories of items, I extend the Bayesian model and then used a Bayes Factor to compare the original and the modified Bayesian models.<br />
+<strong>Result:</strong> My first Bayesian model gives almost the same results to a linear model fitted with lm(). The modified model gives similar posterior means, but very different posterior standard deviations. The Bayes Factor greatly favours the modified analysis.<br />
+<strong>Conclusion:</strong> The modified model makes similar predictions to a basic linear model, but it conveys much more information, in particular, it identifies those predictions that are made with high confidence and those that are more uncertain.</p>
+</div>
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>The third of the <em>Sliced</em> tasks is to predict the profits on items sold by a unnamed superstore and as usual the evaluation metric is RMSE. The data can be downloaded from <a href="https://www.kaggle.com/c/sliced-s01e03-DcSXes" class="uri">https://www.kaggle.com/c/sliced-s01e03-DcSXes</a>.</p>
+<p>I analysed these profit data in an earlier post called <code>Spliced Episode 3: Siperstore profits</code>. I cleaned the data, explored the individual predictors and used a linear regression model for prediction. The problem illustrates the importance of using known structure when modelling data. In this particular case, I use the data on discounts to convert all profits to what they would have been without a discount. I then developed a predictive model for the undiscounted profit.</p>
+<p>This is the third of a series of posts in which I re-analyse the <em>Sliced</em> data using Bayesian methods. I will not repeat the data cleaning and visualisation and so this post needs to be read in conjunction with my earlier post.</p>
+</div>
+<div id="reading-the-data" class="section level1">
+<h1>Reading the data</h1>
+<p>I will pick up the previous analysis at the point where I read the clean data. The transformations between sales and undiscounted sales (<code>baseSales</code>) and between profit and undiscounted profit (<code>baseProfit</code>) are explained in the earlier post.</p>
+<pre class="r"><code># --- setup: libraries &amp; options ------------------------
+library(tidyverse)
+
+theme_set( theme_light())
+
+# --- set home directories ------------------------------
+oldHome &lt;- &quot;C:/Projects/sliced/s01-e03&quot;
+home    &lt;- &quot;C:/Projects/sliced/Bayes-s01-e03&quot;
+
+# --- read downloaded data -----------------------------
+readRDS( file.path(oldHome, &quot;data/rData/train.rds&quot;) ) %&gt;%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) -&gt; trainDF</code></pre>
+</div>
+<div id="models" class="section level1">
+<h1>Models</h1>
+<div id="linear-model" class="section level2">
+<h2>Linear Model</h2>
+<p>I will start with the model structure used in my original post. It was created with the code</p>
+<pre class="r"><code>library(broom)
+
+# --- base model: coefficients -----------------------------
+trainDF %&gt;%
+  filter( baseProfit &gt; 0.5 ) %&gt;%
+  { lm( log10(baseProfit) ~  - 1 + sub_category, 
+              offset=log10(baseSales), 
+              data=.) } %&gt;%
+  tidy() %&gt;%
+  select( -statistic) %&gt;%
+  mutate(term = str_replace(term, &quot;sub_category&quot;, &quot;&quot;)) %&gt;%
+  print() -&gt; modDF</code></pre>
+<pre><code>## # A tibble: 17 × 4
+##    term        estimate std.error   p.value
+##    &lt;chr&gt;          &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;
+##  1 Accessories   -0.590   0.00862 0        
+##  2 Appliances    -0.536   0.0109  0        
+##  3 Art           -0.508   0.00844 0        
+##  4 Binders       -0.323   0.00621 0        
+##  5 Bookcases     -0.747   0.0154  0        
+##  6 Chairs        -0.691   0.00961 0        
+##  7 Copiers       -0.359   0.0295  7.73e- 34
+##  8 Envelopes     -0.323   0.0147  1.18e-103
+##  9 Fasteners     -0.418   0.0176  2.76e-120
+## 10 Furnishings   -0.520   0.00784 0        
+## 11 Labels        -0.324   0.0124  1.18e-142
+## 12 Machines      -0.434   0.0229  2.79e- 78
+## 13 Paper         -0.324   0.00632 0        
+## 14 Phones        -0.614   0.00805 0        
+## 15 Storage       -0.894   0.00846 0        
+## 16 Supplies      -0.774   0.0181  0        
+## 17 Tables        -0.728   0.0133  0</code></pre>
+<p>The model consists of a series of 45<sup>o</sup> lines one for each sub_category of product. The intercepts are log10 of the proportion of the sales price that goes in profit.</p>
+<pre class="r"><code>trainDF %&gt;%
+  filter( baseProfit &gt; 0.5 ) %&gt;%
+  { lm( log10(baseProfit) ~  sub_category, 
+              offset=log10(baseSales), 
+              data=.) } %&gt;%
+  augment() %&gt;% 
+  arrange( sub_category, `(offset)`) %&gt;%
+  ggplot( aes(x=`(offset)`, y=.fitted, colour=sub_category)) +
+  geom_line() +
+  labs( x= &quot;log10(baseSales)&quot;, y=&quot;log10(baseProfit)&quot;,
+        title = &quot;Predicted profit for a given undiscounted sales price&quot;)</code></pre>
+<p><img src="/post/bayes_superstore_profits/Bayes_superstore_profits_files/figure-html/unnamed-chunk-3-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The main limitation of the this model is that it assumes that it is possible to predict profits in every sub-category with the same accuracy. We know from my previous analysis that this is not true. Some sub-categories are quite homogeneous, but other include items that produce very different percentage profit. This effect can be seen in the plot below.</p>
+<pre class="r"><code># --- profit and sales for 3 categories of item -------------
+trainDF %&gt;%
+  mutate( baseSales  = sales / (1 - discount),
+          baseProfit = profit + sales * discount / (1 - discount) ) %&gt;%
+  mutate( discount = factor(discount)) %&gt;%
+  filter( baseProfit &gt; 0.5 ) %&gt;%
+  filter( sub_category %in% c(&quot;Tables&quot;, &quot;Phones&quot;, &quot;Binders&quot;) ) %&gt;%
+  ggplot( aes(x=log10(baseSales), y=log10(baseProfit)) ) +
+  geom_point() +
+  geom_abline( slope=1, intercept=0) +
+  facet_wrap( ~ sub_category) +
+  labs( title=&quot;Undiscounted profit and  sales price on a log scale&quot;)</code></pre>
+<p><img src="/post/bayes_superstore_profits/Bayes_superstore_profits_files/figure-html/unnamed-chunk-4-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The variation about the trend line varies considerably with sub-category.</p>
+</div>
+<div id="linear-model-in-stan" class="section level2">
+<h2>Linear Model in Stan</h2>
+<p>Despite the limitations of the linear model with constant variance, I start with its equivalent in <code>stan</code> and then I’ll improve the Bayesian model.</p>
+<p>Here is the model code for the equivalent to the linear model.</p>
+<pre class="r"><code>data { 
+  int N;               // number of data points i.e. 7087 
+  int M;               // number of sub_categories of product 17
+  vector[N] Y;         // the response log10(baseProfit)
+  vector[N] sales;     // log10(baseSales)
+  int cat[N];          // sub-category 1-17
+} 
+parameters { 
+  vector[M] a;                // coefficients
+  real&lt;lower=0&gt; sigma;        // sd about regression line
+  real&lt;lower=0&gt; tau;          // sd of sub_category avg profit
+}
+transformed parameters { 
+  vector[N] Yhat;             // fitted values
+  Yhat = sales + a[cat]; 
+} 
+model { 
+  Y ~ normal(Yhat, sigma);    // regression model
+  a ~ normal(0, tau);         // prior on coefficients
+  sigma ~ cauchy(0, 1);       // vague prior on sd of model
+  tau ~ cauchy(0, 1);         // vague prior on sd of sub_cat
+} </code></pre>
+<p>I saved this model code in a text file called <code>profit_mod1.stan</code> within a folder called <code>stan</code>.</p>
+<p>The data are prepared and stored in a list.</p>
+<pre class="r"><code># --- transform the data ----------------------------------
+trainDF %&gt;%
+  filter( baseProfit &gt; 0.5 ) %&gt;%
+  mutate( Y = log10(baseProfit),
+          S = log10(baseSales),
+          C = as.numeric( factor(sub_category))) -&gt; tempDF
+
+# --- Save in a list() ------------------------------------
+stanData &lt;- list( N=7087, M=17, 
+                   Y     = tempDF$Y,
+                   sales = tempDF$S,
+                   cat   = tempDF$C )</code></pre>
+<p><code>stan</code> runs 3 chains in parallel in 90 seconds on my desktop. The computation took about 5 seconds and the rest of the time was taken with compilation and saving the results.</p>
+<pre class="r"><code># --- fit model using stan --------------------------------
+library(rstan)
+
+stan(file   = &#39;stan/profit_mod1.stan&#39;, 
+     data   = stanData,
+     chains = 3,
+     cores  = 3,
+     iter   = 2000,
+     warmup = 1000,
+     pars   = c(&quot;a&quot;, &quot;sigma&quot;, &quot;tau&quot;),
+     seed   = 3982) %&gt;%
+  saveRDS( file.path(home, &quot;data/dataStore/profit_mod1.rds&quot;)) %&gt;%
+  system.time()</code></pre>
+<p>The results are saved in <code>stan</code> format, but can be extracted by my <code>stan_to_df()</code> function as described in the methods post on <code>Bayesian Software</code>.</p>
+<pre class="r"><code>library(MyPackage)
+
+readRDS( file.path(home, &quot;data/dataStore/profit_mod1.rds&quot;)) %&gt;%
+  stan_to_df() %&gt;%
+  print() -&gt; sim1DF</code></pre>
+<pre><code>## # A tibble: 6,000 × 22
+##    chain  iter   a_1   a_2   a_3   a_4   a_5   a_6   a_7   a_8   a_9  a_10  a_11
+##    &lt;fct&gt; &lt;int&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+##  1 1         1  1.84  1.54 0.357  1.55 0.678 0.650 -1.42  1.45 0.171  1.77 -1.92
+##  2 1         2  1.84  1.54 0.357  1.55 0.678 0.650 -1.42  1.45 0.171  1.77 -1.92
+##  3 1         3  1.84  1.54 0.357  1.55 0.678 0.650 -1.42  1.45 0.171  1.77 -1.92
+##  4 1         4  1.84  1.54 0.357  1.55 0.678 0.650 -1.42  1.45 0.171  1.77 -1.92
+##  5 1         5  1.84  1.54 0.357  1.55 0.678 0.650 -1.42  1.45 0.171  1.77 -1.92
+##  6 1         6  1.83  1.54 0.354  1.53 0.679 0.643 -1.42  1.45 0.162  1.75 -1.91
+##  7 1         7  1.82  1.53 0.347  1.51 0.683 0.634 -1.42  1.45 0.161  1.73 -1.91
+##  8 1         8  1.78  1.52 0.315  1.46 0.683 0.610 -1.44  1.43 0.168  1.68 -1.88
+##  9 1         9  1.77  1.53 0.313  1.45 0.689 0.607 -1.44  1.43 0.160  1.68 -1.88
+## 10 1        10  1.72  1.51 0.270  1.37 0.677 0.590 -1.41  1.42 0.172  1.60 -1.88
+## # … with 5,990 more rows, and 9 more variables: a_12 &lt;dbl&gt;, a_13 &lt;dbl&gt;,
+## #   a_14 &lt;dbl&gt;, a_15 &lt;dbl&gt;, a_16 &lt;dbl&gt;, a_17 &lt;dbl&gt;, sigma &lt;dbl&gt;, tau &lt;dbl&gt;,
+## #   lp__ &lt;dbl&gt;</code></pre>
+<p>The results file includes the warmup in which the algorithm is tuned, so this portion needs to be discarded. You only need to look at it when something goes wrong.</p>
+<p>The likelihood analysis with <code>lm()</code> estimated the intercept to be -0.59 with a standard error of 0.009, very close to the Bayesian posterior.</p>
+<pre class="r"><code># --- trace plot of the first coefficient -------------------
+sim1DF %&gt;%
+  filter( iter &gt; 1000 ) %&gt;%
+  trace_plot(a_1, &quot;Accessories&quot;)</code></pre>
+<p><img src="/post/bayes_superstore_profits/Bayes_superstore_profits_files/figure-html/unnamed-chunk-9-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Convergence is very good and the results mirror those of the model fitted by <code>lm()</code>.</p>
+<pre><code>## # A tibble: 17 × 5
+##    term          lmCf    lmSe bay1Mn  bay1Sd
+##    &lt;chr&gt;        &lt;dbl&gt;   &lt;dbl&gt;  &lt;dbl&gt;   &lt;dbl&gt;
+##  1 Accessories -0.590 0.00862 -0.590 0.00889
+##  2 Appliances  -0.536 0.0109  -0.536 0.0105 
+##  3 Art         -0.508 0.00844 -0.508 0.00810
+##  4 Binders     -0.323 0.00621 -0.323 0.00628
+##  5 Bookcases   -0.747 0.0154  -0.746 0.0155 
+##  6 Chairs      -0.691 0.00961 -0.691 0.00923
+##  7 Copiers     -0.359 0.0295  -0.358 0.0305 
+##  8 Envelopes   -0.323 0.0147  -0.323 0.0147 
+##  9 Fasteners   -0.418 0.0176  -0.418 0.0177 
+## 10 Furnishings -0.520 0.00784 -0.520 0.00780
+## 11 Labels      -0.324 0.0124  -0.323 0.0127 
+## 12 Machines    -0.434 0.0229  -0.433 0.0223 
+## 13 Paper       -0.324 0.00632 -0.323 0.00634
+## 14 Phones      -0.614 0.00805 -0.614 0.00825
+## 15 Storage     -0.894 0.00846 -0.894 0.00852
+## 16 Supplies    -0.774 0.0181  -0.774 0.0179 
+## 17 Tables      -0.728 0.0133  -0.728 0.0133</code></pre>
+</div>
+<div id="improved-bayesian-model" class="section level2">
+<h2>Improved Bayesian Model</h2>
+<p>The modified model has a different standard deviation for each sub-category of product. The log(sd) of each sub-category is assumed to be drawn from a normal distribution with unknown precision.</p>
+<pre class="r"><code>data { 
+  int N;           // number of data points i.e. 7087 
+  int M;           // number of sub_categories of product 17
+  vector[N] Y;     // the response log10(baseProfit)
+  vector[N] sales; // log10(baseSales)
+  int cat[N];      // sub-category 1-17
+} 
+parameters { 
+  vector[M] a;            // coefficients
+  vector[M] logsigma;     // log of sd about regression line
+  real&lt;lower=0&gt; tau;      // sd of sub_category avg profit
+  real&lt;lower=0&gt; psi;      // sd of sub_category logsigma
+}
+transformed parameters { 
+  vector[M] sigma;
+  sigma = exp(logsigma);
+} 
+model { 
+  Y ~ normal(sales + a[cat], sigma[cat]);    // regression model
+  a ~ normal(-0.65, tau);        // prior on coefficients
+  logsigma ~ normal(-1.5, psi);  // vague prior on sd of model
+  tau ~ cauchy(0, 1);            // vague prior on sd of sub_cat
+  psi ~ cauchy(0, 1);            // vague prior on sd of logsigma
+}</code></pre>
+<p>The prior on <code>a[]</code> is centred on -0.65 and as we are modelling the log10 undiscounted profit, this is equivalent to a profit of around 20%-25%. Looking at the linear model coefficients, this profit is probably a little low, but it is not unreasonable. The figure must, of course, be chosen without reference to these data. It is my guess at what profit stores might make.</p>
+<p>The distribution of log(sd) is centred on -1.5, equivalent to a standard deviation of about 0.2. So, if the coefficient for a sub-category were -0.65, I would be allowing items within that sub-category to vary between about -0.25 and -1.05, equivalent to profits between 9% and and 56%.</p>
+<p>I could have chosen to replace my guesses, -0.65 and -1.5, which unknown parameters, placed a prior on those parameters and then allowed the data to have a say in their values. I have not tried it, but my feeling is that it would make very little difference.</p>
+<p>Fitting precedes in the same way.</p>
+<pre class="r"><code># --- fit model using stan ------------------------------------------
+stan(file = &#39;stan/profit_mod2.stan&#39;, 
+     data = stanData,
+     chains = 3,
+     cores  = 3,
+     iter   = 2000,
+     warmup = 1000,
+     pars   = c(&quot;a&quot;, &quot;sigma&quot;, &quot;tau&quot;, &quot;psi&quot;)) %&gt;%
+  saveRDS( file.path(home, &quot;data/dataStore/profit_mod2.rds&quot;)) %&gt;%
+  system.time()</code></pre>
+<p>The model takes a similar time to compile, but much longer to run, about 100 seconds as opposed to 5 seconds.</p>
+<p>The posterior means for the modified model are very similar to those of the original model, but the posterior standard deviations are very different, reflecting the greater uncertainty about the profit in some sub-categories compared to others.</p>
+<pre><code>## # A tibble: 17 × 7
+##    term          lmCf    lmSe bay1Mn  bay1Sd bay2Mn   bay2Sd
+##    &lt;chr&gt;        &lt;dbl&gt;   &lt;dbl&gt;  &lt;dbl&gt;   &lt;dbl&gt;  &lt;dbl&gt;    &lt;dbl&gt;
+##  1 Accessories -0.590 0.00862 -0.590 0.00889 -0.590 0.0100  
+##  2 Appliances  -0.536 0.0109  -0.536 0.0105  -0.536 0.00298 
+##  3 Art         -0.508 0.00844 -0.508 0.00810 -0.508 0.00333 
+##  4 Binders     -0.323 0.00621 -0.323 0.00628 -0.323 0.000432
+##  5 Bookcases   -0.747 0.0154  -0.746 0.0155  -0.746 0.0137  
+##  6 Chairs      -0.691 0.00961 -0.691 0.00923 -0.691 0.00894 
+##  7 Copiers     -0.359 0.0295  -0.358 0.0305  -0.360 0.0104  
+##  8 Envelopes   -0.323 0.0147  -0.323 0.0147  -0.323 0.00101 
+##  9 Fasteners   -0.418 0.0176  -0.418 0.0177  -0.421 0.0211  
+## 10 Furnishings -0.520 0.00784 -0.520 0.00780 -0.520 0.00776 
+## 11 Labels      -0.324 0.0124  -0.323 0.0127  -0.324 0.000667
+## 12 Machines    -0.434 0.0229  -0.433 0.0223  -0.434 0.0129  
+## 13 Paper       -0.324 0.00632 -0.323 0.00634 -0.324 0.000411
+## 14 Phones      -0.614 0.00805 -0.614 0.00825 -0.614 0.0118  
+## 15 Storage     -0.894 0.00846 -0.894 0.00852 -0.892 0.0192  
+## 16 Supplies    -0.774 0.0181  -0.774 0.0179  -0.771 0.0361  
+## 17 Tables      -0.728 0.0133  -0.728 0.0133  -0.728 0.00940</code></pre>
+</div>
+</div>
+<div id="bayes-factor" class="section level1">
+<h1>Bayes Factor</h1>
+<p>Now that we have two competing Bayesian models, the obvious question is whether the more complex model fits any better.</p>
+<p>When comparing two models, say <span class="math inline">\(M_1\)</span> and <span class="math inline">\(M_2\)</span>, for a set of data, <span class="math inline">\(y\)</span>, Bayes theorem tells us that
+<span class="math display">\[
+\frac{p(M_1 \ | \ y)}{p(M_2 \ | \ y)} = \frac{p(y \ | \ M_1)  \ \ p(M_1)}{p(y \ | \ M_2) \ \ p(M_2)}
+\]</span>
+In words the ratio of the posterior probability of model <span class="math inline">\(M_1\)</span> to model <span class="math inline">\(M_2\)</span> is equal to the ratio of the marginal likelihoods times the ratio of the prior probabilities. The ratio of the marginal likelihoods is known as the Bayes Factor (BF) and it captures the way that the data cause us to modify our prior beliefs about the two models. A BF of 1 would tells us that the data have had no impact on our beliefs, while a large BF says that the data have moved us towards <span class="math inline">\(M_1\)</span> and a small BF says that we have been moved towards <span class="math inline">\(M_2\)</span>.</p>
+<p>In my Bayesian post on the wildlife strike data (episode 2) I calculated the Bayes Factor for comparing two models using pseudo priors and an algorithm that was free to move between the two models. In that way, I was able to calculate the ratio of the posterior probabilities and since I fixed the prior probabilities, I was able to deduce the BF.</p>
+<p>By way of contrast, I will calculate the marginal likelihoods of my models directly and then find the Bayes Factor as the their ratio. Calculation of the marginal likelihoods is not trivial. You will notice that the parameters of the models do not appear in the updating formula; this is because they are integrated out of the marginal likelihoods.</p>
+<p><span class="math display">\[
+p(y \ | \ M_1) = \int p(y \ | \ \theta, M_1) \ \ p(\theta \ | \ M_1) \ \ d\theta
+\]</span></p>
+<p>I will drop the conditioning on <span class="math inline">\(M_1\)</span> and introduce an arbitrary proposal distribution <span class="math inline">\(g(\theta)\)</span>.</p>
+<p><span class="math display">\[
+p(y) = \frac{\int p(y \ | \ \theta) \ \ p(\theta) \ g(\theta) \ \ d\theta}{\int \frac{p(y \ | \ \theta) \ \ p(\theta)}{p(y)} \ g(\theta) \ \ d\theta}
+\]</span></p>
+<p>which reduces to
+<span class="math display">\[
+p(y) = \frac{\int p(y \ | \ \theta) \ \ p(\theta) \ g(\theta) \ \ d\theta}{\int  \ g(\theta) \ \ p(\theta \ | \ y) \ d\theta}
+\]</span></p>
+<p>The top integral can be approximated using a sample of values of <span class="math inline">\(\theta\)</span> drawn from the proposal distribution and the lower integral can be approximated using a sample of values from the posterior. The MCMC algorithm has provided a sample from the posterior and the proposal distribution is deliberately chosen so that it is easy to sample from.</p>
+<p><span class="math display">\[
+p(y) = \frac{E_g \left\{  p(y \ | \ \theta) \ \ p(\theta) \right\} } { E_p \left\{  g(\theta) \right\} }
+\]</span></p>
+<p>So far we have employed classic importance sampling. The method works, but its accuracy is highly dependent on choosing a proposal that closely resembles the posterior. To improve the accuracy, we could add a second function <span class="math inline">\(h(\theta)\)</span> to the top and bottom. <span class="math inline">\(h(\theta)\)</span> is called a bridge function, because it is chosen to bridge the gap between the posterior and the proposal.</p>
+<p><span class="math display">\[
+p(y) = \frac{E_g \left\{  p(y \ | \ \theta) \ \ p(\theta) \ h(\theta) \right\} } { E_p \left\{  g(\theta) \ h(\theta) \right\} }
+\]</span></p>
+<p>Our remaining problem is to choose <span class="math inline">\(h(\theta)\)</span>, since it bridges the gap between the proposal and the posterior, the optimal choice will depend on both distributions. The proposal distribution is not a problem, because it is chosen by us and so is known exactly. The posterior is a problem, because it must be known exactly, which means that we need to know the normalising constant <span class="math inline">\(p(y)\)</span>. This is just the marginal likelihood that we set out to find. We have entered a loop and the solution requires us to iterate. Guess <span class="math inline">\(p(y)\)</span>, find the bridge function <span class="math inline">\(h(\theta)\)</span>, re-calculate <span class="math inline">\(p(y)\)</span>, refine the bridge function and so on until convergence. Fortunately, this process has been automated in an R package called <code>bridgesampling</code>.</p>
+<p>When we calculate a likelihood ratio for comparing two alternative sets of parameters from the <em>same</em> distribution, the constants in the formula for the density can be dropped as they cancel. These constants are also dropped when MCMC algorithms sample from the posterior. However, when the marginal likelihood is required, it is vital that these constants are retained. To do this in <code>Stan</code>, the model code needs to be written in a different way. The log posterior (target) is accumulated in a series of calls to the log probability density functions (lpdf) of the distributions.</p>
+<p>Here is the re-structured code for model 1.</p>
+<pre class="r"><code>data { 
+  int N;           // number of data points i.e. 7087 
+  int M;           // number of sub_categories of product 17
+  vector[N] Y;     // the response log10(baseProfit)
+  vector[N] sales; // log10(baseSales)
+  int cat[N];      // sub-category 1-17
+} 
+parameters { 
+  vector[M] a;            // coefficients
+  real&lt;lower=0&gt; sigma;    // sd about regression line
+  real&lt;lower=0&gt; tau;      // sd of sub_category avg profit
+}
+transformed parameters { 
+  vector[N] Yhat;          // fitted values
+  Yhat = sales + a[cat]; 
+} 
+model { 
+  target += normal_lpdf(Y | Yhat, sigma );
+  target += normal_lpdf(a | 0, tau);
+  target += cauchy_lpdf(sigma | 0, 1);
+  target += cauchy_lpdf(tau | 0, 1);
+}  </code></pre>
+<p>I placed this code in a file called <code>profit_mod1bf.stan</code> and rather than use the <code>stan()</code> function, I sampled from the posterior in two stages. <code>stan_model()</code> compiles the code and <code>sampling()</code> runs the HMC sampler, in this case with default values for number and length of chains, etc.</p>
+<pre class="r"><code># --- compile the model code ------------------------------
+stanmodelH1 &lt;- stan_model(file = &#39;stan/profit_mod1bf.stan&#39;,
+                          model_name=&quot;stanmodel1&quot;)
+
+# --- sample from the posterior ---------------------------
+stanfitH1 &lt;- sampling(stanmodelH1, data = stanData)</code></pre>
+<p>The <code>bridgesampling</code> package can now be used to evaluate the log of the marginal likelihood.</p>
+<pre class="r"><code>library(bridgesampling)
+
+# --- use bridge sampling to approximate the marginal likelihood ---
+mod1Bridge &lt;- bridge_sampler(stanfitH1, silent = TRUE)</code></pre>
+<p>The package approximates the integral and gives an indication of the accuracy of its approximation. In this case, the log marginal likelihood is about 1203 as calculated after 5 iterations of the bridge sampling and is accurate to within about 1%. If you need more accuracy, run stan’s sampler for longer.</p>
+<pre class="r"><code># --- print the marginal likelihood -------------------------------
+print(mod1Bridge)</code></pre>
+<pre><code>## Bridge sampling estimate of the log marginal likelihood: 1203.436
+## Estimate obtained in 5 iteration(s) via method &quot;normal&quot;.</code></pre>
+<pre class="r"><code># --- print the percentage error of the approximation -------------
+error_measures(mod1Bridge)$percentage</code></pre>
+<pre><code>## [1] &quot;1%&quot;</code></pre>
+<p>Next, I run the equivalent calculations for the second model, which has different standard deviations for each category of product.</p>
+<pre class="r"><code># --- print the marginal likelihood -------------------------------
+print(mod2Bridge)</code></pre>
+<pre><code>## Bridge sampling estimate of the log marginal likelihood: 8323.309
+## Estimate obtained in 6 iteration(s) via method &quot;normal&quot;.</code></pre>
+<pre class="r"><code># --- print the percentage error in the approximation -------------
+error_measures(mod2Bridge)$percentage</code></pre>
+<pre><code>## [1] &quot;1%&quot;</code></pre>
+<p>The log marginal likelihood is 8323. So the Bayes Factor in favour of model 2 is exp(8323-1203), which is off-the-scale huge. There is a slightly unnecessary function that performs this calculation</p>
+<pre class="r"><code># --- find the Bayes Factor ---------------------------------------
+bf(mod2Bridge, mod1Bridge)</code></pre>
+<pre><code>## Estimated Bayes factor in favor of mod2Bridge over mod1Bridge:    Inf</code></pre>
+<p>The evidence in favour of model 2 is Inf, i.e. overwhelming.</p>
+</div>
+<div id="what-this-example-shows" class="section level1">
+<h1>What this example shows:</h1>
+<p>The model with difference variances for each class of product provides a massively better fit to the data, as we already knew from the plots made for the original analysis of these data. Yet, the point predictions under the two models are almost identical, so a Bayesian statistician sees model 2 as being much better, while a data scientist concludes that the two models are almost equivalent. The difference, of course, is that the two are interested in different things. The Bayesian is concerned with the predictive distribution, not just the point prediction. For this problem, we can make separate predictions for <code>accessories</code> and <code>office furniture</code>, but we know that the accuracy of those predictions will vary. For some product types, we expect our prediction to be highly accurate, because the profit is similar for everything within that category, while for more variable categories the prediction will be much less reliable. The Bayesian cares about this difference, while machine learning with its reliance on a loss function, does not.</p>
+</div>
+
+  
+
+  
+    <div id="disqus_thread"></div>
+<script type="application/javascript">
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "John" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+  
+
+
+
+    <footer class="site-footer">
+  <span class="site-footer-credits">
+    Made with <a href="https://gohugo.io/">Hugo</a>. Themed by <a href="https://github.com/zwbetz-gh/cayman-hugo-theme">Cayman</a>. Deployed to <a href="https://www.netlify.com/">Netlify</a>.
+  </span>
+</footer>
+
+  </section>
+  
+  
+  <script>
+  window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+  ga('create', 'UA-123456789-1', 'auto');
+  ga('send', 'pageview');
+  </script>
+  <script async src='https://www.google-analytics.com/analytics.js'></script>
+  
+
+</body>
+</html>

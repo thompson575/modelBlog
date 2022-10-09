@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.0.36">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="John Thompson">
+<meta name="dcterms.date" content="2022-10-08">
+
+<title>Methods: The targets Package</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+span.underline{text-decoration: underline;}
+div.column{display: inline-block; vertical-align: top; width: 50%;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+    color: #aaaaaa;
+  }
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+code span.at { color: #7d9029; } /* Attribute */
+code span.bn { color: #40a070; } /* BaseN */
+code span.bu { } /* BuiltIn */
+code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+code span.ch { color: #4070a0; } /* Char */
+code span.cn { color: #880000; } /* Constant */
+code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+code span.dt { color: #902000; } /* DataType */
+code span.dv { color: #40a070; } /* DecVal */
+code span.er { color: #ff0000; font-weight: bold; } /* Error */
+code span.ex { } /* Extension */
+code span.fl { color: #40a070; } /* Float */
+code span.fu { color: #06287e; } /* Function */
+code span.im { } /* Import */
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+code span.op { color: #666666; } /* Operator */
+code span.ot { color: #007020; } /* Other */
+code span.pp { color: #bc7a00; } /* Preprocessor */
+code span.sc { color: #4070a0; } /* SpecialChar */
+code span.ss { color: #bb6688; } /* SpecialString */
+code span.st { color: #4070a0; } /* String */
+code span.va { color: #19177c; } /* Variable */
+code span.vs { color: #4070a0; } /* VerbatimString */
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+</style>
+
+
+<script src="targets_package_files/libs/clipboard/clipboard.min.js"></script>
+<script src="targets_package_files/libs/quarto-html/quarto.js"></script>
+<script src="targets_package_files/libs/quarto-html/popper.min.js"></script>
+<script src="targets_package_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="targets_package_files/libs/quarto-html/anchor.min.js"></script>
+<link href="targets_package_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="targets_package_files/libs/quarto-html/quarto-syntax-highlighting.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="targets_package_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="targets_package_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="targets_package_files/libs/bootstrap/bootstrap.min.css" rel="stylesheet" id="quarto-bootstrap" data-mode="light">
+<script src="targets_package_files/libs/htmlwidgets-1.5.4/htmlwidgets.js"></script>
+<link href="targets_package_files/libs/vis-9.1.0/vis-network.min.css" rel="stylesheet">
+<script src="targets_package_files/libs/vis-9.1.0/vis-network.min.js"></script>
+<script src="targets_package_files/libs/visNetwork-binding-2.1.0/visNetwork.js"></script>
+
+
+</head>
+
+<body class="fullcontent">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Methods: The <code>targets</code> Package</h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>John Thompson </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">October 8, 2022</p>
+    </div>
+  </div>
+    
+  </div>
+  
+
+</header>
+
+<section id="introduction" class="level2">
+<h2 class="anchored" data-anchor-id="introduction">Introduction</h2>
+<p>I have recently been converted to the merits of the <code>targets</code> package and like all recent converts, I am keen to spread the word, so I thought that I would use <code>targets</code> for some of my Bayesian posts. In this post, I introduce <code>targets</code>, then in a subsequent post, I’ll explain how I used <code>targets</code> to help create my post on the Bayesian analysis of superstore profits.</p>
+<p><code>targets</code> is a package for organising a complex analysis as a workflow or pipeline composed of discrete steps. <code>targets</code> <strong>arranges the steps in a tree-like structure</strong> and <strong>archives the result of each step</strong>. When a new step is introduced, or an old step is modified, <code>targets</code> will only run the steps that are affected by the change.</p>
+<p>So, <code>targets</code> enables a project to grow in a computationally efficient way, though for me this is not the major benefit. The key gain is that <code>targets</code> provides structure and transparency to the project, improving both reproducibility and literacy.</p>
+</section>
+<section id="folder-structure" class="level2">
+<h2 class="anchored" data-anchor-id="folder-structure">Folder Structure</h2>
+<p>As I have said many times, when I start a new project. I create a folder with the same name as the project and within that project I set up my standard folder structure.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="sc">|-</span> myProject</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>   <span class="sc">|--</span> docs</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>   <span class="sc">|--</span> data</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>       <span class="sc">|---</span> dataStore</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>       <span class="sc">|---</span> rawData</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>       <span class="sc">|---</span> rData</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>   <span class="sc">|--</span> R</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>   <span class="sc">|--</span> reports</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>   <span class="sc">|--</span> temp</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<p>I used to use the name <code>rmd</code> for my reports folder, but since I increasingly use <code>quarto</code>, that name no longer seems appropriate and I have switched to <code>reports</code>. I imagine that I will eventually rename <code>R</code> as <code>scripts</code>, but I am not there yet.</p>
+<p>Making this into an <code>RStudio</code> project adds a <code>myProject.Rproj</code> file to the root directory and initiating a git repository adds a visible <code>.gitignore</code> file and a hidden <code>.git</code> folder.</p>
+<p>Running <code>renv::init()</code> for reproducibility of the version numbers of the packages used in the project will add a <code>renv</code> folder, a <code>renv.lock</code> file and a <code>.Rprofile</code> file with a line that activates <code>renv</code> whenever the project is first opened.</p>
+<p>To enable <code>targets</code> to control the computations needed for the project requires the user to add a <code>_targets.R</code> file to the project’s root folder. This file will contain a description of the steps in the analysis. When the computation is first run, <code>targets</code> creates a folder <code>myProject/_targets/</code> in which to archive the results of each step in the pipeline.</p>
+<p>The eventual folder structure will be as shown below. I use a final <code>/</code> to distinguish folders from files and order the contents in a way that seems sensible to me, rather than in the order used by Windows. Blank lines are for improved legibility and have no other significance.</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="sc">|-</span> myProject</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>   <span class="sc">|--</span> .git<span class="sc">/</span> (hidden)</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>   <span class="sc">|--</span> renv<span class="sc">/</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>   <span class="er">|</span><span class="sc">--</span> _targets<span class="sc">/</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>   <span class="er">|</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>   <span class="er">|</span><span class="sc">--</span> docs<span class="sc">/</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>   <span class="er">|</span><span class="sc">--</span> data<span class="sc">/</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>       <span class="er">|</span><span class="sc">---</span> dataStore<span class="sc">/</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>       <span class="er">|</span><span class="sc">---</span> rawData<span class="sc">/</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>       <span class="er">|</span><span class="sc">---</span> rData<span class="sc">/</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>   <span class="er">|</span><span class="sc">--</span> R<span class="sc">/</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>   <span class="er">|</span><span class="sc">--</span> reports<span class="sc">/</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>   <span class="er">|</span><span class="sc">--</span> temp<span class="sc">/</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>   <span class="er">|</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>   <span class="er">|</span><span class="sc">--</span> .gitignore</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>   <span class="sc">|--</span> .Rprofile</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>   <span class="sc">|--</span> myProject.Rproj</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>   <span class="sc">|--</span> renv.lock</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>   <span class="sc">|--</span> _targets.R</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+</section>
+<section id="creating-_targets.r" class="level1">
+<h1>Creating <code>_targets.R</code></h1>
+<p>The basic idea behind <code>targets</code> is that <strong>each step in the pipeline is performed by a function</strong>. The outputs from the functions are stored in the archive and can be used as inputs to other functions, so creating the computational tree.</p>
+<p>The <code>_targets.R</code> script provides the information necessary for defining the tree and it does so with the following four-part structure</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ----------------------------------------------------------</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. load the targets package</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(targets)</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tarchetypes)</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="co"># ----------------------------------------------------------</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. source the functions needed for the computations</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"project_functions.R"</span>)</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="co"># ----------------------------------------------------------</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a><span class="co"># 3. set targets options, including all required packages</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="fu">tar_option_set</span>(<span class="at">packages=</span><span class="fu">c</span>(<span class="st">"tidyverse"</span>, <span class="st">"broom"</span>) )</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a><span class="co"># ----------------------------------------------------------</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="co"># 4. list the steps in the computation</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="fu">list</span>(</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>  <span class="co"># filename: csv file of data</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tar_target</span>(file, <span class="st">"data.csv"</span>, <span class="at">format =</span> <span class="st">"file"</span>),</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>  <span class="co"># get_data(): read the csv file</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tar_target</span>(data, <span class="fu">get_data</span>(file)),</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>  <span class="co"># fit_model(): fit a model</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tar_target</span>(model, <span class="fu">fit_model</span>(data)),</span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>  <span class="co"># summarise_model(): examine the model fit</span></span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tar_target</span>(summary, <span class="fu">summarise_model</span>(model, data)),</span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>  <span class="co"># report: html describing the results</span></span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tar_render</span>(report, <span class="st">"project_report.rmd"</span>),</span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<p>The steps in the pipeline are defined inside a list() and each step has a name selected by the user; in this case, <code>file</code>, <code>data</code>, <code>model</code>, <code>summary</code>, <code>report</code>. These will be the names under which the outputs are archived.</p>
+<p><code>targets</code> monitors the functions <code>get_data()</code>, <code>fit_model()</code> and <code>summarise_model()</code> and if any of them change, it will know to re-run that function and any other step that depends on that function, or on the results returned by that function.</p>
+<p>The package also monitors the files <code>data.csv</code> and <code>project_report.rmd</code> and, once again, re-runs any steps depending on those files should a change be detected.</p>
+<p>Inside the <code>rmd</code> file, the markdown code has access to the results of the steps in the analysis, because they can be read from the archive. In should not be necessary for the report to make any primary computations, greatly speeding up report production.</p>
+<p>In this example, I rely on defaults for the other options to <code>tar_target()</code>, in particular, I do not specify <code>format</code> for saving the results of the computational steps. The default is to use <code>rds</code>, but many other formats are possible including <code>qs</code>, <code>feather</code>, <code>parquet</code> and <code>fst</code>.</p>
+<p><code>tar_render()</code> will knit an rmarkdown document, <code>tar_quarto()</code> does the same for a quarto document.</p>
+</section>
+<section id="running-the-computations" class="level1">
+<h1>Running the computations</h1>
+<p>The function <code>tar_make()</code> reads the <code>_targets.R</code> file and executes any computations that are not up to date.</p>
+<p>In the majority of cases, the process of updating the computations is straightforward, however <code>targets</code> is intelligent enough to cope with more complex situations, such as when one of your functions calls other functions and those subsidiary functions change.</p>
+</section>
+<section id="examining-the-tree" class="level1">
+<h1>Examining the tree</h1>
+<p>The function <code>tar_visnetwork()</code> displays the computational pipeline as a tree-like diagram. The diagram uses colour to show which steps (nodes) need updating and uses symbol shape to show the type of node, a triangle for a function and a circle for a archived data object.</p>
+<p>Here is the diagram for the example above.</p>
+<div class="cell">
+<div class="cell-output-display">
+<div id="htmlwidget-722d49bad52c39ff6d8a" style="width:100%;height:464px;" class="visNetwork html-widget"></div>
+<script type="application/json" data-for="htmlwidget-722d49bad52c39ff6d8a">{"x":{"nodes":{"name":["data","file","model","report","summary","fit_model","get_data","summarise_model"],"type":["stem","stem","stem","stem","stem","function","function","function"],"status":["outdated","outdated","outdated","outdated","outdated","uptodate","uptodate","uptodate"],"seconds":[0.02,0,0,1.02,0.02,null,null,null],"bytes":[7216,61766,80019,639277,266,null,null,null],"branches":[null,null,null,null,null,null,null,null],"label":["data","file","model","report","summary","fit_model","get_data","summarise_model"],"color":["#78B7C5","#78B7C5","#78B7C5","#78B7C5","#78B7C5","#354823","#354823","#354823"],"id":["data","file","model","report","summary","fit_model","get_data","summarise_model"],"level":[2,1,3,0,4,1,1,1],"shape":["dot","dot","dot","dot","dot","triangle","triangle","triangle"]},"edges":{"from":["data","model","summarise_model","file","get_data","data","fit_model"],"to":["summary","summary","summary","data","data","model","model"],"arrows":["to","to","to","to","to","to","to"]},"nodesToDataframe":true,"edgesToDataframe":true,"options":{"width":"100%","height":"100%","nodes":{"shape":"dot","physics":false},"manipulation":{"enabled":false},"edges":{"smooth":{"type":"cubicBezier","forceDirection":"horizontal"}},"physics":{"stabilization":false},"interaction":{"zoomSpeed":1},"layout":{"hierarchical":{"enabled":true,"direction":"LR"}}},"groups":null,"width":null,"height":null,"idselection":{"enabled":false,"style":"width: 150px; height: 26px","useLabels":true,"main":"Select by id"},"byselection":{"enabled":false,"style":"width: 150px; height: 26px","multiple":false,"hideColor":"rgba(200,200,200,0.5)","highlight":false},"main":{"text":"","style":"font-family:Georgia, Times New Roman, Times, serif;font-weight:bold;font-size:20px;text-align:center;"},"submain":null,"footer":null,"background":"rgba(0, 0, 0, 0)","highlight":{"enabled":true,"hoverNearest":false,"degree":{"from":1,"to":1},"algorithm":"hierarchical","hideColor":"rgba(200,200,200,0.5)","labelOnly":true},"collapse":{"enabled":true,"fit":false,"resetHighlight":true,"clusterOptions":null,"keepCoord":true,"labelSuffix":"(cluster)"},"legend":{"width":0.2,"useGroups":false,"position":"right","ncol":1,"stepX":100,"stepY":100,"zoom":true,"nodes":{"label":["Outdated","Up to date","Stem","Function"],"color":["#78B7C5","#354823","#899DA4","#899DA4"],"shape":["dot","dot","dot","triangle"]},"nodesToDataframe":true},"tooltipStay":300,"tooltipStyle":"position: fixed;visibility:hidden;padding: 5px;white-space: nowrap;font-family: verdana;font-size:14px;font-color:#000000;background-color: #f5f4ed;-moz-border-radius: 3px;-webkit-border-radius: 3px;border-radius: 3px;border: 1px solid #808074;box-shadow: 3px 3px 10px rgba(0, 0, 0, 0.2);"},"evals":[],"jsHooks":[]}</script>
+</div>
+</div>
+<p><code>tar_manifest()</code> returns the structure of the pipeline as a tibble with one row per node. Below is the output for the example.</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 5 × 2
+  name    command                                                               
+  &lt;chr&gt;   &lt;chr&gt;                                                                 
+1 report  "tarchetypes::tar_render_run(path = \"C:/Projects/Sliced/methods/meth…
+2 file    "\"data.csv\""                                                        
+3 data    "get_data(file)"                                                      
+4 model   "fit_model(data)"                                                     
+5 summary "summarise_model(model, data)"                                        </code></pre>
+</div>
+</div>
+</section>
+<section id="accessing-the-archive" class="level1">
+<h1>Accessing the archive</h1>
+<p>The archive called <code>_targets\</code> has two sub-folders, <code>_targets\metadata\</code> and <code>_targets\objects\</code>. The former contains information on the contents of the archive, such as the format used when saving and the latter contains the objects themselves.</p>
+<p>The objects in the archive could be read directly, but it is simpler to use the function <code>tar_read(*objectName*)</code>, which returns the saved object.</p>
+<p><code>tar_load()</code> is similar to <code>tar_read()</code> except that it retrieves the object and assigns it the name under which it was saved.</p>
+</section>
+<section id="more-complex-situations" class="level1">
+<h1>More complex situations</h1>
+<p>You might want to define multiple pipelines for different analyses within the same project, perhaps with some shared components. The result would be that you would have more than one archive and more than one controlling targets file. <code>targets</code> can cope with this, provided that you define the project structure in a file called <code>_targets.yaml</code> that sits in the projects root folder.</p>
+<p>Repetition could make a pipeline very long and tedious to specify. Imagine fitting 5 different models to each of 10 different datasets. The function <code>tar_map()</code> acts like the <code>map()</code> function of <code>purrr</code> and facilitates repetition. There are other functions for creating other types of iteration.</p>
+<p>One advantage of having a tree-like structure is that you can predict when two computations can be performed independently of one another, which is important because such computations could be run in parallel. The function <code>tar_make_future()</code> is a variation on <code>tar_make()</code> that, where possible, runs the necessary computations in parallel using the <code>future</code> package.</p>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+window.document.addEventListener("DOMContentLoaded", function (event) {
+  const toggleBodyColorMode = (bsSheetEl) => {
+    const mode = bsSheetEl.getAttribute("data-mode");
+    const bodyEl = window.document.querySelector("body");
+    if (mode === "dark") {
+      bodyEl.classList.add("quarto-dark");
+      bodyEl.classList.remove("quarto-light");
+    } else {
+      bodyEl.classList.add("quarto-light");
+      bodyEl.classList.remove("quarto-dark");
+    }
+  }
+  const toggleBodyColorPrimary = () => {
+    const bsSheetEl = window.document.querySelector("link#quarto-bootstrap");
+    if (bsSheetEl) {
+      toggleBodyColorMode(bsSheetEl);
+    }
+  }
+  toggleBodyColorPrimary();  
+  const icon = "";
+  const anchorJS = new window.AnchorJS();
+  anchorJS.options = {
+    placement: 'right',
+    icon: icon
+  };
+  anchorJS.add('.anchored');
+  const clipboard = new window.ClipboardJS('.code-copy-button', {
+    target: function(trigger) {
+      return trigger.previousElementSibling;
+    }
+  });
+  clipboard.on('success', function(e) {
+    // button target
+    const button = e.trigger;
+    // don't keep focus
+    button.blur();
+    // flash "checked"
+    button.classList.add('code-copy-button-checked');
+    var currentTitle = button.getAttribute("title");
+    button.setAttribute("title", "Copied!");
+    setTimeout(function() {
+      button.setAttribute("title", currentTitle);
+      button.classList.remove('code-copy-button-checked');
+    }, 1000);
+    // clear code selection
+    e.clearSelection();
+  });
+  function tippyHover(el, contentFn) {
+    const config = {
+      allowHTML: true,
+      content: contentFn,
+      maxWidth: 500,
+      delay: 100,
+      arrow: false,
+      appendTo: function(el) {
+          return el.parentElement;
+      },
+      interactive: true,
+      interactiveBorder: 10,
+      theme: 'quarto',
+      placement: 'bottom-start'
+    };
+    window.tippy(el, config); 
+  }
+  const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+  for (var i=0; i<noterefs.length; i++) {
+    const ref = noterefs[i];
+    tippyHover(ref, function() {
+      let href = ref.getAttribute('href');
+      try { href = new URL(href).hash; } catch {}
+      const id = href.replace(/^#\/?/, "");
+      const note = window.document.getElementById(id);
+      return note.innerHTML;
+    });
+  }
+  var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+  for (var i=0; i<bibliorefs.length; i++) {
+    const ref = bibliorefs[i];
+    const cites = ref.parentNode.getAttribute('data-cites').split(' ');
+    tippyHover(ref, function() {
+      var popup = window.document.createElement('div');
+      cites.forEach(function(cite) {
+        var citeDiv = window.document.createElement('div');
+        citeDiv.classList.add('hanging-indent');
+        citeDiv.classList.add('csl-entry');
+        var biblioDiv = window.document.getElementById('ref-' + cite);
+        if (biblioDiv) {
+          citeDiv.innerHTML = biblioDiv.innerHTML;
+        }
+        popup.appendChild(citeDiv);
+      });
+      return popup.innerHTML;
+    });
+  }
+});
+</script>
+</div> <!-- /content -->
+
+
+
+</body></html>

@@ -3,12 +3,57 @@
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
     <loc>https://modelling-with-r.netlify.app/tags/bayes-factor/</loc>
-    <lastmod>2022-05-19T00:00:00+00:00</lastmod>
+    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
   </url><url>
-    <loc>https://modelling-with-r.netlify.app/bayes_wildlife_strikes/</loc>
-    <lastmod>2022-05-19T00:00:00+00:00</lastmod>
+    <loc>https://modelling-with-r.netlify.app/bayes_superstore_profits/</loc>
+    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/</loc>
+    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/bridge-sampling/</loc>
+    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/linear-model/</loc>
+    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/marginal-likelihood/</loc>
+    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/offset/</loc>
+    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/post/</loc>
+    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/rstan/</loc>
+    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/sliced/</loc>
+    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/stan/</loc>
+    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/</loc>
+    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/generalised-linear-models/</loc>
+    <lastmod>2022-09-27T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/hmc/</loc>
+    <lastmod>2022-09-27T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/methods_nimble_hmc2/</loc>
+    <lastmod>2022-09-27T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/nimble/</loc>
+    <lastmod>2022-09-27T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/methods_nimble_hmc/</loc>
+    <lastmod>2022-09-26T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/bayes_wildlife_strikes/</loc>
     <lastmod>2022-05-19T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/informative-priors/</loc>
@@ -20,19 +65,7 @@
     <loc>https://modelling-with-r.netlify.app/tags/metropolis-hastings-random-walk/</loc>
     <lastmod>2022-05-19T00:00:00+00:00</lastmod>
   </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/nimble/</loc>
-    <lastmod>2022-05-19T00:00:00+00:00</lastmod>
-  </url><url>
-    <loc>https://modelling-with-r.netlify.app/post/</loc>
-    <lastmod>2022-05-19T00:00:00+00:00</lastmod>
-  </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/pseudo-priors/</loc>
-    <lastmod>2022-05-19T00:00:00+00:00</lastmod>
-  </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/sliced/</loc>
-    <lastmod>2022-05-19T00:00:00+00:00</lastmod>
-  </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/</loc>
     <lastmod>2022-05-19T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/bayesian-model/</loc>
@@ -104,12 +137,6 @@
     <loc>https://modelling-with-r.netlify.app/tags/r2openbugs/</loc>
     <lastmod>2022-03-12T00:00:00+00:00</lastmod>
   </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/rstan/</loc>
-    <lastmod>2022-03-12T00:00:00+00:00</lastmod>
-  </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/stan/</loc>
-    <lastmod>2022-03-12T00:00:00+00:00</lastmod>
-  </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/bayesian-computation/</loc>
     <lastmod>2022-03-07T00:00:00+00:00</lastmod>
   </url><url>
@@ -117,9 +144,6 @@
     <lastmod>2022-03-07T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/hamiltonian-monte-carlo/</loc>
-    <lastmod>2022-03-07T00:00:00+00:00</lastmod>
-  </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/hmc/</loc>
     <lastmod>2022-03-07T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/mcmc-algorithms/</loc>
@@ -243,9 +267,6 @@
     <lastmod>2021-09-16T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/mice-imputation-by-chained-equations/</loc>
-    <lastmod>2021-09-16T00:00:00+00:00</lastmod>
-  </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/offset/</loc>
     <lastmod>2021-09-16T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/purrr/</loc>
