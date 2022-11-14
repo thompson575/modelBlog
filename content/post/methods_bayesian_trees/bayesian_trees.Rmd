@@ -9,6 +9,7 @@ tags:
 - BayesTree
 - dbarts
 - bartMachine
+- sparsity
 output:
     html_document:
     keep_md: true
