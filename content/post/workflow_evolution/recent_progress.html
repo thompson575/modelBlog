@@ -1,0 +1,110 @@
+---
+title: "My Evolving Workflow"
+author: "John Thompson"
+date: "2023-04-12"
+layout: post
+tags:
+- folders
+- pipelines
+- targets
+- makepipe
+- Git
+- GitHub
+- archiving
+- fileArchive
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+
+
+<div id="workflow-changes" class="section level2">
+<h2>Workflow Changes</h2>
+<p>I like to preach the importance of having a consistent workflow across all of one’s data analysis projects. Consistency is both more efficient and it helps reduce errors. Yet, nothing can exist without change and despite my wish for consistency, my workflow is constantly evolving. Sometimes it changes for good reason, sometimes for experimentation and sometimes because I just get bored with the old way.</p>
+<p>My plan for this post is to discuss some of the recent changes in the way that I organise my data analysis projects. The topics that I will cover are</p>
+<ul>
+<li>Changes to my folder structure<br />
+</li>
+<li>Archiving and caching<br />
+</li>
+<li>Integrating Git and GitHib<br />
+</li>
+<li>targets vs makepipe</li>
+</ul>
+</div>
+<div id="changes-to-my-folder-structure" class="section level2">
+<h2>Changes to my folder structure</h2>
+<p>“Today we have naming of parts. Japonica<br />
+glistens like coral in all of the neighbouring gardens,<br />
+and today we have naming of parts.”</p>
+<p>When I was fifteen, I had to study the poem by Henry Reed from which this quote is taken. At the time, I took it to be about the pointlessness of learning the names of things, probably a reflection of the way I was taught at school. The poem obviously made an impression, because this quote came back to me when I started writing about the names that I give to my project folders. The memory encouraged me to re-read the poem and I was shocked to find that it is full of sexual allusions that were completely lost on my schoolboy self.</p>
+<p>In fact, names are not quite as boring as I once thought, there is often a story behind the names that we choose for things. Recently, RStudio renamed itself as Posit. This was certainly no whim, as they did it at some cost, partly, I suspect, because of the growing dominance of python over R in the data science community, but mainly because data analysts are becoming less wedded to any one particular language. The current philosophy seems to be, use whatever language is best suited to the job at hand. So, RStudio’s renaming does tell us something about wider trends in data science.</p>
+<p>When I started this blog in the autumn of 2021, I would put my R scripts into a folder called <code>R</code> and my rmarkdown scripts in a folder called <code>rmd</code>. Now, I occasionally code in Julia and VS Code instead of the R and RStudio and increasingly, I use quarto in place of rmarkdown. So my <code>R</code> folder has been renamed <code>code</code> and the <code>rmd</code> folder has become <code>reports</code>. Not in the same league as the switch from RStudio to Posit, but reflecting the same underlying motivation.</p>
+<p>The renaming of my data folders also reveals deeper trends, but this time it is more about my evolving personal style. For years, I had three subfolders within my data folder</p>
+<pre class="r"><code>data  -------- rawData
+         |
+         ----- rData
+         |
+         ----- dataStore</code></pre>
+<p>As the name suggests, <code>rawData</code> was used for the data in its original form, <code>rData</code> was for processed forms of the data and <code>dataStore</code> was for the results of analyses, such as model fits.</p>
+<p>Now I use,</p>
+<pre class="r"><code>data  -------- rawData
+         |
+         ----- cache
+         |
+         ----- archive</code></pre>
+<p><code>rawData</code> is unchanged, <code>cache</code> is for all of the outputs from the current versions of my scripts and <code>archive</code> is for historical outputs. The change reflects my increasing use of Git and GitHub, that has led me to think in terms of time rather than purpose.</p>
+<p>It is a sad reflection of my personality that I can make quite dramatic swings in my beliefs, I adopt the new way with all of the enthusiasm of a convert and I immediately find the old way to be a source of embarrassment. Categorising by purpose was just so obviously wrong. I will now teach this time-based approach with total conviction, at least I will until I next change my mind.</p>
+</div>
+<div id="archiving-and-caching" class="section level2">
+<h2>Archiving and caching</h2>
+<p>As I’ve just explained, the cache folder saves the latest outputs of all of that project’s code files, in my case the cache is mostly populated by rds files. Those files are simply over-written when my code changes. Reproducibility is enabled by version control of the code in a Git repository. To reproduce an output, all that is needed is the raw data and the complete code as it was at a given point in time.</p>
+<p>Archiving the historical outputs is more of a convenience than a necessity. Usually, the outputs change, not because of a bug in the previous code, but because I change my mind about what I want to do. Maybe, I run an analysis and then decide that it would be better to log transform one of the variables. Should I archive the old results, which were correct, but unlikely to make it into the final report? At the moment, my practice is to archive only the outputs that need a long compute time, or those that were used in an interim report, such as a presentation.</p>
+<p>The mechanics of archiving are simple. My outputs are already in an rds file in the cache, so I just need to copy that file into the archive folder. The potential problems are obvious. First, it very soon happens that you try to copy a file when there is already a file with that same name in the archive, and second, when you want to restore an archived file, you have the problem of ensuring that you get the correct version.</p>
+<p>Archived files need to be renamed to avoid clashes and the archive needs an index to facilitate searching. These are such simple requirements that you would think that there must be any number of R packages that would do the job. It is true that there are several archiving packages, but none of them does what quite what I want, so I wrote my own. It is deliberately minimalist, but it does the job. You can find it on GitHub at <a href="https://github.com/thompson575/fileArchive" class="uri">https://github.com/thompson575/fileArchive</a>. I’ll write a separate post about how I use it.</p>
+</div>
+<div id="integrating-git-and-github" class="section level2">
+<h2>Integrating Git and GitHub</h2>
+<p>For years, I have taught the importance of using Git in data analysis, but sadly, I have not always practised what I preach. Git is great, but it is an effort. Similarly, GitHub is a nice idea, but most of the time, you can get by without it.</p>
+<p>As so often happens, it was teaching that made me think more deeply about this topic. I was recently asked to teach a one-day course for PhD students in biostatistics and genetic epidemiology on “Git, GitHub and rmarkdown”. You can find my course materials at <a href="https://lugitcourse.netlify.app/" class="uri">https://lugitcourse.netlify.app/</a></p>
+<p>I tried to avoid teaching the mechanics of using Git, because there are plenty of resources on the web that already do this very well. Instead, I opted to concentrate on why a data analyst should use Git and GitHub and how they should integrate them into their workflow. Teaching really makes you think.</p>
+<p>There is so much to be said on this topic that I will add it to my list of future posts. For the moment, let me content myself with a few bullet points</p>
+<ul>
+<li>I came away even more convinced of the importance of Git and GitHub in data analysis<br />
+</li>
+<li>the motivation for Git and GitHub in data analysis is not the same as the motivation for their use in code development<br />
+</li>
+<li>I was expecting reproducibility to be the main motivator for using Git and GitHub, but I was surprised how often I justified their use by reference to openness and research ethics<br />
+</li>
+<li>it is important to teach Git and GitHub as a pair. The benefits of Git alone are real, but not as obvious to the students<br />
+</li>
+<li>the need for a README and a LICENSE makes a big impression on the students and motivated both markdown and Git/GitHub<br />
+</li>
+<li>most PhD students do not see the big picture, rather they get absorbed in their current task. They really appreciated the opportunity to take a step back and to talk about working practices<br />
+</li>
+<li>most PhD students are motivated to change their way of working by a fear of messing up<br />
+</li>
+<li>teaching Git/GitHub was a bit like planting an earworm (yes, I do realise that you do not plant worms). I did not expect the students to adopt Git/GitHub immediately, but I hoped that my words would replay themselves in their heads until they finally took the plunge. The course objective was to leave them feeling guilty for not using Git.</li>
+</ul>
+</div>
+<div id="targets-vs-makepipe" class="section level2">
+<h2>Targets vs Makepipe</h2>
+<p>When I discovered the targets package for building and managing an analysis pipeline, I was immediately sold and I still believe that
+the general approach is correct, however, experience has since shown me, what I take to be an important design weakness in targets.</p>
+<p>Often, in R, there are several packages that do much the same job and we are left to choose whichever suits us best. When making such a choice there is an important principle that I like to apply, which is<br />
+<strong>a simple package than meets 90% of your needs is preferable to a complex package that meets 100%</strong>.<br />
+Not only is a complex package more difficult to learn, but the effort required to use it makes you much less likely to stick with it. Add to that, the fact that complexity can increase the chance of misuse and you will see why I prefer simplicity.</p>
+<p>There is an alternative pipeline package in R called makepipe and I have been experimenting with using it as an alternative to targets.</p>
+<p>The choice between targets and makepipe is largely subjective, but let’s consider some cold facts. The contents of the makepipe reference manual lists its 7 functions, while the contents of the targets reference manual lists 110 functions. There are also spin-off packages called tarchetypes (55 functions), stantargets (18 functions) and jagstargets (7 functions).</p>
+<p>I have no doubt that targets is better than makepipe, but can I be bothered to use targets when makepipe meets most of my needs?</p>
+<p>My feeling is that the designers of targets have got carried away with their own good idea. There is just so much that targets could do and the designers have fallen into the trap of trying to do it all. Maybe, tidymodels has gone down the same path.</p>
+<p>There are two ways to redesign such a large package that would make it palatable to the user, either provide a few essential tools in a form that the user can adapt to meet their individual needs, or break the functionality into small chunks so that there is a simple basic package and optional add-ons for more specialised tasks. I prefer the tools approach, though I acknowledge that it is much more difficult for the package designer.</p>
+<p>It seems that yet another blog post is needed. I have already written two posts on targets. I’ll write one on creating pipelines with makepipe, so that the pros and cons are more obvious. It will also give me a chance to discuss my current thoughts on modularisation and documentation.</p>
+<p>Not quite the post that I had in mind when I started. Instead, I’ve left myself with unresolved issues that I will need to address in future posts. Specifically,<br />
+- archiving files with my fileArchive package<br />
+- my approach to teaching Git and GitHub<br />
+- creating a pipeline with makepipe</p>
+</div>
