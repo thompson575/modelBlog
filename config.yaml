@@ -4,7 +4,7 @@ defaultContentLanguage: en
 title: Modelling with R
 theme: cayman-hugo-theme
 googleAnalytics: UA-123456789-1
-disqusShortname: John
+disqusShortname: 
 pygmentsCodefences: yes
 pygmentsStyle: pygments
 taxonomies:

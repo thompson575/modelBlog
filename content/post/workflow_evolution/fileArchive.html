@@ -1,0 +1,1290 @@
+---
+title: "The fileArchive Package"
+author: "John Thompson"
+date: "2023-04-12"
+layout: post
+tags:
+- archiving
+- fileArchive
+- simulation
+- gt
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+
+
+<div id="filearchive" class="section level2">
+<h2>fileArchive</h2>
+<p>In the post entitled ‘My Evolving Workflow’, I discussed various ways in which my data analysis workflow has changed since I started this blog in 2021. It this post, I elaborate on one of those changes namely the way in which I now archive files of results.</p>
+<p><code>fileArchive</code> is my own package for archiving files. It fits well with my current workflow, but I have made no attempt to extend it to have wider use. If it also fits your needs, then use it, but be aware of its limitations. It is available on GitHub at <a href="https://github.com/thompson575/fileArchive" class="uri">https://github.com/thompson575/fileArchive</a>.</p>
+<p>The package is defined as much by what it is does not do as by what it does. Here are some classic archiving features that fileArchive does not have</p>
+<ul>
+<li>Files only: the package operates on pre-existing files, it has no functions for saving R objects in files or for reading the archived files. Such functions already exist in other packages.<br />
+</li>
+<li>Simplicity: the package does not duplicate features that the user could easily implement in base R or the tidyverse, such as reading or searching the index.<br />
+</li>
+<li>No built-in protection. The user has full access to the index and contents of the archive, so it would be easy to corrupt everything.<br />
+</li>
+<li>Single user: there is no lock on the index that would stop two users from attempting to modify it at the same time, so fileArchive is only suitable for a single user and index changes should not be parallelised.</li>
+</ul>
+<p>What fileArchive will do,</p>
+<ul>
+<li>create an archive<br />
+</li>
+<li>add, replace and remove files from the archive<br />
+</li>
+<li>update the tag that enables searching of the archive<br />
+</li>
+<li>ensure that there are no filename clashes<br />
+</li>
+<li>check the integrity of the archive<br />
+</li>
+<li>maintain the index of the contents of the archive<br />
+</li>
+<li>keep a record of all archive transactions in a text file called history.txt</li>
+</ul>
+<p>It might seem that the archive is too basic to be useful, but in fact it fits well with my needs. My style involves saving intermediate and final results in rds files in a cache folder. At the end of the computation, I copy selected cached files into my archive. In this way the computation can be performed in parallel, while the archiving remains a single process that does not need a lock on the index.</p>
+</div>
+<div id="illustration" class="section level2">
+<h2>Illustration</h2>
+<p>I have chosen a small simulation study to illustrate the way in which I use fileArchive. The simulation is based on a paper that appeared in the International Journal of Epidemiology in 2008.</p>
+<p>Edwin P Martens, Wiebe R Pestman, Anthonius de Boer, Svetlana V Belitser, Olaf H Klungel<br />
+<strong>Simulation after Systematic differences in treatment effect estimates between propensity score methods and logistic regression</strong><br />
+<em>International Journal of Epidemiology</em>, Volume 37, Issue 5, October 2008, Pages 1142–1147<br />
+<a href="https://doi-org.ezproxy3.lib.le.ac.uk/10.1093/ije/dyn079" class="uri">https://doi-org.ezproxy3.lib.le.ac.uk/10.1093/ije/dyn079</a></p>
+<p>My main reason for selecting this paper for the illustration is its relative simplicity, which makes it easier to explain. Briefly, the paper discussed the difference between odds ratio estimates obtained by logistic regression and by propensity score adjustment, showing that under some conditions the estimates from logistic regression are systematically higher.</p>
+<p>Table 1 from the paper shows some simulated results, which I will reproduce.</p>
+<p><strong>Table 1 Summary measures of the ratio of adjusted odds ratios of treatment effect in LReg compared with PS analysis in 1000 samples</strong></p>
+<table style="width:100%;">
+<colgroup>
+<col width="26%" />
+<col width="17%" />
+<col width="17%" />
+<col width="17%" />
+<col width="19%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th align="left"></th>
+<th align="right">n = 200</th>
+<th align="right">n = 400</th>
+<th align="right">n = 800</th>
+<th align="right">n = 1600</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left">Mean</td>
+<td align="right">1.102</td>
+<td align="right">1.087</td>
+<td align="right">1.085</td>
+<td align="right">1.082</td>
+</tr>
+<tr class="even">
+<td align="left">Median</td>
+<td align="right">1.094</td>
+<td align="right">1.081</td>
+<td align="right">1.082</td>
+<td align="right">1.082</td>
+</tr>
+<tr class="odd">
+<td align="left">Standard deviation</td>
+<td align="right">0.096</td>
+<td align="right">0.055</td>
+<td align="right">0.038</td>
+<td align="right">0.030</td>
+</tr>
+<tr class="even">
+<td align="left">Fraction &gt; 1</td>
+<td align="right">0.887</td>
+<td align="right">0.970</td>
+<td align="right">0.994</td>
+<td align="right">0.999</td>
+</tr>
+</tbody>
+</table>
+<p>The odds ratio estimate from a logistic regression model, <span class="math inline">\(OR_{reg}\)</span>, was compared with the odds ratio estimate from a propensity score analysis, $OR_{ps}, by taking the ratio <span class="math inline">\(r = OR_{reg} / OR_{ps}\)</span>. When the estimates were calculated on 1000 samples of size 200, this ratio averaged 1.102, showing that the logistic regression estimates were systematically higher.</p>
+<p>The simulation used to create Table 1 was based on a binary outcome, y, and a binary treatment variable, t. Over the population, t=1 in 50% of people and y=1 in 30%. There were also 5 covariates</p>
+<p><span class="math display">\[
+x_i \sim \text{N}( 0.5, \text{sd}=0.4) \ \ \ i=1,\dots,5
+\]</span></p>
+<p>The logit probability of the treatment was related to the covariates by the equation
+<span class="math display">\[
+logit(t_i) = \alpha_0 + \sum_{i=1}^5\alpha_i x_i
+\]</span>
+although in the simulation for Table 1 all <span class="math inline">\(\alpha_i\)</span> were zero, so treatment did not depend on the covariates. <span class="math inline">\(\alpha_0\)</span> was fixed to ensure 50% with t=1 in the population.</p>
+<p>The logit probability of a positive outcome was related to the treatment and covariates by the equation,
+<span class="math display">\[
+logit(y_i) = \beta_0 + \beta t_i + \sum_{i=1}^5\beta_i x_i
+\]</span>
+where <span class="math inline">\(\beta\)</span>=log(2.5), each of the <span class="math inline">\(\beta_i\)</span>=log(2) and <span class="math inline">\(\beta_0\)</span> was fixed to ensure 30% positive outcomes in the population.</p>
+<p>Since the treatment does not depend on the covariates, there is no confounding in Table 1.</p>
+<p>The logistic regression model followed this exact same form, but of course estimated the coefficients from the simulated data. The propensity score analysis fitted the logistic regression model for <span class="math inline">\(t_i\)</span> on the covariates and then divided the subjects in 5 strata based on the quintiles of there estimated probability of a positive treatment, i.e. the propensity score. Of course, in Table 1, treatment does not depend on the covariates and so these strata are effectively assigned randomly. A Mantel-Haenszal analysis across the 5 strata provides the propensity score adjusted estimate of the odds ratio.</p>
+</div>
+<div id="simulation" class="section level2">
+<h2>Simulation</h2>
+<p>To code this simulation, I first packed the chosen coefficients into a list</p>
+<pre class="r"><code>coef &lt;- list(
+  n     = 200,
+  at    = rep(0, 5),
+  by    = rep(log(2), 5),
+  beta  = log(2.5),
+  py    = 0.3,
+  pt    = 0.5,
+  mu    = rep(0.5, 5),
+  sd    = rep(0.4, 5)
+)</code></pre>
+<p>Then I wrote a function that would simulate a single sample given these coefficients plus a seed to ensure reproducibility.</p>
+<pre class="r"><code>sim_sample &lt;- function(coef, seed) {
+
+  # --- seed for reproducibility
+  set.seed(seed)
+  # --- unpack coefficients
+  n &lt;- coef$n
+  p &lt;- length(coef$by)
+  a0 &lt;- log(coef$pt/(1-coef$pt)) - sum(coef$at*coef$mu)
+  b0 &lt;- log(coef$py/(1-coef$py)) - coef$beta*coef$pt -
+    sum(coef$by*coef$mu)
+  # --- matrix to hold the covariates
+  X &lt;- matrix(0, nrow=n, ncol=p,
+              dimnames=list(NULL, paste0(&quot;x&quot;, 1:p)))
+  # --- simulate covariates &amp; logit P(t) &amp; logit P(y)
+  zt &lt;- rep(a0, n)
+  zy &lt;- rep(b0, n)
+  for( j in 1:p ) {
+    X[, j] &lt;- rnorm(n, coef$mu[j], coef$sd[j])
+    zt &lt;- zt + coef$at[j]*X[, j]
+    zy &lt;- zy + coef$by[j]*X[, j]
+  }
+  # --- simulate T and Y
+  pt &lt;- 1 / (1 + exp(-zt))
+  t  &lt;- rbinom(n, 1, pt)
+  zy &lt;- zy + coef$beta*t
+  py &lt;- 1 / (1 + exp(-zy))
+  y  &lt;- rbinom(n, 1, py)
+
+  # --- return simulated sample as a tibble
+  return(as_tibble(cbind(y, t, X)))
+}</code></pre>
+<p>Next I prepared a function that would calculate three estimates of the log odds ratio and their standard errors<br />
+- logistic regression unadjusted for covariates<br />
+- logistic regression adjusted for covariates<br />
+- Mantel-Haenszel with 5 propensity score strata</p>
+<pre class="r"><code>fit_models &lt;- function(thisDF) {
+
+  # --- unadjusted model
+  mod &lt;- glm( y ~ t, family=binomial(), data=thisDF)
+  tab &lt;- coef(summary(mod))
+  est1 &lt;- c( tab[2,1], tab[2,2])
+
+
+  # --- adjusted model
+  mod &lt;- glm( y ~ t + x1 + x2 + x3 + x4 + x5,
+              family=binomial(), data=thisDF)
+  tab &lt;- coef(summary(mod))
+  est2 &lt;- c( tab[2,1], tab[2,2])
+
+  # -- propensity score
+  mod &lt;- glm( t ~ x1 + x2 + x3 + x4 + x5,
+              family=binomial(), data=thisDF)
+
+  # --- Mantel-Haenszel Analysis
+  thisDF %&gt;%
+    mutate( phat = predict(mod, type=&quot;response&quot;),
+            set  = cut(phat,
+                       breaks=quantile(phat,
+                                       probs=seq(0, 1, 0.2)),
+                       include.lowest=TRUE, labels=1:5) ) %&gt;%
+    { table( .$y, .$t, .$set) } %&gt;%
+    mantelhaen.test() -&gt; mh
+  # --- extract estimate and st error
+  est3 &lt;- c(log(as.numeric(mh$estimate)),
+            (log(mh$conf.int[2]) - log(mh$conf.int[1])) /
+              (2 * qnorm(0.975)))
+
+  return( c( est1, est2, est3 ) )
+}</code></pre>
+<p>To run the simulation nsim times, I used the function sim_or.</p>
+<pre class="r"><code>sim_or &lt;- function(nsim, coef) {
+  # --- create seeds for reproducibility
+  seeds &lt;- sample(1:20000, size=nsim, replace=FALSE)
+  # --- matrix to hold the results
+  sims &lt;- matrix(0, nrow=nsim, ncol=6)
+  colnames(sims) &lt;- c(&quot;lor1&quot;, &quot;se1&quot;, &quot;lor2&quot;, 
+                      &quot;se2&quot;, &quot;lor3&quot;, &quot;se3&quot;)
+  # --- run nsim simulations
+  for( i in 1:nsim ) {
+    df        &lt;- sim_sample(coef, seeds[i])
+    sims[i, ] &lt;- fit_models(df)
+  }
+  mutate(as_tibble(sims), seed = seeds )
+}</code></pre>
+<p>Each simulated sample has its own randomly generated seed, which may seem excessive, but it does mean that I can easily regenerate any sample should one of the simulations give an unexpected result.</p>
+</div>
+<div id="archiving" class="section level2">
+<h2>Archiving</h2>
+<p>The point of this example is to illustrate how I archive results. The code below creates a new archive and then runs sim_or for four different sample sizes creating four files of results that are copied into that archive. The name and tag will help me recognise the file contents.</p>
+<pre class="r"><code>library(tidyverse)
+library(fileArchive)
+library(fs)
+
+cache   &lt;- &quot;C:/Projects/RDevelopment/fileArchive/temp/cache&quot;
+archive &lt;- &quot;C:/Projects/RDevelopment/fileArchive/temp/archive&quot;
+
+# --- create an empty archive
+createArchive(archive)
+
+# --- simulate for different sample sizes
+set.seed(2879)
+for( n in c(200, 400, 800, 1600)) {
+  coef$n &lt;- n
+  # --- save set of simulations in cache
+  saveRDS( list(coef = coef, simDF = sim_or(5000, coef)),
+           path(cache, &quot;martens.rds&quot;))
+  # --- copy simulations to the archive
+  copyToArchive(path = archive,
+                file = path(cache, &quot;martens.rds&quot;),
+                name = paste0(&quot;sims_&quot;,n),
+                tag  = &quot;no confounding&quot;)
+}</code></pre>
+<p>The four files corresponding to the four sample sizes are each stored in the cache under the name martens.rds, but when copied to the archive the names are changed to avoid over-writing the previous version.</p>
+<p>The index of the archive shows the name changes</p>
+<pre class="r"><code>readRDS(path(archive, &quot;index.rds&quot;))</code></pre>
+<pre><code>##   id      name            tag       filename            datetime
+## 1  1  sims_200 no confounding    martens.rds 2023-04-26 17:50:58
+## 2  2  sims_400 no confounding martens_v1.rds 2023-04-26 17:51:30
+## 3  3  sims_800 no confounding martens_v2.rds 2023-04-26 17:52:14
+## 4  4 sims_1600 no confounding martens_v3.rds 2023-04-26 17:53:23</code></pre>
+<p>and the history file records the transactions.</p>
+<pre class="r"><code>cat(paste(readLines(path(archive, &quot;history.txt&quot;)),&quot;\n&quot;))</code></pre>
+<pre><code>## Archive: C:/Projects/RDevelopment/fileArchive/temp/archive  
+##  Created: 2023-04-26 17:50:31  
+##   
+##  Addition: 
+##     id: 1  
+##     name: sims_200  
+##     tag: no confounding  
+##     filename: martens.rds  
+##     datetime: 2023-04-26 17:50:58  
+##   
+##  Addition: 
+##     id: 2  
+##     name: sims_400  
+##     tag: no confounding  
+##     filename: martens_v1.rds  
+##     datetime: 2023-04-26 17:51:30  
+##   
+##  Addition: 
+##     id: 3  
+##     name: sims_800  
+##     tag: no confounding  
+##     filename: martens_v2.rds  
+##     datetime: 2023-04-26 17:52:14  
+##   
+##  Addition: 
+##     id: 4  
+##     name: sims_1600  
+##     tag: no confounding  
+##     filename: martens_v3.rds  
+##     datetime: 2023-04-26 17:53:23</code></pre>
+</div>
+<div id="summarising-the-results" class="section level2">
+<h2>Summarising the results</h2>
+<p>To reproduce the statistics in Table 1 of the paper, I need to search the index and identify the filename for the appropriate results, then the summary stats are calculated for that file. The resulting data frame needs to be transposed to create the same appearance as Table 1.</p>
+<pre class="r"><code># --- read the archive&#39;s index
+INDEX &lt;- readRDS(path(archive, &quot;index.rds&quot;))
+# --- empty data frame for the stats
+df &lt;- NULL
+# --- for each sample size
+for( n in c(200, 400, 800, 1600)) {
+  # --- locate the row of the required file in the index
+  i &lt;- which(INDEX$tag  == &quot;no confounding&quot; &amp;
+             INDEX$name == paste0(&quot;sims_&quot;, n))
+  # --- read the file and calculate stats
+  readRDS(path(archive, INDEX$filename[i]))$simDF |&gt;
+    mutate( ratio = exp(lor2) / exp(lor3)) |&gt;
+    summarise( m  = mean(ratio),
+               md = median(ratio),
+               s  = sd(ratio),
+               f  = sum(ratio&gt;1)/5000) |&gt;
+    mutate(n = n ) -&gt; stats
+  # --- add to the df
+  df &lt;- rbind(df, stats )
+}
+
+# --- transpose df and rename stats
+df |&gt;
+  pivot_longer(m:f, names_to = &quot;stat&quot;, values_to = &quot;value&quot;) |&gt;
+  pivot_wider(names_from = n, values_from = value) |&gt;
+  mutate( stat = c(&quot;Mean&quot;,
+                   &quot;Median&quot;,
+                   &quot;Standard deviation&quot;,
+                   &quot;Fraction &gt; 1&quot;) ) |&gt;
+  print() -&gt; df</code></pre>
+<pre><code>## # A tibble: 4 × 5
+##   stat                `200`  `400`  `800` `1600`
+##   &lt;chr&gt;               &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;
+## 1 Mean               1.09   1.07   1.06   1.06  
+## 2 Median             1.08   1.07   1.06   1.06  
+## 3 Standard deviation 0.0863 0.0497 0.0305 0.0216
+## 4 Fraction &gt; 1       0.888  0.950  0.988  0.999</code></pre>
+<p>The gt package can be used to create a prettier display</p>
+<pre class="r"><code>df |&gt;
+  gt() |&gt;
+  tab_caption(&quot;Summary measures of the ratio of adjusted odds
+             ratios of treatment effect in LReg compared with PS
+             analysis in 5000 samples (after Martens 2008)&quot;) |&gt;
+  fmt_number(columns=2:5, decimals=3) |&gt;
+  cols_label( stat   = &quot;&quot;,
+              `200`  = &quot;n = 200&quot;,
+              `400`  = &quot;n = 400&quot;,
+              `800`  = &quot;n = 800&quot;,
+              `1600` = &quot;n = 1600&quot;) |&gt;
+  tab_style(
+    style = list(&quot;padding-left:40px;&quot;,
+                 cell_text(weight = &quot;bold&quot;),
+                 cell_fill(color = &quot;#e8e4da&quot;)),
+    locations = cells_column_labels()
+  )</code></pre>
+<div id="enoylmzwuz" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>html {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', 'Fira Sans', 'Droid Sans', Arial, sans-serif;
+}
+
+#enoylmzwuz .gt_table {
+  display: table;
+  border-collapse: collapse;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#enoylmzwuz .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#enoylmzwuz .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#enoylmzwuz .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#enoylmzwuz .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 0;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#enoylmzwuz .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#enoylmzwuz .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#enoylmzwuz .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#enoylmzwuz .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#enoylmzwuz .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#enoylmzwuz .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#enoylmzwuz .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#enoylmzwuz .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#enoylmzwuz .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#enoylmzwuz .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#enoylmzwuz .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#enoylmzwuz .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#enoylmzwuz .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#enoylmzwuz .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#enoylmzwuz .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#enoylmzwuz .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#enoylmzwuz .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#enoylmzwuz .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#enoylmzwuz .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#enoylmzwuz .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#enoylmzwuz .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#enoylmzwuz .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#enoylmzwuz .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#enoylmzwuz .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#enoylmzwuz .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-left: 4px;
+  padding-right: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#enoylmzwuz .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#enoylmzwuz .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#enoylmzwuz .gt_left {
+  text-align: left;
+}
+
+#enoylmzwuz .gt_center {
+  text-align: center;
+}
+
+#enoylmzwuz .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#enoylmzwuz .gt_font_normal {
+  font-weight: normal;
+}
+
+#enoylmzwuz .gt_font_bold {
+  font-weight: bold;
+}
+
+#enoylmzwuz .gt_font_italic {
+  font-style: italic;
+}
+
+#enoylmzwuz .gt_super {
+  font-size: 65%;
+}
+
+#enoylmzwuz .gt_footnote_marks {
+  font-style: italic;
+  font-weight: normal;
+  font-size: 75%;
+  vertical-align: 0.4em;
+}
+
+#enoylmzwuz .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#enoylmzwuz .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#enoylmzwuz .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#enoylmzwuz .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#enoylmzwuz .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#enoylmzwuz .gt_indent_5 {
+  text-indent: 25px;
+}
+</style>
+<table class="gt_table">
+  <caption><span id="tab:unnamed-chunk-11">Table 1: </span>Summary measures of the ratio of adjusted odds
+             ratios of treatment effect in LReg compared with PS
+             analysis in 5000 samples (after Martens 2008)</caption>
+  
+  <thead class="gt_col_headings">
+    <tr>
+      <th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="1" colspan="1" style="padding-left:40px; font-weight: bold; background-color: #E8E4DA;" scope="col" id=""></th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="padding-left:40px; font-weight: bold; background-color: #E8E4DA;" scope="col" id="n = 200">n = 200</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="padding-left:40px; font-weight: bold; background-color: #E8E4DA;" scope="col" id="n = 400">n = 400</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="padding-left:40px; font-weight: bold; background-color: #E8E4DA;" scope="col" id="n = 800">n = 800</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="padding-left:40px; font-weight: bold; background-color: #E8E4DA;" scope="col" id="n = 1600">n = 1600</th>
+    </tr>
+  </thead>
+  <tbody class="gt_table_body">
+    <tr><td headers="stat" class="gt_row gt_left">Mean</td>
+<td headers="200" class="gt_row gt_right">1.091</td>
+<td headers="400" class="gt_row gt_right">1.072</td>
+<td headers="800" class="gt_row gt_right">1.064</td>
+<td headers="1600" class="gt_row gt_right">1.060</td></tr>
+    <tr><td headers="stat" class="gt_row gt_left">Median</td>
+<td headers="200" class="gt_row gt_right">1.081</td>
+<td headers="400" class="gt_row gt_right">1.068</td>
+<td headers="800" class="gt_row gt_right">1.062</td>
+<td headers="1600" class="gt_row gt_right">1.060</td></tr>
+    <tr><td headers="stat" class="gt_row gt_left">Standard deviation</td>
+<td headers="200" class="gt_row gt_right">0.086</td>
+<td headers="400" class="gt_row gt_right">0.050</td>
+<td headers="800" class="gt_row gt_right">0.030</td>
+<td headers="1600" class="gt_row gt_right">0.022</td></tr>
+    <tr><td headers="stat" class="gt_row gt_left">Fraction &gt; 1</td>
+<td headers="200" class="gt_row gt_right">0.888</td>
+<td headers="400" class="gt_row gt_right">0.950</td>
+<td headers="800" class="gt_row gt_right">0.988</td>
+<td headers="1600" class="gt_row gt_right">0.999</td></tr>
+  </tbody>
+  
+  
+</table>
+</div>
+<p>The results are reassuringly close to those given in the paper. The practical significance of those results is less obvious. The simulation has reproduced a scenario in which there is no confounding, but has employed two methods, logistic regression and the propensity score that are intended to adjust for confounding. At least, the outcome that is modelled by the logistic regression does depend on the covariates.</p>
+<p>Perhaps, it would have been better to look at the properties of the different estimators. In Table 2 I present the bias and root mean square error (rmse) of the three estimators of the log odds ratio namely, the unadjusted logistic regression, the adjusted logistic regression and the propensity score. The code is similar to that for generating Table 1, so I have omitted it.</p>
+<div id="roxosvcqpa" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>html {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', 'Fira Sans', 'Droid Sans', Arial, sans-serif;
+}
+
+#roxosvcqpa .gt_table {
+  display: table;
+  border-collapse: collapse;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#roxosvcqpa .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#roxosvcqpa .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#roxosvcqpa .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#roxosvcqpa .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 0;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#roxosvcqpa .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#roxosvcqpa .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#roxosvcqpa .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#roxosvcqpa .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#roxosvcqpa .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#roxosvcqpa .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#roxosvcqpa .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#roxosvcqpa .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#roxosvcqpa .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#roxosvcqpa .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#roxosvcqpa .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#roxosvcqpa .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#roxosvcqpa .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#roxosvcqpa .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#roxosvcqpa .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#roxosvcqpa .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#roxosvcqpa .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#roxosvcqpa .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#roxosvcqpa .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#roxosvcqpa .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#roxosvcqpa .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#roxosvcqpa .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#roxosvcqpa .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#roxosvcqpa .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#roxosvcqpa .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-left: 4px;
+  padding-right: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#roxosvcqpa .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#roxosvcqpa .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#roxosvcqpa .gt_left {
+  text-align: left;
+}
+
+#roxosvcqpa .gt_center {
+  text-align: center;
+}
+
+#roxosvcqpa .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#roxosvcqpa .gt_font_normal {
+  font-weight: normal;
+}
+
+#roxosvcqpa .gt_font_bold {
+  font-weight: bold;
+}
+
+#roxosvcqpa .gt_font_italic {
+  font-style: italic;
+}
+
+#roxosvcqpa .gt_super {
+  font-size: 65%;
+}
+
+#roxosvcqpa .gt_footnote_marks {
+  font-style: italic;
+  font-weight: normal;
+  font-size: 75%;
+  vertical-align: 0.4em;
+}
+
+#roxosvcqpa .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#roxosvcqpa .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#roxosvcqpa .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#roxosvcqpa .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#roxosvcqpa .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#roxosvcqpa .gt_indent_5 {
+  text-indent: 25px;
+}
+</style>
+<table class="gt_table">
+  <caption><span id="tab:unnamed-chunk-12">Table 2: </span>Properties of the log Odds Ratio estimators</caption>
+  
+  <thead class="gt_col_headings">
+    <tr>
+      <th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="2" colspan="1" style="font-weight: bold; background-color: #E8E4DA;" scope="col" id=""></th>
+      <th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" style="font-weight: bold; background-color: #E8E4DA;" scope="colgroup" id="n = 200">
+        <span class="gt_column_spanner">n = 200</span>
+      </th>
+      <th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" style="font-weight: bold; background-color: #E8E4DA;" scope="colgroup" id="n = 400">
+        <span class="gt_column_spanner">n = 400</span>
+      </th>
+      <th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" style="font-weight: bold; background-color: #E8E4DA;" scope="colgroup" id="n = 800">
+        <span class="gt_column_spanner">n = 800</span>
+      </th>
+      <th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" style="font-weight: bold; background-color: #E8E4DA;" scope="colgroup" id="n = 1600">
+        <span class="gt_column_spanner">n = 1600</span>
+      </th>
+    </tr>
+    <tr>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="font-weight: bold; background-color: #E8E4DA;" scope="col" id="bias">bias</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="font-weight: bold; background-color: #E8E4DA;" scope="col" id="rmse">rmse</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="font-weight: bold; background-color: #E8E4DA;" scope="col" id="bias">bias</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="font-weight: bold; background-color: #E8E4DA;" scope="col" id="rmse">rmse</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="font-weight: bold; background-color: #E8E4DA;" scope="col" id="bias">bias</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="font-weight: bold; background-color: #E8E4DA;" scope="col" id="rmse">rmse</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="font-weight: bold; background-color: #E8E4DA;" scope="col" id="bias">bias</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="font-weight: bold; background-color: #E8E4DA;" scope="col" id="rmse">rmse</th>
+    </tr>
+  </thead>
+  <tbody class="gt_table_body">
+    <tr><td headers="method" class="gt_row gt_left">unadjusted LR</td>
+<td headers="bias_200" class="gt_row gt_right">−0.055</td>
+<td headers="rmse_200" class="gt_row gt_right">0.322</td>
+<td headers="bias_400" class="gt_row gt_right">−0.059</td>
+<td headers="rmse_400" class="gt_row gt_right">0.230</td>
+<td headers="bias_800" class="gt_row gt_right">−0.067</td>
+<td headers="rmse_800" class="gt_row gt_right">0.171</td>
+<td headers="bias_1600" class="gt_row gt_right">−0.064</td>
+<td headers="rmse_1600" class="gt_row gt_right">0.129</td></tr>
+    <tr><td headers="method" class="gt_row gt_left">adjusted LR</td>
+<td headers="bias_200" class="gt_row gt_right">0.041</td>
+<td headers="rmse_200" class="gt_row gt_right">0.349</td>
+<td headers="bias_400" class="gt_row gt_right">0.021</td>
+<td headers="rmse_400" class="gt_row gt_right">0.239</td>
+<td headers="bias_800" class="gt_row gt_right">0.006</td>
+<td headers="rmse_800" class="gt_row gt_right">0.165</td>
+<td headers="bias_1600" class="gt_row gt_right">0.006</td>
+<td headers="rmse_1600" class="gt_row gt_right">0.116</td></tr>
+    <tr><td headers="method" class="gt_row gt_left">propensity</td>
+<td headers="bias_200" class="gt_row gt_right">−0.043</td>
+<td headers="rmse_200" class="gt_row gt_right">0.321</td>
+<td headers="bias_400" class="gt_row gt_right">−0.048</td>
+<td headers="rmse_400" class="gt_row gt_right">0.225</td>
+<td headers="bias_800" class="gt_row gt_right">−0.055</td>
+<td headers="rmse_800" class="gt_row gt_right">0.164</td>
+<td headers="bias_1600" class="gt_row gt_right">−0.052</td>
+<td headers="rmse_1600" class="gt_row gt_right">0.121</td></tr>
+  </tbody>
+  
+  
+</table>
+</div>
+<p>The results for the unadjusted logistic regression and the propensity score are similar as one might expect. The propensity score is based on covariates unrelated to treatment, so effective the patients are stratified at random meaning that the Mantel-Haenszel analysis is similar to the analysis of a single 2x2 table and the unadjusted logistic regression is mathematically equivalent to the analysis of a 2x2 table.</p>
+<p>The bias in the adjusted logistic regression does reduce with increasing sample size, but the rmse is much the same as that for the propensity score.</p>
+</div>
+<div id="alternative-methods-of-archiving" class="section level2">
+<h2>Alternative methods of Archiving</h2>
+<p>There are three R packages that could be used as an alternative to fileArchive, they are <code>archive</code>, <code>archivist</code> and <code>repo</code>. I found that none of them quite fitted my workflow.</p>
+<p>The archive package creates compressed archives in a variety of different formats, think a Zip file. There is no index and no history of transactions so you need to know in advance the name of the file that you need. The package has its uses, for instance it would be perfect for sending a set of files to a colleague, but it not intended as a general archiving package.</p>
+<p>The archivist package is very well-developed, but I found that I became irritated with two aspects of its design that didn’t quite fit with my needs. First, it archives R objects rather than files, a problem if sometimes you want to save things that are not R objects. Second, it uses long hash codes to identify the files, more professional but unnecessarily complex for my work.</p>
+<p>The repo package is perhaps closest to being an option for my workflow and indeed I did use it for a while before writing fileArchive. Repo also saves R objects, but has the option to save files directly. My only quibbles with repo are very minor. It is written as object orientated code, which does not fit with my normal coding style and which only gives access to the metadata on the archive via the methods provided by the package. Hiding the equivalent of the archive index is a sound design decision, it protects the user from accidentally corrupting everything, but it places the user at arms length from their data. I prefer to take responsibility for my own mistakes.</p>
+<p>I use fileArchive because it is simple and it leaves me in control.</p>
+</div>
