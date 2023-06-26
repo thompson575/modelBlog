@@ -1,0 +1,261 @@
+---
+title: "makepipe vs targets"
+author: "John Thompson"
+date: "2023-06-22"
+layout: post
+tags:
+- makepipe
+- targets  
+- workflow  
+- cache
+- archive
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+
+
+<div id="workflow-management" class="section level2">
+<h2>Workflow management</h2>
+<p>Makefiles are a way of controlling large programming projects. Complex software is typically organised into multiple files of code. Each file requires compilation before the object files are linked together with pre-compiled libraries to create the final executable. When a change is made to one section of the code, it is important to recompile everything affected by that change, but not the code files that are unaffected. A makefile contains a list of all of the code files and libraries together with a set of rules that determine when re-compilation will be needed.</p>
+<p>The extension of the idea of a makefile to data analysis is obvious. A data analysis workflow typically involves a complex chain of steps, reading data, preprocessing, fitting models, visualisations, making predictions and so on. A change to one step will necessitate re-running some, but probably not all of the other steps. Manual control of the workflow of a complex analysis would be very error prone, so an R package that does that job would be a really useful tool.</p>
+<p>A data analysis makefile also helps enormously with reproducibility. It provides a single script that controls the entire workflow. Run it and you can be sure that every aspect of your analysis is up to date.</p>
+<p>As soon as you acknowledge the benefits of makefiles in data science, you will think of more and more things that a workflow management package could do. Perhaps, it could derive the rules for deciding what to re-run, or maybe it could automatically cache intermediate results so as to avoid unnecessary computation. It might provided a visual display of the steps in the analysis and how they depended on one another and it could determine when some parts of the analysis could be run in parallel. I am sure that you will be able to think of other bells and whistles appropriate to the type of data analyses that you work on.</p>
+</div>
+<div id="the-8020-rule" class="section level2">
+<h2>The 80/20 rule</h2>
+<p>You have a choice, you can either work for five weeks and develop a model with 100% performance on some key metric, or you can stop after one week with a model that gives 80% performance. Which would you pick?</p>
+<p>This choice is an example of the widely observed 80/20 rule. You get about 80% of the performance from the first 20% of the effort after which squeezing out the final drops of performance is really hard work.</p>
+<p>Of course, the option that you choose will depend on the particular circumstances, do you have the extra time? how important is the extra performance? Accepting that, my inclination is that the simpler solution is usually better, especially when tackling real world, as opposed to academic, problems.</p>
+<p>In this post, I want to compare two R package for data analysis workflow management. <code>targets</code> does almost everything that you could ever want, but it is complex and it takes a real effort to learn to use it properly. The other package, <code>makefile</code>, only offers basic workflow management, but it is ultra simple and easy to use. You will not be surprised that my instincts are to prefer the simpler option.</p>
+</div>
+<div id="a-simple-example" class="section level2">
+<h2>A simple example</h2>
+<p>A good source of straightforward test problems is kaggle’s playground series (<a href="https://www.kaggle.com/competitions?hostSegmentIdFilter=8" class="uri">https://www.kaggle.com/competitions?hostSegmentIdFilter=8</a>). Released about two weeks apart, these tabular datasets offer the chance to try out different modelling techniques and to test their performance against the efforts of other kagglers via the leaderboard. At the time of writing, the playground problem involves a hypothetical dataset simulated to resemble data on crab size and weight. The objective is to develop a model that uses size and weight to predict the crab’s age.</p>
+<p>My analysis of these data is designed to illustrate workflow management rather than to win the kaggle competition, so I limit myself to the following ten steps</p>
+<ol style="list-style-type: decimal">
+<li>R: read the data<br />
+</li>
+<li>rmd: EDA of the training data<br />
+</li>
+<li>R: clean the data<br />
+</li>
+<li>rmd: EDA of the clean data<br />
+</li>
+<li>R: model crab age with xgboost<br />
+</li>
+<li>R: model crab age with MARS<br />
+</li>
+<li>R: use cross-validation to compare xgboost and MARS<br />
+</li>
+<li>rmd: report a comparison of models<br />
+</li>
+<li>R: clean the test data<br />
+</li>
+<li>R: prepare a submission</li>
+</ol>
+<p>I’ll compare <code>makepipe</code> with <code>targets</code> as vehicles for organising this workflow. I’ve talked at length and quite favourably about <code>targets</code> in two previous posts, <a href="https://modelling-with-r.netlify.app/targets_package/" class="uri">https://modelling-with-r.netlify.app/targets_package/</a> and <a href="https://modelling-with-r.netlify.app/targets_example/" class="uri">https://modelling-with-r.netlify.app/targets_example/</a>, so I will spend most of the time in this post on <code>makepipe</code>.</p>
+</div>
+<div id="makepipe" class="section level2">
+<h2>makepipe</h2>
+<p><code>makepipe</code> is <strong>file-based</strong> so the ten steps in my analysis will require ten files, seven R scripts and three rmarkdown files. Added to these will be the <code>pipeline.R</code> file itself that takes overall control of the analysis.</p>
+<p>Here is my <code>pipeline.R</code> file. Notice that each of the seven R scripts is called by the <code>make_with_source()</code> function and each rmarkdown report is called using the <code>make_with_recipe()</code> function. <code>make_with_recipe()</code> can be used to run any single line of R code. Both functions require the user to specify <strong>dependencies</strong> i.e. the inputs to that step of the analysis and <strong>targets</strong> i.e. the outputs produced by that step.</p>
+<pre class="r"><code># --------------------------------------------------
+# Pipeline for the crab age project
+#
+library(makepipe)
+library(fs)
+
+# --- folders --------------------------------------
+cache   &lt;- &quot;C:/Projects/Kaggle/Playground/crab/data/cache&quot;
+rawData &lt;- &quot;C:/Projects/Kaggle/Playground/crab/data/rawData&quot;
+code    &lt;- &quot;C:/Projects/Kaggle/Playground/crab/code&quot;
+reports &lt;- &quot;C:/Projects/Kaggle/Playground/crab/reports&quot;
+
+# --- step 1: Read the downloaded data -------------
+make_with_source (
+  source       = path(code,      &quot;step1_read_data.R&quot;),
+  dependencies = c(path(rawData, &quot;train.csv&quot;),
+                   path(rawData, &quot;test.csv&quot;),
+                   path(rawData, &quot;sample_submission.csv&quot;)),
+  targets      = c(path(cache,   &quot;train.rds&quot;),
+                   path(cache,   &quot;test.rds&quot;),
+                   path(cache,   &quot;submission.rds&quot;)) )
+# --- step 2: EDA report ---------------------------
+make_with_recipe (
+  recipe       = rmarkdown::render(path(reports, &quot;step2_crab_eda.Rmd&quot;)),
+  dependencies = path(cache,   &quot;train.rds&quot;),
+  targets      = path(reports, &quot;step2_crab_eda.html&quot;))
+# --- step 3: clean training data -------------------
+make_with_source (
+  source       = path(code,  &quot;step3_cleaning.R&quot;),
+  dependencies = path(cache, &quot;train.rds&quot;),
+  targets      = path(cache, &quot;clean.rds&quot;))
+# --- step 4: EDA of clean data report --------------
+make_with_recipe (
+  recipe       = rmarkdown::render(path(reports, &quot;step4_clean_crab_eda.Rmd&quot;)),
+  dependencies = path(cache,   &quot;clean.rds&quot;),
+  targets      = path(reports, &quot;step4_clean_crab_eda.html&quot;))
+# --- step 5: xgboost model -------------------------
+make_with_source (
+  source       = path(code,    &quot;step5_xgboost.R&quot;),
+  dependencies = path(cache,   &quot;clean.rds&quot;),
+  targets      = c(path(cache, &quot;estimate.rds&quot;),
+                   path(cache, &quot;validate.rds&quot;),
+                   path(cache, &quot;xgboost.rds&quot;)) )
+# --- step 6: mars model ----------------------------
+make_with_source (
+  source       = path(code,  &quot;step6_mars.R&quot;),
+  dependencies = path(cache, &quot;estimate.rds&quot;),
+  targets      = path(cache, &quot;mars.rds&quot;) )
+# --- step 7: cross-validation ----------------------
+make_with_source (
+  source       = path(code,  &quot;step7_cross_validation.R&quot;),
+  dependencies = path(cache, &quot;clean.rds&quot;),
+  targets      = path(cache, &quot;cv_mae.rds&quot;) )
+# --- step 8: modelling report ---------------------
+make_with_recipe (
+  recipe       = rmarkdown::render(path(reports, &quot;step8_model_performance.Rmd&quot;)),
+  dependencies = c(path(cache, &quot;estimate.rds&quot;),
+                   path(cache, &quot;validate.rds&quot;),
+                   path(cache, &quot;xgboost.rds&quot;),
+                   path(cache, &quot;mars.rds&quot;),
+                   path(cache, &quot;cv_mae.rds&quot;)),
+  targets      = path(reports, &quot;step8_model_performance.html&quot;))
+# --- step 9: clean test data ---------------------
+make_with_source (
+  source       = path(code,    &quot;step9_clean_test_data.R&quot;),
+  dependencies = c(path(cache, &quot;train.rds&quot;),
+                   path(cache, &quot;test.rds&quot;)),
+  targets      = path(cache,   &quot;clean_test.rds&quot;) )
+# --- step 10: submission ------------------------
+make_with_source (
+  source       = path(code,    &quot;step10_submission.R&quot;),
+  dependencies = c(path(cache, &quot;clean.rds&quot;),
+                   path(cache, &quot;clean_test.rds&quot;)),
+  targets      = path(cache,   &quot;submission.csv&quot;) )</code></pre>
+<p>The objective here is concentrate on <code>makepipe</code> rather than the analysis, so I will not give details of all ten scripts. However, I have put them on my GitHub pages (<a href="https://github.com/thompson575/crab" class="uri">https://github.com/thompson575/crab</a>).</p>
+<p>When <code>pipeline.R</code> is run, the <code>makepipe</code> package will consider each <code>make_with_source()</code> or <code>make_with recipe()</code> in turn. In particular, it will consider the date-time stamps of the source code, the dependencies and the targets. If the targets are not more recent than the code and dependencies, then the step needs to re-run.</p>
+<p>The code below runs <code>pipeline.R</code> and finds that everything is up to date and so does not need re-running. It then plots a diagram of the workflow pipeline.</p>
+<pre class="r"><code>source(&quot;C:/Projects/Kaggle/Playground/crab/pipeline.R&quot;)</code></pre>
+<pre><code>## ✔ Targets are up to date
+## ✔ Targets are up to date
+## ✔ Targets are up to date
+## ✔ Targets are up to date
+## ✔ Targets are up to date
+## ✔ Targets are up to date
+## ✔ Targets are up to date
+## ✔ Targets are up to date
+## ✔ Targets are up to date
+## ✔ Targets are up to date</code></pre>
+<pre class="r"><code>show_pipeline()</code></pre>
+<p><img src="makepipe.png" /></p>
+<p>As an illustration of the way that I write my code, I will show the R script for reading the downloaded data and saving it in rds format. The input files are provided in csv format. Each one is read, converted to a tibble and saved to my cache. Then the rds files are copied to my archive for permanent storage (see <a href="https://modelling-with-r.netlify.app/filearchive/" class="uri">https://modelling-with-r.netlify.app/filearchive/</a>). In the <code>pipeline.R</code> file the three csv files are specified as dependencies and the three cached rds files are the targets. When <code>pipeline.R</code> is sourced, the date-times of the files determine whether the step needs re-running.</p>
+<p>This file is presented because it shows how <code>makepipe</code> dovetails neatly with my style and it also forms a baseline for the changes that I need to make to run <code>targets</code>.</p>
+<pre class="r"><code># --------------------------------------------------------------
+# Read the data files for the kaggle playground problem on
+# predicting crab age
+#
+library(tidyverse)
+library(fs)
+library(fileArchive)
+library(janitor)
+
+rawData &lt;- &quot;C:/Projects/Kaggle/Playground/crab/data/rawData&quot;
+cache   &lt;- &quot;C:/Projects/Kaggle/Playground/crab/data/cache&quot;
+archive &lt;- &quot;C:/Projects/Kaggle/Playground/crab/data/repos&quot;
+
+# --------------------------------------------------------------
+# Read training data, clean names and save in the archive
+#
+read.csv( path(rawData, &quot;train.csv&quot;)) |&gt;
+  clean_names(&quot;lower_camel&quot;) |&gt;
+  saveRDS( path(cache, &quot;train.rds&quot;))
+
+copyToArchive(archive, path(cache, &quot;train.rds&quot;),
+              name=&quot;train&quot;,
+              tag=&quot;crab training data&quot;,
+              replace=TRUE)
+
+# --------------------------------------------------------------
+# Read test data, clean names and save in the archive
+#
+read.csv( path(rawData, &quot;test.csv&quot;)) |&gt;
+  clean_names(&quot;lower_camel&quot;) |&gt;
+  saveRDS( path(cache, &quot;test.rds&quot;))
+
+copyToArchive(archive, path(cache, &quot;test.rds&quot;),
+              name=&quot;test&quot;,
+              tag=&quot;crab test data&quot;,
+              replace=TRUE)
+
+# --------------------------------------------------------------
+# Read sample submission and save in the archive
+#
+read.csv( path(rawData, &quot;sample_submission.csv&quot;)) |&gt;
+  saveRDS( path(cache, &quot;submission.rds&quot;))
+
+copyToArchive(archive, path(cache, &quot;submission.rds&quot;),
+              name=&quot;submission&quot;,
+              tag=&quot;crab sample submission&quot;,
+              replace=TRUE)</code></pre>
+</div>
+<div id="targets" class="section level2">
+<h2>Targets</h2>
+<p>The key idea of <code>targets</code> is that the steps in the analysis are placed in separate <strong>functions</strong> not files. When this is done the <code>targets</code> package automatically determines the dependencies and it automatically caches the intermediate results.</p>
+<p>Automatic caching of intermediate results duplicates some of my standard workflow, so to make best use of <code>targets</code> I need to need to make my whole approach more targets-like.</p>
+<p>An R function can only return a single object, so it makes sense to have three functions, one for each input file. I show the function for reading the training data. I could either return the tibble of training data and let <code>targets</code> cache it for me, or I could return a reference to the archived file. The former is more targets-like, but the latter is closer to my personal style. The code below takes the file reference approach.</p>
+<pre class="r"><code># --------------------------------------------------------------
+# Read the training data file for the kaggle playground problem on
+# predicting crab age
+#
+read_train &lt;- function(train_file) {
+  library(tidyverse)
+  library(janitor)
+  
+  cache   &lt;- &quot;C:/Projects/Kaggle/Playground/crab/data/cache&quot;
+  archive &lt;- &quot;C:/Projects/Kaggle/Playground/crab/data/repos&quot;
+  
+  # Read training data, clean names and save in my archive
+  read.csv( train_file) |&gt;
+    clean_names(&quot;lower_camel&quot;) |&gt;
+    saveRDS( path(cache, &quot;train.rds&quot;))
+  
+  copyToArchive(archive, path(cache, &quot;train.rds&quot;),
+                name=&quot;train&quot;,
+                tag=&quot;crab training data&quot;,
+                replace=TRUE)
+  # return name of the archive file
+  return( path(archive, &quot;train.rds&quot;) )
+}</code></pre>
+<p>Now the <code>_targets.R</code> file needs to tell <code>targets</code> that read_train() returns a file reference.</p>
+<pre class="r"><code># ----------------------------------------------------------
+# crab analysis
+library(targets)
+library(tarchetypes)
+library(fs)
+
+rawData &lt;- &quot;C:/Projects/Kaggle/Playground/crab/data/rawData&quot;
+code    &lt;- &quot;C:/Projects/Kaggle/Playground/crab/code&quot;
+
+train_file   &lt;- path(rawData, &quot;train.csv&quot;)
+
+# ----------------------------------------------------------
+# list of the steps in the computation
+list(
+  # reference to training csv file
+  tar_target(file1, train_file,  format = &quot;file&quot;),
+
+  # reference to the archived file
+  tar_target(train, read_train(file1), format = &quot;file&quot;),
+)</code></pre>
+<p><code>targets</code> will deduce that the csv file is a dependency of read_train() and the archived rds file is the target.</p>
+<p>Adapting <code>targets</code> to work with my standard file-based style is somewhat artificial. In truth, it makes more sense to accept <code>targets</code> what it is and to adapt your analysis style accordingly. My previous posts show how to use <code>targets</code> in this conventional way (<a href="https://modelling-with-r.netlify.app/targets_package/" class="uri">https://modelling-with-r.netlify.app/targets_package/</a> <a href="https://modelling-with-r.netlify.app/targets_example/" class="uri">https://modelling-with-r.netlify.app/targets_example/</a>).</p>
+</div>
+<div id="conclusions" class="section level2">
+<h2>Conclusions</h2>
+<p><code>makepipe</code> is very basic, but it suits my preferred way of working. I am able to develop my data analysis as a series of R scripts and rmarkdown reports and when I am ready, I create the <code>pipeline.R</code> file that controls the full analysis. <code>makepipe</code> is not very intelligent, it will not deduce the dependencies or targets of a particular step; that job is left to me. It will not cache intermediate results; that job is also left to me. <code>makepipe</code> certainly does not have any of the advanced features of <code>targets</code>, its main advantage is simplicity and that suits me just fine.</p>
+</div>
