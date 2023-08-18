@@ -1,0 +1,122 @@
+---
+title: "Methods: Introduction to Neural Networks"
+author: "John Thompson"
+date: "2023-07-24"
+layout: post
+categories:
+- neural networks
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+<script src="/rmarkdown-libs/htmlwidgets/htmlwidgets.js"></script>
+<script src="/rmarkdown-libs/viz/viz.js"></script>
+<link href="/rmarkdown-libs/DiagrammeR-styles/styles.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/grViz-binding/grViz.js"></script>
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>This is the first of a series of posts on the use of <code>Artificial Neural Networks</code> (ANNs) in data analysis. For simplicity, I’ll drop the word <code>artifical</code> and just refer to them as <code>Neural Networks</code> (NNs). The general question that I plan to address is, are NNs a useful tool for modelling small to medium sized datasets and if so, how should they be used.</p>
+<p><code>Neural networks</code> have had two main incarnations. In the early 1990’s, researchers experimented with NNs as highly flexible models for use in prediction problems. They performed well, but not appreciably better than other types of flexible prediction model and eventually they fell out of fashion. Then, around 2010, with the advent of big data and greatly increased computer power, large NNs were re-born under the name of <code>deep learning</code>. This time, their performance on complex problems, such as image recognition and language processing, was astonishing and deep learning is set to be at the heart of an AI revolution. The two incarnations of NNs were so different in their scale and performance that it is as if they are two unrelated topics.</p>
+<p>My motivation for writing this blog is to use R to investigate the relationship between data analysis in traditional statistics and in machine learning, so deep learning on big data is not my main concern. Instead, I will be returning to the original incarnation of NNs and asking whether, with modern computer power, NNs are useful as flexible prediction models.</p>
+<p>I write these posts for my own amusement and to help me better understand the topics that I cover, so I have I set out some questions that I should like to answer,</p>
+<ul>
+<li>why do NNs work so well?<br />
+</li>
+<li>what happens inside a NN?<br />
+</li>
+<li>what are the characteristics of problems that are well-modelled by NNs?<br />
+</li>
+<li>why isn’t over-fitting even more of a problem with NNs?</li>
+<li>is it important to pre-process the data before fitting a NN?<br />
+</li>
+<li>are NNs robust to small changes in the data?</li>
+<li>how do I select the best model fitting algorithm?<br />
+</li>
+<li>how do I select the architecture of my NN?<br />
+</li>
+<li>is NN modelling just a matter of trial and error?<br />
+</li>
+<li>what is the best workflow for a data analysis that uses NNs?</li>
+</ul>
+<p>To tackle these questions, I’ll use three strategies</p>
+<ul>
+<li>I’ll write my own NN software<br />
+</li>
+<li>I’ll fit NNs to simulated data<br />
+</li>
+<li>I’ll fit NNs to a range of real datasets</li>
+</ul>
+<p>Why write my own NN software? after all there are plenty of R packages for fitting NNs and they are more efficient than anything that I could write.</p>
+<p>My answer is that I want to understand what goes on when I fit a NN and the best way to do that is to write my own code. At some stage, I will probably abandon my code and switch to keras or some other R package, but when I do, I want to have a good understanding of what that package is doing internally.</p>
+<p>Simulated data will enable me to experiment in scenarios where I know the truth, for instance, I will be able to simulate data to a given pattern and then add more and more random noise to the response to see what effect that has on a NN. Based on those simulations I hope to propose a workflow, which I will test using real datasets.</p>
+<div id="what-is-a-nn" class="section level2">
+<h2>What is a NN?</h2>
+<p>If you are bothering to read this post, then you must know already that NN create highly flexible regression models by combining together tens, hundreds, or in the case of deep learning, billions of elementary units. Each unit is a simple linear regression with a fixed link function, h(). In traditional statistical notation, we might write each component unit as</p>
+<p><span class="math display">\[
+h(\hat{\mu}_i) = \beta_0 + \beta_1 x_{1i} + \beta_2 x_{2i} + \ldots + \beta_r x_{ri}
+\]</span></p>
+<p>Chaining together comes about by using the predictions, <span class="math inline">\(\hat{\mu}_i\)</span>, from one component as an input, say, the <span class="math inline">\(x_{1i}\)</span> for another unit. In this way, the full NN is able to create a multi-dimensional response surface with almost any shape.</p>
+<p>NNs are used for both regression and classification problems, a distinction that I will downplay as this notation includes both simple regression and logistic regression.</p>
+</div>
+<div id="terminology" class="section level2">
+<h2>Terminology</h2>
+<p>Unfortunately, much of the application of NNs has taken place outside of traditional statistics, so a different notation and terminology is more common.</p>
+<p>The picture below shows a NN with 2 inputs (predictors, x) and one output (prediction, <span class="math inline">\(\mu\)</span>). In effect it is a regression model. It has two internal (hidden) layers, one with 3 nodes and the other with 2 nodes. This particular NN is fully connected in the sense that every node in one layer feeds into every node of the following layer.</p>
+<div class="grViz html-widget html-fill-item-overflow-hidden html-fill-item" id="htmlwidget-1" style="width:672px;height:480px;"></div>
+<script type="application/json" data-for="htmlwidget-1">{"x":{"diagram":"\ndigraph dot {\n\ngraph [layout = dot,\n       rankdir = LR]\n\nnode [shape = circle,\n      style = filled,\n      color = black,\n      label = \"\"]\n\nnode [fillcolor = mistyrose]\na [label = \"X1\"] \nb [label = \"X2\"] \n\nnode [fillcolor = LightCyan]\nc  [label = \"\"]\nd  [label = \"\"] \ne  [label = \"\"]\nf  [label = \"\"] \ng  [label = \"\"] \n\nnode [fillcolor = orange]\nh  [label = \"μ\"]\n\nedge [color = grey]\na -> {c d e}\nb -> {c d e}\nc -> {f g}\nd -> {f g}\ne -> {f g}\nf -> h\ng -> h\n}","config":{"engine":"dot","options":null}},"evals":[],"jsHooks":[]}</script>
+<p>I like to number the nodes in order, in this case 1 to 8, and to give each node a value, which I’ll call <span class="math inline">\(v_1\)</span> to <span class="math inline">\(v_8\)</span>.</p>
+<div class="grViz html-widget html-fill-item-overflow-hidden html-fill-item" id="htmlwidget-2" style="width:672px;height:480px;"></div>
+<script type="application/json" data-for="htmlwidget-2">{"x":{"diagram":"\ndigraph dot {\n\ngraph [layout = dot,\n       rankdir = LR]\n\nnode [shape = circle,\n      style = filled,\n      color = black,\n      label = \"\"]\n\nnode [fillcolor = mistyrose]\na [label = \"v1\"] \nb [label = \"v2\"] \n\nnode [fillcolor = LightCyan]\nc  [label = \"v3\"]\nd  [label = \"v4\"] \ne  [label = \"v5\"]\nf  [label = \"v6\"] \ng  [label = \"v7\"] \n\nnode [fillcolor = orange]\nh  [label = \"v8\"]\n\nedge [color = grey]\na -> {c d e}\nb -> {c d e}\nc -> {f g}\nd -> {f g}\ne -> {f g}\nf -> h\ng -> h\n}","config":{"engine":"dot","options":null}},"evals":[],"jsHooks":[]}</script>
+<p>The first two nodes have known values equal to the values of the two predictors,
+<span class="math display">\[
+v_1 = x_{1i} \ \ \ \ \text{and} \ \ \ v_2 = x_{2i}
+\]</span>
+We can move forward (left to right) through the network, calculating the values of the subsequent nodes until we obtain <span class="math inline">\(v_8\)</span>, which will be the prediction, <span class="math inline">\(\mu_i\)</span>.</p>
+<p>The calculation needed for each node can be split into two stages. I’ll take the calculation of <span class="math inline">\(v_3\)</span> as an example. First, a simple linear predictor produces a value that I’ll call <span class="math inline">\(z_3\)</span>,<br />
+<span class="math display">\[
+z_3 = \beta_3 + \beta_{13} v_1 + \beta_{23} v_2
+\]</span>
+Then the chosen non-linear inverse-link function, f(), converts <span class="math inline">\(z_3\)</span> into <span class="math inline">\(v_3\)</span>.<br />
+<span class="math display">\[
+v_3 = f(z_3)
+\]</span></p>
+<p>In the terminology of NNs, the regression constant <span class="math inline">\(\beta_3\)</span> is called a <code>bias</code>, the regression coefficients <span class="math inline">\(\beta_{13}\)</span> and <span class="math inline">\(\beta_{13}\)</span> are called <code>weights</code> and the non-linear function f() is called the <code>activation function</code>.</p>
+<p>For a complete set of training data,
+<span class="math display">\[
+\left\{x_{1i}, x_{2i}, y_i\right\}, i=1...n
+\]</span>
+each pair of predictors is placed in turn into the input layer of the NN and the biases and weights are used to calculate the corresponding predictions. The model fitting problem is to find the set of biases and weights that produces the best predictions.</p>
+<p>Fitting is really not very sophisticated. A loss function that measures the quality of the predictions is selected, for example,
+<span class="math display">\[
+L(y, \mu) = \frac{1}{n} \sum_{i=1}^n (y_i - \mu_i)^2
+\]</span>
+and a random set of weights and biases is chosen. Slowly, in a process that is only slightly better than trial and error, the weights and biases are adjusted so as to reduce the loss down to a minimum. Typically, even fitting a small model can involve tens or hundreds of thousands of these small adjustments and so can be slow.</p>
+<p>The network with 8 nodes that is illustrated above has 20 parameters (weights + biases). From the input layer to the first hidden layer there are 2x3 weights and 3 biases, hence 9 parameters. Between the two hidden layers there are 3x2+2=8 parameters and from the second hidden layer to the prediction there are 2x1+1=3 parameters. A total of 20 parameters. Clearly this number will grow quickly if the number of layers or the number of nodes within a layer is increased.</p>
+<p>Now that I have set up the terminology, I can ask more specific questions</p>
+<ul>
+<li>how do I choose the activation function, f()?<br />
+</li>
+<li>why two hidden layers and not 1 or 3 or 4?<br />
+</li>
+<li>why 3 nodes in the first hidden layer and not 2 or 4 or 5?<br />
+</li>
+<li>how do I choose the loss function?<br />
+</li>
+<li>how do I make the updating of the weights and biases as efficient as possible?<br />
+</li>
+<li>when do I stop adjusting the weights and biases? Will the algorithm converge? Will I eventually reduce the loss to zero?<br />
+</li>
+<li>is the best architecture (number of layers and nodes) unique, or are there many architectures that perform equally well?<br />
+</li>
+<li>is it important to keep the total number of parameters low in order to avoid over-fitting?</li>
+</ul>
+<p>There are a lot of questions of this type, very few of which are answered fully in the literature. Before I can investigate them, I will need a program that performs the fitting.</p>
+<p>In the next post, I will write R code that fits an arbitrary NN using an adjustment technique known as gradient descent, that is, the adjustments will be chosen based on the gradient of the loss. R code is very slow, but has the advantage of being easy to write and easy to follow.</p>
+<p>The speed of R will make my R code impractical for all but the simplest NNs and so my third post will use the <code>Rcpp</code> package to turn my R code into much faster C++. This version will be the basis for my investigations.</p>
+</div>
+</div>

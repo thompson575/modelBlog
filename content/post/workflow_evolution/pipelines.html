@@ -140,7 +140,7 @@ make_with_source (
 <p>The objective here is concentrate on <code>makepipe</code> rather than the analysis, so I will not give details of all ten scripts. However, I have put them on my GitHub pages (<a href="https://github.com/thompson575/crab" class="uri">https://github.com/thompson575/crab</a>).</p>
 <p>When <code>pipeline.R</code> is run, the <code>makepipe</code> package will consider each <code>make_with_source()</code> or <code>make_with recipe()</code> in turn. In particular, it will consider the date-time stamps of the source code, the dependencies and the targets. If the targets are not more recent than the code and dependencies, then the step needs to re-run.</p>
 <p>The code below runs <code>pipeline.R</code> and finds that everything is up to date and so does not need re-running. It then plots a diagram of the workflow pipeline.</p>
-<pre class="r"><code>source(&quot;C:/Projects/Kaggle/Playground/crab/pipeline.R&quot;)</code></pre>
+<pre class="r"><code>source(&quot;pipeline.R&quot;)</code></pre>
 <pre><code>## ✔ Targets are up to date
 ## ✔ Targets are up to date
 ## ✔ Targets are up to date
