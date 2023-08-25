@@ -6,7 +6,48 @@
     <description>Recent content in Sliced on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Mon, 03 Oct 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/sliced/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Tue, 01 Nov 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/sliced/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Bayesian Sliced 5: Airbnb Price Prediction</title>
+      <link>https://modelling-with-r.netlify.app/bayes_airbnb_prices/</link>
+      <pubDate>Tue, 01 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/bayes_airbnb_prices/</guid>
+      <description>Summary:Background: In episode 5 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on Airbnb properties in New York City. The aim was to predict the price per night.
+My approach: I analyse the data using Bayesian additive regression trees (BART) fitted using the BART package.
+Result: Even with over 300 potential predictors, the BART models fit remarkably quickly, although the default burn-in proved insufficient.</description>
+    </item>
+    
+    <item>
+      <title>Bayesian Sliced 4: Rain Tomorrow</title>
+      <link>https://modelling-with-r.netlify.app/bayes_rain_tomorrow/</link>
+      <pubDate>Sat, 15 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/bayes_rain_tomorrow/</guid>
+      <description>Summary:Background: In episode 4 of the 2021 series of Sliced, the competitors were given two hours to analyse a set of data on rainy days in Australia. The aim was to use today’s weather data to predict whether or not it will rain tomorrow.
+My approach: In this post, I use a series of hierarchical models, where the location within Australia is one level and day within the location is the other.</description>
+    </item>
+    
+    <item>
+      <title>Creating a blog post with targets</title>
+      <link>https://modelling-with-r.netlify.app/targets_example/</link>
+      <pubDate>Sun, 09 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/targets_example/</guid>
+      <description>IntroductionThis post describes how I used the targets package to help create my blog post on the Bayesian analysis of the superstore profit data. It should be read alongside that post and together with my methods post on targets.
+The Bayesian analysis of the superstore profits is just complex enough to provide a vehicle for discussing the benefits of targets.
+Folder StructureFirst, I created a folder with the structure discussed in my methods post.</description>
+    </item>
+    
+    <item>
+      <title>Methods: The `targets` Package</title>
+      <link>https://modelling-with-r.netlify.app/targets_package/</link>
+      <pubDate>Sat, 08 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/targets_package/</guid>
+      <description>IntroductionI have recently been converted to the merits of the targets package and like all recent converts, I am keen to spread the word, so I thought that I would use targets for some of my Bayesian posts. In this post, I introduce targets, then in a subsequent post, I’ll explain how I used targets to help create my post on the Bayesian analysis of superstore profits.</description>
+    </item>
+    
     <item>
       <title>Bayesian Sliced 3: Superstore profits</title>
       <link>https://modelling-with-r.netlify.app/bayes_superstore_profits/</link>

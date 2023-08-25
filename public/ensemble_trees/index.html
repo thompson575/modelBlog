@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="generator" content="Hugo 0.82.0" />
+  
+  <meta name="description" content="IntroductionEach month, kaggle releases a “playground” tabular dataset intended to test some aspect of machine learning. These data form the basis for a competition with its own leaderboard and kaggle merchandise as the prizes. In November 2022, the dataset consisted of 5,000 attempts at a binary classification task, think 5,000 entries to a kaggle competition. Each entry used a slightly different model to estimate predicted probabilities of a positive response for each of 40,000 items.">
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/normalize.css">
+  <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
+  
+  
+  
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/cayman.ea0e967413f3851071cc8ace3621bc4205fe8fa79b2abe3d7bf94ff2841f0d47.css">
+  
+  
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.css" integrity="sha384-yFRtMMDnQtDRO8rLpMIKrtPCD5jdktao2TV19YiZYWMDkUR5GQZR/NOVTdquEx1j" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.js" integrity="sha384-9Nhn55MVVN0/4OFx7EE5kpFBPsEMZxKTCnA+4fqDmg12eCTqGi6+BB2LjY8brQxJ" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/contrib/auto-render.min.js" integrity="sha384-kWPLUVMOks5AQFrykwIup5lo0m3iMkkHrD0uJ4H5cjeGihAutqP0yW0J6dpFiVkI" crossorigin="anonymous" onload="renderMathInElement(document.body);"></script>
+
+  <title>Kaggle Playground November 2022: BART again | Modelling with R</title>
+</head>
+
+<body>
+  <section class="page-header">
+  <h1 class="project-name">
+    Modelling with R
+  </h1>
+  <h2 class="project-tagline">
+    contrasting statistical and machine learning approaches
+  </h2>
+  <nav>
+    
+    
+      
+      
+      
+      
+      <a href="/post/" class="btn">Blog</a>
+    
+      
+      
+      
+      
+      <a href="/tags/" class="btn">Tags</a>
+    
+      
+      
+      
+      
+      <a href="/about/" class="btn">About</a>
+    
+  </nav>
+</section>
+
+  <section class="main-content">
+    
+  <h1>Kaggle Playground November 2022: BART again</h1>
+  <div>
+    
+    <strong>Publish date: </strong>2022-11-14
+  </div>
+  
+  
+    <div>
+      <strong>Tags: </strong>
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+      <a href="https://modelling-with-r.netlify.app/tags/kaggle-playground/">kaggle playground</a>, <a href="https://modelling-with-r.netlify.app/tags/bayesian-additive-regression-trees/">Bayesian Additive Regression Trees</a>, <a href="https://modelling-with-r.netlify.app/tags/bart/">BART</a>, <a href="https://modelling-with-r.netlify.app/tags/binary-classification/">Binary classification</a>
+    </div>
+  
+  
+
+
+<div id="introduction" class="section level2">
+<h2>Introduction</h2>
+<p>Each month, kaggle releases a “playground” tabular dataset intended to test some aspect of machine learning. These data form the basis for a competition with its own leaderboard and kaggle merchandise as the prizes. In November 2022, the dataset consisted of 5,000 attempts at a binary classification task, think 5,000 entries to a kaggle competition. Each entry used a slightly different model to estimate predicted probabilities of a positive response for each of 40,000 items. The 5,000 entries were ranked by their log-loss and that log-loss was used to name the submission file. The objective was to combine the 5,000 entries and come up with a set of ensemble predictions. To help design the ensemble, the true labels for the first 20,000 items were provided.</p>
+<p>Since the task involves binary classification, it offers an opportunity to try out different aspects of the Bayesian Additive Regression Tree package, <code>BART</code>, to those covered in my post on Airbnb price prediction. For an introduction to Bayesian tree models, you could read my methods post from 31st October.</p>
+</div>
+<div id="data-exploration" class="section level2">
+<h2>Data Exploration</h2>
+<p>First, I’ll read the names of the 5,000 submission files</p>
+<pre class="r"><code>library(tidyverse)
+
+# --- all file names -----------------------------------
+submission_home &lt;- &quot;C:/Projects/Kaggle/Playground/Nov2022/data/rawData/submission_files&quot;
+submission_files &lt;- list.files(submission_home)
+
+head(submission_files)</code></pre>
+<pre><code>## [1] &quot;0.6222863195.csv&quot; &quot;0.6223807245.csv&quot; &quot;0.6225426578.csv&quot; &quot;0.6247722291.csv&quot;
+## [5] &quot;0.6253455681.csv&quot; &quot;0.6254850917.csv&quot;</code></pre>
+<pre class="r"><code>tail(submission_files)</code></pre>
+<pre><code>## [1] &quot;0.7522329272.csv&quot; &quot;0.7523602310.csv&quot; &quot;0.7526089604.csv&quot; &quot;0.7526999358.csv&quot;
+## [5] &quot;0.7551167673.csv&quot; &quot;0.7575039918.csv&quot;</code></pre>
+<p>So the top ranking submission had a log-loss of 0.6223 and the worst had a log-loss of 0.7575. At the time of writing, the leaderboard, based on 25% of the test items, i.e. the items for which we are not told the true label, is topped by an entry with a log-loss of 0.514. The top 100 entries on the leaderboard all have log-losses below 0.517. This suggests that lots of different approaches all do equally well.</p>
+<p>Next, I read the labels for the first 20,000 of the 40,000 items.</p>
+<pre class="r"><code># --- read labels for rows 0 to 19999
+labfile &lt;- &quot;C:/Projects/Kaggle/Playground/Nov2022/data/rawData/train_labels.csv&quot;
+
+read.csv(labfile) %&gt;%
+  as_tibble() -&gt; labDF
+
+table(labDF$label)</code></pre>
+<pre><code>## 
+##     0     1 
+## 10000 10000</code></pre>
+<p>So there are equal numbers of zeros and ones in the training data.</p>
+<p>Let’s visualise the top submission. For binary classification models, I like to plot divisions of the prediction scale. I have written a simple function called <code>plot_groups()</code> that creates the plot. It’s code is given at the end of this post.</p>
+<p>The plot is based on the first 20,000 predictions for the top submission</p>
+<pre class="r"><code># plot for the top submission
+file.path(submission_home, submission_files[1]) %&gt;%
+  read.csv() %&gt;%
+  plot_groups() +
+  labs(title = &quot;Performance of the top submission&quot;)</code></pre>
+<p><img src="/post/playground_nov2022/ensemble_trees_files/figure-html/unnamed-chunk-4-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The predictions are divided into groups using cut-points that are 0.05 apart. So the reddish bars represent the proportion of ones in the true labels for that category and the blue bars represent the average prediction. A well-calibrated method would produce actual and predicted bars of equal height. So, we can see that this submission tends to produce predictions that are too high.</p>
+<p>For comparison here is an example of a submission that was poorly calibrated</p>
+<pre class="r"><code># Plot for submission 53
+file.path(submission_home, submission_files[53]) %&gt;%
+  read.csv() %&gt;%
+  plot_groups() +
+  labs(title = &quot;Performance of submission 53&quot;)</code></pre>
+<p><img src="/post/playground_nov2022/ensemble_trees_files/figure-html/unnamed-chunk-5-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>This submission has a file name that tells us that the log-loss is 0.6460, which puts it in the top 100. Some of the predicted probabilities are over 1.0 and overall the agreement looks very poor.</p>
+<p>Here is the log-loss of submission 53 for the 20,000 training observations after truncating the predictions to lie in the range (0.001, 0.999)</p>
+<pre class="r"><code># log-loss for submission 53
+file.path(submission_home, submission_files[53]) %&gt;%
+  read.csv() %&gt;%
+  inner_join(labDF, by = &quot;id&quot;) %&gt;%
+  mutate( pred = pmax(pmin(pred, 0.999),0.001)) %&gt;%
+    summarise( logloss = - mean( label*log(pred) + (1-label)*log(1-pred)) )</code></pre>
+<pre><code>##     logloss
+## 1 0.6446402</code></pre>
+<p>If this submission was ranked 53 our of 5000, the overall quality of the submissions is not that great.</p>
+</div>
+<div id="model-development" class="section level2">
+<h2>Model Development</h2>
+<div id="splitting-the-data" class="section level3">
+<h3>Splitting the data</h3>
+<p>While I am developing my <code>BART</code> model. I’ll divide the 20,000 training items into an estimation set of 15,000 and a validation set of 5,000.</p>
+<pre class="r"><code># 5000 random rows for validation
+set.seed(3672)
+split &lt;- sample(1:20000, size=5000, replace=FALSE)</code></pre>
+<p>I’ll start by basing my model on the top 100 submissions.</p>
+<pre class="r"><code># Construct a single tibble of all of the training data
+trainDF &lt;- labDF
+for( i in 1:100) {
+  read.csv(file.path(submission_home, submission_files[i])) %&gt;%
+    as_tibble() %&gt;%
+    slice( 1:20000 ) %&gt;%
+    setNames( c(&quot;id&quot;, paste0(&quot;p&quot;,i)) )   %&gt;%
+    { left_join(trainDF, ., by=&quot;id&quot; ) } -&gt; trainDF
+}
+# Split the training data into an estimation and a validation set
+trainDF %&gt;%
+  slice( split ) -&gt; validDF
+
+trainDF %&gt;%
+  slice( -split ) -&gt; estimDF</code></pre>
+<p>The <code>BART</code> package requires the data to be in matrices.</p>
+<pre class="r"><code># Place the predictors and response in vectors and matrices
+estimDF %&gt;%
+  select( starts_with(&quot;p&quot;)) %&gt;%
+  as.matrix()  -&gt; X
+
+estimDF %&gt;%
+  pull( label) -&gt; Y
+
+validDF %&gt;%
+  select( starts_with(&quot;p&quot;)) %&gt;%
+  as.matrix()  -&gt; XV
+
+validDF %&gt;%
+  pull( label) -&gt; YV</code></pre>
+</div>
+<div id="a-default-model" class="section level3">
+<h3>A default model</h3>
+<p><code>BART</code> contains a suite of functions for different types of response variable. A probit-style model for binary responses based on the inverse normal transformation is provided by <code>pbart</code>. There is also a function <code>lbart()</code> that uses a logistic model, but it is much slower to fit and so I did not use it for these data.</p>
+<pre class="r"><code>library(BART)
+
+set.seed(4873)
+bt1 &lt;- pbart(x.train = X, y.train = Y, x.test = XV, nskip=1000)</code></pre>
+<p>The model takes just over 30 seconds to fit. I have accepted most of the <code>pbart</code> defaults, except that I have allowed a burn-in of 1000 instead of the default of 100.</p>
+<p>Briefly, this model creates its predictions by summing the contributions from 50 trees. The priors are designed to make the trees stumpy, that is, they are not very deep. The predictors all have the same chance of being chosen as the basis for splitting a tree and the prior on the cut points places them equally across the range of that predictor. The default is to create an MCMC chain of length 1000.</p>
+<p>The majority of the top 100 submissions agree that the first item in the estimation dataset (id=0) should have a positive response, even though the true label is 0.</p>
+<pre class="r"><code># Histogram of the 100 predictions for id=0
+tibble( p = X[1, ] ) %&gt;%
+  ggplot( aes(x=p)) +
+  geom_histogram( bins=20, fill=&quot;steelblue&quot;) +
+  geom_vline( xintercept=0.5, linetype=2) +
+  labs( x = &quot;Predicted Probability of a Positive Response&quot;,
+        title = &quot;Predictions for the first item in the estimation set&quot;)</code></pre>
+<p><img src="/post/playground_nov2022/ensemble_trees_files/figure-html/unnamed-chunk-14-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The simple average of the 100 predicted probabilities is 0.73.</p>
+<p>In order to help judge convergence, I show the trace plot of the <code>BART</code> prediction for the this item.</p>
+<pre class="r"><code># trace plot for item 1 in the estimation set.
+library(MyPackage)
+
+tibble( 
+  chain = rep(1, 1000),
+  iter = 1:1000,
+  phat = bt1$prob.train[, 1] ) %&gt;%
+trace_plot(phat) +
+  labs(title = &quot;Ensemble Prediction for the first item in the estimation set&quot;, 
+       y=&quot;Predicted Probability&quot;,
+       x = &quot;MCMC Iteration&quot;)</code></pre>
+<p><img src="/post/playground_nov2022/ensemble_trees_files/figure-html/unnamed-chunk-15-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The chain mixes quite slowly and the dip at the end makes one wonder if the chain is still searching for the true level.</p>
+<p>The validation log-loss based on the posterior mean predictions for each item is 0.54, so despite the questionable convergence the <code>BART</code> model has improved on the performance of the best single submission.</p>
+<pre class="r"><code># log-loss in the validation data
+validDF %&gt;%
+  select(id, label) %&gt;%
+  mutate( p = bt1$prob.test.mean) %&gt;%
+  summarise( logloss = - mean( label*log(p) + (1-label)*log(1-p)) )</code></pre>
+<pre><code>## # A tibble: 1 × 1
+##   logloss
+##     &lt;dbl&gt;
+## 1   0.540</code></pre>
+<p>As this is a Bayesian method, there are 1000 iterations that give 1000 samples from the posterior distribution of the log-loss. It is worth looking at that distribution.</p>
+<pre class="r"><code># trace plot of the validation log-loss
+logloss &lt;- rep(0, 1000)
+for( i in 1:1000 ) {
+  p &lt;- bt1$prob.test[i, ]
+  logloss[i] &lt;- - mean( validDF$label*log(p) + (1-validDF$label)*log(1-p))
+}
+
+tibble( 
+  chain = rep(1, 1000),
+  iter = 1:1000,
+  logloss = logloss ) %&gt;%
+trace_plot(logloss) +
+  labs(title = &quot;Validation set log-loss&quot;, 
+       y=&quot;Log-loss&quot;,
+       x = &quot;MCMC Iteration&quot;)  </code></pre>
+<p><img src="/post/playground_nov2022/ensemble_trees_files/figure-html/unnamed-chunk-17-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>First, the trace shows that the posterior mean log-loss (0.544) is not the same as the log-loss based on the average predictions (0.540). It also shows that the estimate of the validation log-loss is quite narrowly defined despite the questionable convergence.</p>
+<p>It is worth emphasising that the narrowness of the range of the trace plot refers to the prediction of the log-loss for this particular randomly selected validation set. It tells us nothing about how different the log-loss would be if we randomly selected a new validation set in the style of cross-validation.</p>
+</div>
+<div id="a-longer-chain" class="section level3">
+<h3>A longer chain</h3>
+<p>Since convergence is questionable, I next try a chain of length 30,000. The first 5,000 are dropped and every 25th item from the remainder is kept so that once again we have 1000 samples from the posterior.</p>
+<pre class="r"><code># pbart model with a longer chain
+set.seed(1866)
+bt2 &lt;- pbart(x.train = X, y.train = Y, x.test = XV, nskip=5000,
+             keepevery=25)</code></pre>
+<p>I show the same plots as before but without giving the code.</p>
+<p>The trace plot for the ensemble prediction for the first item in the estimation set does show that the chain has settled at a lower level, although mixing is still not ideal. The posterior mean is about 0.80, while in the default chain it was about 0.85. Given that the mean prediction over the top 100 submissions is 0.73, there is a concern that it might drift even lower. However, this chain has a length of 30,000, so if that were the case, the burn-in would need to be very long indeed.</p>
+<p>Remember that the <code>BART</code> ensemble model is free to select the submissions that it uses from the set that it is given, so many will remain unused. The ensemble prediction is not just a simple averaging process.</p>
+<p><img src="/post/playground_nov2022/ensemble_trees_files/figure-html/unnamed-chunk-20-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The validation log-loss based on the average ensemble predictions is now 0.537 (cf 0.540 for the default model) and the trace plot of the validation log-loss is more stable and has a posterior mean of 0.544 (cf 0.544).</p>
+<p>It is the posterior mean of the validation log-loss, i.e. 0.544 that truely describes the performance of the model, but the log-loss of the average ensemble predictions that describes how well the <code>BART</code> model will do if we submit it to kaggle. What is more, both are only point estimates of performance based on a single validation sample.</p>
+<p><img src="/post/playground_nov2022/ensemble_trees_files/figure-html/unnamed-chunk-21-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>To give a feel for the degree of over-fitting, here is a trace plot of the log-loss in the estimation set of 15,000 items. As you might expect, log-loss in the estimation data is noticeably optimistic.
+<img src="/post/playground_nov2022/ensemble_trees_files/figure-html/unnamed-chunk-22-1.png" width="672" style="display: block; margin: auto;" /></p>
+</div>
+</div>
+<div id="re-running-the-longer-chain" class="section level2">
+<h2>Re-running the longer chain</h2>
+<p>There are two questions of accuracy that we need to consider.</p>
+<ul>
+<li>would the log-loss change if we re-ran the MCMC analysis with a new seed but the same estimation/validation split?<br />
+</li>
+<li>would the log-loss change if we re-ran the MCMC analysis with a different estimation/validation split?</li>
+</ul>
+<p>The first tells us about the stability of the algorithm and the second tells us about our ability to measure the performance of the model.</p>
+<p>Since a single chain of 30,000 takes 7.5 minutes, I do not feel inclined to run lots of chains in what is after all, just an analysis run for my own benefit. I know that I should have parallelised the computation, but I didn’t.</p>
+<p>First, I re-ran the analysis 2 more times with the same estimation/validation split, but a different random seed. Previously the validation log-loss based on the average ensemble predictions was 0.5371, in the repeat run this changed to 0.5376 and the 0.5371 again. My conclusion is that the algorithm is pretty stable.</p>
+<p>Next, I re-ran the analysis with different estimation/validation splits, the new validation log-losses were 0.5227 and 0.5302, quite different from the original 0.5371. The original split seems to have randomly poor performance and I would expect a kaggle submission to do a little better than this log-loss suggests.</p>
+<p>This knowledge does not enable us to improve any submission that we might make to kaggle, but it does encourage us to be a bit more optimistic about the likely performance. The kaggle leaderboard tell us to aim for 0.514; I am probably a little closer to that than 0.537 would suggest.</p>
+<p>There is still some way to go before it would be worth making a submission to kaggle, as there are plenty of options to try. I could fit a modified model, perhaps a model based on 100 trees would be better than a model based on 50 trees, or perhaps deeper trees would be better than stumpy trees. I also have the option of using more of the training data, there are 5,000 submission files and I have only used the top 100.</p>
+<div id="modifying-the-model" class="section level3">
+<h3>Modifying the model</h3>
+<p>The model parameter that is mostly likely to affect performance is the number of trees. For most of the <code>BART</code> methods the default is 200 trees, but <code>pbart()</code> has a default of 50. So I tried 100 trees and 200 trees with the same estimation/validation split and the same 30,000 chain length.</p>
+<p>For the 100 tree model, the log-loss based on the posterior mean predictions is 0.537 as it was for the 50 tree model.
+<img src="/post/playground_nov2022/ensemble_trees_files/figure-html/unnamed-chunk-23-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>For the 200 tree model the log-loss is 0.538, a difference that I treat as irrelevant.
+<img src="/post/playground_nov2022/ensemble_trees_files/figure-html/unnamed-chunk-24-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>Perhaps the mixing is a little better for models with more trees, but the run-time is much longer, 45 minutes for 200 trees as opposed to 7.5 minutes for 50 trees, and predictive performance is no better. I will stick with 50 trees.</p>
+<p>The other thing that is worth trying is to use the priors to encourage deeper trees. I tried base=0.99 and power=0.5 as extreme choices. The average number of splits per tree increases from 1.1 with the default parameters to 1.6 with the new prior, but the log-loss is unchanged at 0.537.</p>
+<p><img src="/post/playground_nov2022/ensemble_trees_files/figure-html/unnamed-chunk-25-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>This rather confirms my prejudice that with large datasets the BART priors are relatively unimportant.</p>
+</div>
+<div id="using-more-of-the-data" class="section level3">
+<h3>Using more of the data</h3>
+<p>The full dataset consists of 5,000 submissions and so far I have only used to top 100, which opens the possibility that there might be a little more information to feed into the ensemble.</p>
+<p>Below is the log-loss for a default run of 30,000 using all 5,000 submissions. The predictive performance is 0.538, worse than the previous 0.537 but by an amount that I am happy to ignore. I would expect worse mixing when there are so many features to choose from and perhaps the trace plot supports that prejudice.<br />
+<img src="/post/playground_nov2022/ensemble_trees_files/figure-html/unnamed-chunk-26-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>It is interesting to ask which features are used most often and to help us address that question, <code>pbart()</code> returns an object called <code>varcount</code> that gives the number of times each feature is used to split a tree. Here are the most frequently used features.</p>
+<pre><code>## # A tibble: 4,998 × 2
+##    feature  freq
+##    &lt;chr&gt;   &lt;dbl&gt;
+##  1 p145    1.64 
+##  2 p122    1.58 
+##  3 p452    1.01 
+##  4 p1936   1.01 
+##  5 p3163   1.00 
+##  6 p402    0.957
+##  7 p101    0.794
+##  8 p533    0.775
+##  9 p88     0.703
+## 10 p81     0.611
+## # … with 4,988 more rows</code></pre>
+<p>Notice that the 145th submission, which I have not used so far, is the most frequent, but it is only used an average of 1.6 times in 50 trees. It looks as though the predictive information is spread fairly evenly over the submissions and that, because of duplication of information, it is not necessary to us them all.</p>
+<p><code>BART</code> offers the option of using a sparsity prior. Instead of giving every feature the same chance of being used each time a tree is constructed or modified, the algorithm is allowed to learn which features are most predictive and to favour those features when it needs to choose a feature. I wanted to strongly encourage sparsity, because weak priors will be swamped by the data, so I set the rho parameter to 200. The default is 5000 equal to the number of features.</p>
+<p>The validation log-loss is back to 0.537 and the important features are,</p>
+<pre><code>## # A tibble: 4,998 × 2
+##    feature   freq
+##    &lt;chr&gt;    &lt;dbl&gt;
+##  1 p63     27.3  
+##  2 p122    17.4  
+##  3 p145     8.64 
+##  4 p4830    1.23 
+##  5 p2322    0.719
+##  6 p1839    0.678
+##  7 p706     0.268
+##  8 p4988    0.253
+##  9 p4040    0.181
+## 10 p3049    0.165
+## # … with 4,988 more rows</code></pre>
+<p>The algorithm seems to have identified a handful of features that are more informative than the others.</p>
+<p>My final analysis takes the top 100 features identified by the sparsity prior and runs a default model with those features. If you have followed the previous analyses, then you will not be surprised to hear that performance was no better than the analysis that used the top 100.</p>
+</div>
+</div>
+<div id="a-submission" class="section level2">
+<h2>A Submission</h2>
+<p>So, I have tried several variations and found that they all give a very similar performance. The choice for my submission to kaggle is a little arbitrary. I like the idea of taking the 100 most important features from the analysis with a sparsity prior and using them as the basis of a 50 tree default analysis using the full training set of 20,000 items. Which is what I did.</p>
+<p>The public leaderboard, which is revealed while the competition is live, is based on a random sample of 25% of the withheld labels, i.e 5,000 labels. At the end of the month, the private leaderboard will show how the model performance on the remaining test data.</p>
+<p>My log-loss on the public leaderboard was 0.5193, which at the time of submission put me in position 166 out of 335, about halfway. The ranking is not great, but the best submission was 0.5137, not that much better in absolute terms than my model.</p>
+<p>You may recall that when I tried different evaluation/validation splits of the training data, also with 5,000 valuation items, the default model gave log-losses of 0.5371, 0.5227 and 0.5302. The difference between the best and the worst was 0.0144, while the difference between my submission and the top submission on the public leaderboard is only 0.0056. One can imagine that, had a different random set of 5,000 items been chosen for the public leaderboard, the rankings would have been very different. I could panic and try other variants on my BART model in the hope of improving my ranking, but I would be chasing noise.</p>
+</div>
+<div id="appendix" class="section level2">
+<h2>Appendix</h2>
+<p>The function used in the data exploration</p>
+<pre class="r"><code># --- Plot groups defined by prediction ------------------
+#  df    ... a file of predicted probabilties
+#  width ... the width of the groups
+#
+plot_groups &lt;- function(df, width=0.05) {
+ df %&gt;%
+  inner_join(labDF, by = &quot;id&quot;) %&gt;%
+  mutate( gp = floor(pred / width)) %&gt;%
+  group_by( gp ) %&gt;%
+  summarise( n    = n(),
+             pred = mean(pred),
+             p    = mean(label)) %&gt;%
+  pivot_longer(pred:p, names_to=&quot;source&quot;, values_to=&quot;p&quot;) %&gt;%
+    mutate( source = factor(source, labels=c(&quot;Actual&quot;, &quot;Predicted&quot;))) %&gt;%
+  ggplot( aes(x = gp*width, y=p, fill=source) ) +
+            geom_bar(stat=&quot;identity&quot;, position=&quot;dodge&quot;) +
+    scale_x_continuous( breaks=seq(0, 1, by=0.2)) +
+    labs(x = &quot;Categorised Predictions&quot;, y=&quot;Probability&quot;)
+}</code></pre>
+</div>
+
+  
+
+
+
+    <footer class="site-footer">
+  <span class="site-footer-credits">
+    Made with <a href="https://gohugo.io/">Hugo</a>. Themed by <a href="https://github.com/zwbetz-gh/cayman-hugo-theme">Cayman</a>. Deployed to <a href="https://www.netlify.com/">Netlify</a>.
+  </span>
+</footer>
+
+  </section>
+  
+  
+  <script>
+  window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+  ga('create', 'UA-123456789-1', 'auto');
+  ga('send', 'pageview');
+  </script>
+  <script async src='https://www.google-analytics.com/analytics.js'></script>
+  
+
+</body>
+</html>

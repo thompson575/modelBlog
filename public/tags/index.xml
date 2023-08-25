@@ -6,7 +6,268 @@
     <description>Recent content in Tags on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Mon, 03 Oct 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Thu, 22 Jun 2023 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>archive</title>
+      <link>https://modelling-with-r.netlify.app/tags/archive/</link>
+      <pubDate>Thu, 22 Jun 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/archive/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>cache</title>
+      <link>https://modelling-with-r.netlify.app/tags/cache/</link>
+      <pubDate>Thu, 22 Jun 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/cache/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>makepipe</title>
+      <link>https://modelling-with-r.netlify.app/tags/makepipe/</link>
+      <pubDate>Thu, 22 Jun 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/makepipe/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>targets</title>
+      <link>https://modelling-with-r.netlify.app/tags/targets/</link>
+      <pubDate>Thu, 22 Jun 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/targets/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>workflow</title>
+      <link>https://modelling-with-r.netlify.app/tags/workflow/</link>
+      <pubDate>Thu, 22 Jun 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/workflow/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>archiving</title>
+      <link>https://modelling-with-r.netlify.app/tags/archiving/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/archiving/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>fileArchive</title>
+      <link>https://modelling-with-r.netlify.app/tags/filearchive/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/filearchive/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>folders</title>
+      <link>https://modelling-with-r.netlify.app/tags/folders/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/folders/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Git</title>
+      <link>https://modelling-with-r.netlify.app/tags/git/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/git/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>GitHub</title>
+      <link>https://modelling-with-r.netlify.app/tags/github/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/github/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>gt</title>
+      <link>https://modelling-with-r.netlify.app/tags/gt/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/gt/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>pipelines</title>
+      <link>https://modelling-with-r.netlify.app/tags/pipelines/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/pipelines/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>simulation</title>
+      <link>https://modelling-with-r.netlify.app/tags/simulation/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/simulation/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>BART</title>
+      <link>https://modelling-with-r.netlify.app/tags/bart/</link>
+      <pubDate>Mon, 14 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/bart/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Bayesian Additive Regression Trees</title>
+      <link>https://modelling-with-r.netlify.app/tags/bayesian-additive-regression-trees/</link>
+      <pubDate>Mon, 14 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/bayesian-additive-regression-trees/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Binary classification</title>
+      <link>https://modelling-with-r.netlify.app/tags/binary-classification/</link>
+      <pubDate>Mon, 14 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/binary-classification/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>kaggle playground</title>
+      <link>https://modelling-with-r.netlify.app/tags/kaggle-playground/</link>
+      <pubDate>Mon, 14 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/kaggle-playground/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Bayesian regression trees</title>
+      <link>https://modelling-with-r.netlify.app/tags/bayesian-regression-trees/</link>
+      <pubDate>Tue, 01 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/bayesian-regression-trees/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>BayesTree</title>
+      <link>https://modelling-with-r.netlify.app/tags/bayestree/</link>
+      <pubDate>Tue, 01 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/bayestree/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>dbarts</title>
+      <link>https://modelling-with-r.netlify.app/tags/dbarts/</link>
+      <pubDate>Tue, 01 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/dbarts/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Sliced</title>
+      <link>https://modelling-with-r.netlify.app/tags/sliced/</link>
+      <pubDate>Tue, 01 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/sliced/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>sparsity-inducing prior</title>
+      <link>https://modelling-with-r.netlify.app/tags/sparsity-inducing-prior/</link>
+      <pubDate>Tue, 01 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/sparsity-inducing-prior/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>bartMachine</title>
+      <link>https://modelling-with-r.netlify.app/tags/bartmachine/</link>
+      <pubDate>Mon, 31 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/bartmachine/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>brms</title>
+      <link>https://modelling-with-r.netlify.app/tags/brms/</link>
+      <pubDate>Sat, 15 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/brms/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>hierarchical model</title>
+      <link>https://modelling-with-r.netlify.app/tags/hierarchical-model/</link>
+      <pubDate>Sat, 15 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/hierarchical-model/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>lme4 package</title>
+      <link>https://modelling-with-r.netlify.app/tags/lme4-package/</link>
+      <pubDate>Sat, 15 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/lme4-package/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>missing values in a Bayesian analysis</title>
+      <link>https://modelling-with-r.netlify.app/tags/missing-values-in-a-bayesian-analysis/</link>
+      <pubDate>Sat, 15 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/missing-values-in-a-bayesian-analysis/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>mixed logistic regression</title>
+      <link>https://modelling-with-r.netlify.app/tags/mixed-logistic-regression/</link>
+      <pubDate>Sat, 15 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/mixed-logistic-regression/</guid>
+      <description></description>
+    </item>
+    
+    <item>
+      <title>Stan</title>
+      <link>https://modelling-with-r.netlify.app/tags/stan/</link>
+      <pubDate>Sat, 15 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/tags/stan/</guid>
+      <description></description>
+    </item>
+    
     <item>
       <title>bayes factor</title>
       <link>https://modelling-with-r.netlify.app/tags/bayes-factor/</link>
@@ -58,24 +319,6 @@
       <pubDate>Mon, 03 Oct 2022 00:00:00 +0000</pubDate>
       
       <guid>https://modelling-with-r.netlify.app/tags/rstan/</guid>
-      <description></description>
-    </item>
-    
-    <item>
-      <title>Sliced</title>
-      <link>https://modelling-with-r.netlify.app/tags/sliced/</link>
-      <pubDate>Mon, 03 Oct 2022 00:00:00 +0000</pubDate>
-      
-      <guid>https://modelling-with-r.netlify.app/tags/sliced/</guid>
-      <description></description>
-    </item>
-    
-    <item>
-      <title>stan</title>
-      <link>https://modelling-with-r.netlify.app/tags/stan/</link>
-      <pubDate>Mon, 03 Oct 2022 00:00:00 +0000</pubDate>
-      
-      <guid>https://modelling-with-r.netlify.app/tags/stan/</guid>
       <description></description>
     </item>
     
@@ -472,15 +715,6 @@
       <pubDate>Mon, 01 Nov 2021 00:00:00 +0000</pubDate>
       
       <guid>https://modelling-with-r.netlify.app/tags/object-orientated-programming-oop/</guid>
-      <description></description>
-    </item>
-    
-    <item>
-      <title>pipelines</title>
-      <link>https://modelling-with-r.netlify.app/tags/pipelines/</link>
-      <pubDate>Mon, 01 Nov 2021 00:00:00 +0000</pubDate>
-      
-      <guid>https://modelling-with-r.netlify.app/tags/pipelines/</guid>
       <description></description>
     </item>
     

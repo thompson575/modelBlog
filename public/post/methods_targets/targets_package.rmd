@@ -1,0 +1,163 @@
+---
+title: "Methods: The `targets` Package"
+author: "John Thompson"
+date: "2022-10-08"
+layout: post
+tags:
+- Sliced
+- pipelines
+- targets
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+## Introduction
+
+I have recently been converted to the merits of the `targets` package and like all recent converts, I am keen to spread the word, so I thought that I would use `targets` for some of my Bayesian posts. In this post, I introduce `targets`, then in a subsequent post, I'll explain how I used `targets` to help create my post on the Bayesian analysis of superstore profits.
+
+`targets` is a package for organising a complex analysis as a workflow or pipeline composed of discrete steps. `targets` **arranges the steps in a tree-like structure** and **archives the result of each step**. When a new step is introduced, or an old step is modified, `targets` will only run the steps that are affected by the change.
+
+So, `targets` enables a project to grow in a computationally efficient way, though for me this is not the major benefit. The key gain is that `targets` provides structure and transparency to the project, improving both reproducibility and literacy.
+
+## Folder Structure
+
+As I have said many times, when I start a new project. I create a folder with the same name as the project and within that project I set up my standard folder structure.
+
+```{r eval=FALSE}
+|- myProject
+   |-- docs
+   |-- data
+       |--- dataStore
+       |--- rawData
+       |--- rData
+   |-- R
+   |-- reports
+   |-- temp
+```
+
+I used to use the name `rmd` for my reports folder, but since I increasingly use `quarto`, that name no longer seems appropriate and I have switched to `reports`. I imagine that I will eventually rename `R` as `scripts`, but I am not there yet.
+
+Making this into an `RStudio` project adds a `myProject.Rproj` file to the root directory and initiating a git repository adds a visible `.gitignore` file and a hidden `.git` folder.
+
+Running `renv::init()` for reproducibility of the version numbers of the packages used in the project will add a `renv` folder, a `renv.lock` file and a `.Rprofile` file with a line that activates `renv` whenever the project is first opened.
+
+To enable `targets` to control the computations needed for the project requires the user to add a `_targets.R` file to the project's root folder. This file will contain a description of the steps in the analysis. When the computation is first run, `targets` creates a folder `myProject/_targets/` in which to archive the results of each step in the pipeline.
+
+The eventual folder structure will be as shown below. I use a final `/` to distinguish folders from files and order the contents in a way that seems sensible to me, rather than in the order used by Windows. Blank lines are for improved legibility and have no other significance.
+
+```{r eval=FALSE}
+|- myProject
+   |-- .git/ (hidden)
+   |-- renv/
+   |-- _targets/
+   |
+   |-- docs/
+   |-- data/
+       |--- dataStore/
+       |--- rawData/
+       |--- rData/
+   |-- R/
+   |-- reports/
+   |-- temp/
+   |
+   |-- .gitignore
+   |-- .Rprofile
+   |-- myProject.Rproj
+   |-- renv.lock
+   |-- _targets.R
+```
+
+# Creating `_targets.R`
+
+The basic idea behind `targets` is that **each step in the pipeline is performed by a function**. The outputs from the functions are stored in the archive and can be used as inputs to other functions, so creating the computational tree.
+
+The `_targets.R` script provides the information necessary for defining the tree and it does so with the following four-part structure
+
+```{r eval=FALSE}
+# ----------------------------------------------------------
+# 1. load the targets package
+library(targets)
+library(tarchetypes)
+
+# ----------------------------------------------------------
+# 2. source the functions needed for the computations
+source("project_functions.R")
+
+# ----------------------------------------------------------
+# 3. set targets options, including all required packages
+tar_option_set(packages=c("tidyverse", "broom") )
+
+# ----------------------------------------------------------
+# 4. list the steps in the computation
+list(
+  # filename: csv file of data
+  tar_target(file, "data.csv", format = "file"),
+  
+  # get_data(): read the csv file
+  tar_target(data, get_data(file)),
+  
+  # fit_model(): fit a model
+  tar_target(model, fit_model(data)),
+  
+  # summarise_model(): examine the model fit
+  tar_target(summary, summarise_model(model, data)),
+  
+  # report: html describing the results
+  tar_render(report, "project_report.rmd"),
+)
+```
+
+The steps in the pipeline are defined inside a list() and each step has a name selected by the user; in this case, `file`, `data`, `model`, `summary`, `report`. These will be the names under which the outputs are archived.
+
+`targets` monitors the functions `get_data()`, `fit_model()` and `summarise_model()` and if any of them change, it will know to re-run that function and any other step that depends on that function, or on the results returned by that function.
+
+The package also monitors the files `data.csv` and `project_report.rmd` and, once again, re-runs any steps depending on those files should a change be detected.
+
+Inside the `rmd` file, the markdown code has access to the results of the steps in the analysis, because they can be read from the archive. In should not be necessary for the report to make any primary computations, greatly speeding up report production.
+
+In this example, I rely on defaults for the other options to `tar_target()`, in particular, I do not specify `format` for saving the results of the computational steps. The default is to use `rds`, but many other formats are possible including `qs`, `feather`, `parquet` and `fst`.
+
+`tar_render()` will knit an rmarkdown document, `tar_quarto()` does the same for a quarto document.
+
+# Running the computations
+
+The function `tar_make()` reads the `_targets.R` file and executes any computations that are not up to date.
+
+In the majority of cases, the process of updating the computations is straightforward, however `targets` is intelligent enough to cope with more complex situations, such as when one of your functions calls other functions and those subsidiary functions change.
+
+# Examining the tree
+
+The function `tar_visnetwork()` displays the computational pipeline as a tree-like diagram. The diagram uses colour to show which steps (nodes) need updating and uses symbol shape to show the type of node, a triangle for a function and a circle for a archived data object.
+
+Here is the diagram for the example above.
+
+```{r echo=FALSE}
+library(targets)
+
+tar_visnetwork()
+```
+
+`tar_manifest()` returns the structure of the pipeline as a tibble with one row per node. Below is the output for the example.
+
+```{r echo=FALSE}
+tar_manifest()
+```
+
+# Accessing the archive
+
+The archive called `_targets\` has two sub-folders, `_targets\metadata\` and `_targets\objects\`. The former contains information on the contents of the archive, such as the format used when saving and the latter contains the objects themselves.
+
+The objects in the archive could be read directly, but it is simpler to use the function `tar_read(*objectName*)`, which returns the saved object.
+
+`tar_load()` is similar to `tar_read()` except that it retrieves the object and assigns it the name under which it was saved.
+
+# More complex situations
+
+You might want to define multiple pipelines for different analyses within the same project, perhaps with some shared components. The result would be that you would have more than one archive and more than one controlling targets file. `targets` can cope with this, provided that you define the project structure in a file called `_targets.yaml` that sits in the projects root folder.
+
+Repetition could make a pipeline very long and tedious to specify. Imagine fitting 5 different models to each of 10 different datasets. The function `tar_map()` acts like the `map()` function of `purrr` and facilitates repetition. There are other functions for creating other types of iteration.
+
+One advantage of having a tree-like structure is that you can predict when two computations can be performed independently of one another, which is important because such computations could be run in parallel. The function `tar_make_future()` is a variation on `tar_make()` that, where possible, runs the necessary computations in parallel using the `future` package.

@@ -2,13 +2,139 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
+    <loc>https://modelling-with-r.netlify.app/</loc>
+    <lastmod>2023-07-24T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/01methods_nn_intro/</loc>
+    <lastmod>2023-07-24T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/post/</loc>
+    <lastmod>2023-07-24T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/archive/</loc>
+    <lastmod>2023-06-22T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/cache/</loc>
+    <lastmod>2023-06-22T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/makepipe/</loc>
+    <lastmod>2023-06-22T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/pipelines/</loc>
+    <lastmod>2023-06-22T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/</loc>
+    <lastmod>2023-06-22T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/targets/</loc>
+    <lastmod>2023-06-22T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/workflow/</loc>
+    <lastmod>2023-06-22T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/archiving/</loc>
+    <lastmod>2023-04-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/filearchive/</loc>
+    <lastmod>2023-04-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/folders/</loc>
+    <lastmod>2023-04-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/git/</loc>
+    <lastmod>2023-04-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/gitcourse/</loc>
+    <lastmod>2023-04-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/github/</loc>
+    <lastmod>2023-04-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/gt/</loc>
+    <lastmod>2023-04-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/recent_progress/</loc>
+    <lastmod>2023-04-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/pipelines/</loc>
+    <lastmod>2023-04-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/simulation/</loc>
+    <lastmod>2023-04-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/filearchive/</loc>
+    <lastmod>2023-04-12T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/bart/</loc>
+    <lastmod>2022-11-14T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/bayesian-additive-regression-trees/</loc>
+    <lastmod>2022-11-14T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/binary-classification/</loc>
+    <lastmod>2022-11-14T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/kaggle-playground/</loc>
+    <lastmod>2022-11-14T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/ensemble_trees/</loc>
+    <lastmod>2022-11-14T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/bayesian-regression-trees/</loc>
+    <lastmod>2022-11-01T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/bayes_airbnb_prices/</loc>
+    <lastmod>2022-11-01T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/bayestree/</loc>
+    <lastmod>2022-11-01T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/dbarts/</loc>
+    <lastmod>2022-11-01T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/sliced/</loc>
+    <lastmod>2022-11-01T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/sparsity-inducing-prior/</loc>
+    <lastmod>2022-11-01T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/bartmachine/</loc>
+    <lastmod>2022-10-31T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/bayesian_trees/</loc>
+    <lastmod>2022-10-31T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/bayes_rain_tomorrow/</loc>
+    <lastmod>2022-10-15T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/brms/</loc>
+    <lastmod>2022-10-15T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/hierarchical-model/</loc>
+    <lastmod>2022-10-15T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/lme4-package/</loc>
+    <lastmod>2022-10-15T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/missing-values-in-a-bayesian-analysis/</loc>
+    <lastmod>2022-10-15T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/mixed-logistic-regression/</loc>
+    <lastmod>2022-10-15T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/tags/stan/</loc>
+    <lastmod>2022-10-15T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/targets_example/</loc>
+    <lastmod>2022-10-09T00:00:00+00:00</lastmod>
+  </url><url>
+    <loc>https://modelling-with-r.netlify.app/targets_package/</loc>
+    <lastmod>2022-10-08T00:00:00+00:00</lastmod>
+  </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/bayes-factor/</loc>
     <lastmod>2022-10-03T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/bayes_superstore_profits/</loc>
-    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
-  </url><url>
-    <loc>https://modelling-with-r.netlify.app/</loc>
     <lastmod>2022-10-03T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/bridge-sampling/</loc>
@@ -23,19 +149,7 @@
     <loc>https://modelling-with-r.netlify.app/tags/offset/</loc>
     <lastmod>2022-10-03T00:00:00+00:00</lastmod>
   </url><url>
-    <loc>https://modelling-with-r.netlify.app/post/</loc>
-    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
-  </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/rstan/</loc>
-    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
-  </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/sliced/</loc>
-    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
-  </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/stan/</loc>
-    <lastmod>2022-10-03T00:00:00+00:00</lastmod>
-  </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/</loc>
     <lastmod>2022-10-03T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/generalised-linear-models/</loc>
@@ -207,9 +321,6 @@
     <lastmod>2021-11-01T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/object-orientated-programming-oop/</loc>
-    <lastmod>2021-11-01T00:00:00+00:00</lastmod>
-  </url><url>
-    <loc>https://modelling-with-r.netlify.app/tags/pipelines/</loc>
     <lastmod>2021-11-01T00:00:00+00:00</lastmod>
   </url><url>
     <loc>https://modelling-with-r.netlify.app/tags/r6-package/</loc>

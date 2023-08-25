@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>bartMachine on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/bartmachine/</link>
+    <description>Recent content in bartMachine on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Mon, 31 Oct 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/bartmachine/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Methods: Bayesian trees</title>
+      <link>https://modelling-with-r.netlify.app/bayesian_trees/</link>
+      <pubDate>Mon, 31 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/bayesian_trees/</guid>
+      <description>IntroductionThe fundamental idea that underpins all machine learning is that of the universal approximator, that is, a function that is so flexible that it can be used to model any dataset. Trees provide one way to construct such a flexible function.
+The code below simulates a small regression problem that I will use to illustrate the discussion of Bayesian tree models.
+# --- create an example dataset ------------------------------set.</description>
+    </item>
+    
+  </channel>
+</rss>

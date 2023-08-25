@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="generator" content="Hugo 0.82.0" />
+  
+  <meta name="description" content="IntroductionThe fundamental idea that underpins all machine learning is that of the universal approximator, that is, a function that is so flexible that it can be used to model any dataset. Trees provide one way to construct such a flexible function.
+The code below simulates a small regression problem that I will use to illustrate the discussion of Bayesian tree models.
+# --- create an example dataset ------------------------------set.">
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/normalize.css">
+  <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
+  
+  
+  
+  <link rel="stylesheet" href="https://modelling-with-r.netlify.app/css/cayman.ea0e967413f3851071cc8ace3621bc4205fe8fa79b2abe3d7bf94ff2841f0d47.css">
+  
+  
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.css" integrity="sha384-yFRtMMDnQtDRO8rLpMIKrtPCD5jdktao2TV19YiZYWMDkUR5GQZR/NOVTdquEx1j" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.js" integrity="sha384-9Nhn55MVVN0/4OFx7EE5kpFBPsEMZxKTCnA+4fqDmg12eCTqGi6+BB2LjY8brQxJ" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/contrib/auto-render.min.js" integrity="sha384-kWPLUVMOks5AQFrykwIup5lo0m3iMkkHrD0uJ4H5cjeGihAutqP0yW0J6dpFiVkI" crossorigin="anonymous" onload="renderMathInElement(document.body);"></script>
+
+  <title>Methods: Bayesian trees | Modelling with R</title>
+</head>
+
+<body>
+  <section class="page-header">
+  <h1 class="project-name">
+    Modelling with R
+  </h1>
+  <h2 class="project-tagline">
+    contrasting statistical and machine learning approaches
+  </h2>
+  <nav>
+    
+    
+      
+      
+      
+      
+      <a href="/post/" class="btn">Blog</a>
+    
+      
+      
+      
+      
+      <a href="/tags/" class="btn">Tags</a>
+    
+      
+      
+      
+      
+      <a href="/about/" class="btn">About</a>
+    
+  </nav>
+</section>
+
+  <section class="main-content">
+    
+  <h1>Methods: Bayesian trees</h1>
+  <div>
+    
+    <strong>Publish date: </strong>2022-10-31
+  </div>
+  
+  
+    <div>
+      <strong>Tags: </strong>
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+        
+        
+        
+      
+      <a href="https://modelling-with-r.netlify.app/tags/bayesian-regression-trees/">Bayesian regression trees</a>, <a href="https://modelling-with-r.netlify.app/tags/bart/">BART</a>, <a href="https://modelling-with-r.netlify.app/tags/bayestree/">BayesTree</a>, <a href="https://modelling-with-r.netlify.app/tags/dbarts/">dbarts</a>, <a href="https://modelling-with-r.netlify.app/tags/bartmachine/">bartMachine</a>
+    </div>
+  
+  
+<script src="/rmarkdown-libs/htmlwidgets/htmlwidgets.js"></script>
+<script src="/rmarkdown-libs/d3/d3.min.js"></script>
+<script src="/rmarkdown-libs/dagre/dagre-d3.min.js"></script>
+<link href="/rmarkdown-libs/mermaid/dist/mermaid.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/mermaid/dist/mermaid.slim.min.js"></script>
+<link href="/rmarkdown-libs/DiagrammeR-styles/styles.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/chromatography/chromatography.js"></script>
+<script src="/rmarkdown-libs/DiagrammeR-binding/DiagrammeR.js"></script>
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>The fundamental idea that underpins <em>all machine learning</em> is that of the <code>universal approximator</code>, that is, a function that is so flexible that it can be used to model any dataset. Trees provide one way to construct such a flexible function.</p>
+<p>The code below simulates a small regression problem that I will use to illustrate the discussion of Bayesian tree models.</p>
+<pre class="r"><code># --- create an example dataset ------------------------------
+set.seed(8920)
+tibble( x1 = rnorm(400, 0, 1),
+        x2 = runif(400, 0, 1),
+        y  = 10 - (x1 - 1)^2 + 10 * x2 - 
+          x1 * log(x2) + rnorm(400, 0, 0.25)) -&gt; trainDF</code></pre>
+<pre class="r"><code># --- plot y vs x1 and y vs x2 -------------------------------
+library(patchwork)
+trainDF %&gt;%
+  ggplot( aes(x=x1, y=y)) +
+  geom_point() -&gt; p1
+
+trainDF %&gt;%
+  ggplot( aes(x=x2, y=y)) +
+  geom_point() -&gt; p2
+
+p1 + p2 +
+  plot_annotation(title=&quot;Response, y, and two predictors, x1 and x2.&quot;)</code></pre>
+<p><img src="/post/methods_bayesian_trees/bayesian_trees_files/figure-html/unnamed-chunk-4-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The formula for generating <code>y</code> shows that a model that was able to capture the trend exactly would make predictions with a RMSE of 0.25. However, the scatter plots suggest that it will not be easy to approximate that trend.</p>
+<p>Here is a linear regression model fitted to these data.</p>
+<pre class="r"><code>library(broom)
+trainDF %&gt;%
+  lm( y ~ x1 + x2, data = . ) %&gt;%
+  {
+    tidy(.) %&gt;% print()
+    glance(.) %&gt;% print()
+  }</code></pre>
+<pre><code>## # A tibble: 3 × 5
+##   term        estimate std.error statistic   p.value
+##   &lt;chr&gt;          &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;
+## 1 (Intercept)     8.20    0.171       48.0 2.64e-167
+## 2 x1              2.99    0.0856      34.9 3.47e-123
+## 3 x2              9.60    0.299       32.1 1.79e-112
+## # A tibble: 1 × 12
+##   r.squared adj.r.squ…¹ sigma stati…²   p.value    df logLik   AIC   BIC devia…³
+##       &lt;dbl&gt;       &lt;dbl&gt; &lt;dbl&gt;   &lt;dbl&gt;     &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;   &lt;dbl&gt;
+## 1     0.844       0.844  1.75   1077. 4.16e-161     2  -790. 1589. 1605.   1218.
+## # … with 2 more variables: df.residual &lt;int&gt;, nobs &lt;int&gt;, and abbreviated
+## #   variable names ¹​adj.r.squared, ²​statistic, ³​deviance</code></pre>
+<p>The residual standard deviation (sigma) is 1.75, a long way from what is theoretically possible.</p>
+<p>A tree-based regression model approximates the trend by a series of horizontal lines. For ease of representation, I will picture a tree that predicts y from x2 alone. I split the x2 scale into three regions using thresholds at 0.3 and 0.7 and then predict y by the mean of the observed y’s within each of the regions.</p>
+<pre class="r"><code># --- summary statistics for each region -----------------------
+trainDF %&gt;%
+  mutate( region = 1 + (x2 &gt; 0.3) + (x2 &gt; 0.7)) %&gt;%
+  group_by(region) %&gt;%
+  summarise( n = n(),
+             m = mean(y),
+             s = sd(y)) %&gt;%
+  print() -&gt; predDF</code></pre>
+<pre><code>## # A tibble: 3 × 4
+##   region     n     m     s
+##    &lt;dbl&gt; &lt;int&gt; &lt;dbl&gt; &lt;dbl&gt;
+## 1      1   130  9.88  4.42
+## 2      2   150 13.2   3.32
+## 3      3   120 16.2   3.11</code></pre>
+<pre class="r"><code># --- residual standard deviation for this tree ----------------
+trainDF %&gt;%
+  mutate( region = 1 + (x2 &gt; 0.3) + (x2 &gt; 0.7)) %&gt;%
+  group_by(region) %&gt;%
+  mutate( m = mean(y)) %&gt;%
+  ungroup() %&gt;%
+  summarise( rmse = sqrt( mean( (y - m)^2 ) ) )</code></pre>
+<pre><code>## # A tibble: 1 × 1
+##    rmse
+##   &lt;dbl&gt;
+## 1  3.64</code></pre>
+<p>A RMSE of 3.64 is even worse than linear regression, but one can imagine improving performance by using more cut points and by making use of x1.</p>
+<p>This type of model can be pictured in one of two ways. The first is by superimposing the regions on the scatter plot of y on x2.</p>
+<pre class="r"><code># --- regions of x2 and the corresponding mean estimates ------------------
+trainDF %&gt;%
+  ggplot( aes(x=x2, y=y)) +
+  geom_point() +
+  geom_vline( xintercept = c(0.3, 0.7), linetype=2, colour=&quot;red&quot;) +
+  geom_segment( aes( x=0, y=9.88, xend=0.3, yend=9.88), colour=&quot;blue&quot;, size=2) +
+  geom_segment( aes( x=0.3, y=13.2, xend=0.7, yend=13.2), colour=&quot;blue&quot;, size=2) +
+  geom_segment( aes( x=0.7, y=16.2, xend=1, yend=16.2), colour=&quot;blue&quot;, size=2) +
+  labs( title = &quot;Regions and their predictions&quot;)</code></pre>
+<p><img src="/post/methods_bayesian_trees/bayesian_trees_files/figure-html/unnamed-chunk-7-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The second representation is as a binary decision tree in which answering <code>no</code> to a question leads to the left branch and answering <code>yes</code> leads to the right branch. <code>mu</code> is my symbol for the prediction.</p>
+<pre class="r"><code>library(DiagrammeR)
+
+mermaid(&quot;
+graph TB
+  A(root)--&gt;B(x2&gt;0.3)
+  B--&gt;C(mu=9.88)
+  B--&gt;D(x2&gt;0.7)
+  D--&gt;E(mu=13.2)
+  D--&gt;F(mu=16.2)
+&quot;)</code></pre>
+<div id="htmlwidget-1" style="width:528px;height:384px;" class="DiagrammeR html-widget"></div>
+<script type="application/json" data-for="htmlwidget-1">{"x":{"diagram":"\ngraph TB\n  A(root)-->B(x2>0.3)\n  B-->C(mu=9.88)\n  B-->D(x2>0.7)\n  D-->E(mu=13.2)\n  D-->F(mu=16.2)\n"},"evals":[],"jsHooks":[]}</script>
+<p>A non-Bayesian would search for the optimal tree by defining a loss function, probably the RMSE. Then, using a guided form of trial and error, they would search over the space of possible trees until they found the one that minimises the loss. There are computational issues and questions about when to stop, but this idea is the basis of the method called <code>CART</code> that is implemented in the R package <code>rpart</code>.</p>
+<p>A Bayesian looks at the problem rather differently. They formulate the problem in terms of probability, so they need a model for the y values in the jth terminal node, perhaps N(<span class="math inline">\(\mu_j\)</span>, <span class="math inline">\(\sigma\)</span>). Given a particular tree, they can use this distribution to calculate the likelihood of the data, that is, P(Data|Model). Then, by placing priors on the tree structure and on the node parameters, this likelihood can be inverted by Bayes theorem to produce P(Model|Data). In other words, every tree has a probability. A Bayesian algorithm searches for a sample of trees that have high probability.</p>
+<p>The key difference between the loss function and the Bayesian approaches is that the former provides a single best fitting tree, while the latter provides a set of trees that reflect our uncertainty about the true model.</p>
+</div>
+<div id="sum-of-trees" class="section level1">
+<h1>Sum of trees</h1>
+<p>A single tree provides a slightly crude model in that every observation that falls in the same terminal node will get exactly the same prediction. An obvious extension is to use a collection of trees, so that observations that fall in the same terminal node of one tree might be split apart in another tree. The final prediction is set equal to the sum of the contributions from the different trees, which provides a finer resolution.</p>
+<p>Bayesian sums of trees regression models were first proposed in the late 1990s and they are still the subject of much research. The idea was presented in a technical report and later published as,</p>
+<p>Chipman, H., George, E., &amp; McCulloch, R.
+<strong>Bayesian ensemble learning.</strong><br />
+<em>Advances in neural information processing systems</em>, (2006) 19.</p>
+<p>The <code>BART</code> (Bayesian Additive Regression Trees) model combines H trees, labelled h=1…H, each with its own set of terminal node parameters. The contribution to the sum from predictors that fall in the jth terminal node of tree h is,
+<span class="math display">\[
+\mu_{hj} \sim N(0, \sigma_\mu)
+\]</span>
+The set of <span class="math inline">\(\mu\)</span>’s for tree, <span class="math inline">\(T_h\)</span>, is called <span class="math inline">\(M_h\)</span> and the function that picks out the appropriate <span class="math inline">\(\mu\)</span> given predictors x is <span class="math inline">\(g(x; T_h, M_h)\)</span>.</p>
+<p>Under the model, the ith observation, <span class="math inline">\(y_i\)</span>, is assumed to be normally distributed,
+<span class="math display">\[
+y_i \sim \text{N} \left( \sum_{h=1}^H g(x_i; T_h, M_h), \ \  \sigma \right)
+\]</span>
+So <span class="math inline">\(\sigma\)</span> measures the inherent variability of the response about its trend (0.25 in our example) and <span class="math inline">\(\sigma_\mu\)</span> measures the variability of the contributions from the different terminal nodes. These standard deviations are assumed constant over all nodes and all observations.</p>
+<div id="prior-on-the-model" class="section level2">
+<h2>Prior on the model</h2>
+<p>The <code>BART</code> model has a huge number of parameters, so a strong prior is needed in order to limit the parameter space, i.e. regularise the problem.</p>
+<p>The first step in formulating a regularisation prior is to place a probability on whether or not to grow a tree by splitting a terminal node. If the depth of the node is d (number of binary splits needed to reach the node), then, we might suppose that the deeper the tree gets, the less likely it is to split again. Chipman et al. chose to make the probability of a new split,
+<span class="math display">\[
+P(split) = \frac{\alpha}{(1+d)^\beta}
+\]</span>
+where <span class="math inline">\(\alpha\)</span> (also called base) and <span class="math inline">\(\beta\)</span> (also called power) are chosen by the analyst to reflect their prior beliefs about the likely tree depth. In their paper, Chipman et al. proposed <span class="math inline">\(\alpha\)</span>=0.95 and <span class="math inline">\(\beta\)</span>=2. These parameters encourage short, stumpy trees of low depth. It is important to remember that this is just a prior, the data could still lead the algorithm to deeper trees. The default prior anticipates that each tree will be a weak learner and that the quality of the prediction will come from combining those weak learners.</p>
+<p><code>BART</code> models the contributions from the terminal nodes as being normally distributed with zero mean and standard deviation <span class="math inline">\(\sigma_\mu\)</span>. Chipman et al. argue that the sum of the contributions from the H trees will be distributed,
+<span class="math display">\[
+N( 0, \sqrt{H}\sigma_\mu)
+\]</span>
+The argument is that this can be thought of as an approximate distribution for y. The logic of this fails on two grounds, first, it ignores the effect on y of the inherent variability <span class="math inline">\(\sigma\)</span> and second, the contributions are not a random sample of <span class="math inline">\(\mu_{hj}\)</span>, rather they are selected based on x; this selection induces correlation.</p>
+<p>Ignoring these considerations the argument goes that,<br />
+<span class="math display">\[
+y_i \sim N( 0, \sqrt{H}\sigma_\mu)
+\]</span>
+so the y’s will have a 95% range of approximately, <span class="math inline">\(2k\sqrt{H}\sigma_\mu\)</span>, where k is around 2. This implies that,<br />
+<span class="math display">\[
+  \sigma_\mu = \frac{\text{95% range of y}}{2k\sqrt{H}}
+\]</span>
+The <code>BART</code> package replace the 95% range by the full range of the data and leaves k as a parameter to be specified by the user, but with a default of 2.</p>
+<p>Increasing k will reduce the size of <span class="math inline">\(\sigma_\mu\)</span> and thus make the contributions from the terminal nodes more similar, shrinking them towards zero. Perhaps, k=2 is too small, but it is not clear to me whether this matters.</p>
+<p>The inherent variance of the response, <span class="math inline">\(\sigma^2\)</span> is given an inverse chi-squared prior scaled to fit the data. So the user has to specify the size of the scaling term and the degrees of freedom of the chi-squared distribution. The authors suggest scaling the distribution in terms of how sure you are, q, that the sum of trees model will out perform the residual variance of a linear regression.</p>
+<p>Degrees of freedom of the chi-squared distribution between 3 and 10 give reasonable shaped distributions. The <code>BART</code> defaults are <span class="math inline">\(\nu\)</span>=3 and q=0.9, which favours a model that explains about 50% of the variance left from a linear regression. Increasing these values will imply that you expect the model to explain a greater proportion of the variance.</p>
+</div>
+<div id="how-many-trees" class="section level2">
+<h2>How many trees</h2>
+<p>H is the number of trees that will be used in the sum. The original paper suggested a default of 50, while the <code>BART</code> package defaults to 200. It does not follow that more is always better, so H is an obvious candidate for selection by cross-validation.</p>
+</div>
+<div id="fitting-the-model" class="section level2">
+<h2>Fitting the model</h2>
+<p>Initially the algorithm creates <code>H</code> trees without any splits. Then, an iteration of the sampler involves working through each tree in turn making random changes; these might involve adding a terminal split, dropping a terminal split, changing the spitting rule of a non-terminal node, or swapping the splitting rules between parent and child nodes. Proposed changes are accepted or rejected in a Metropolis-Hastings step.</p>
+<p>Importantly, the method resembles boosting in that when a tree is updated, the update is based on the residuals from the predictions given by all of the other trees. The terminal contributions and the variance about the trend are updated as simple draws from their posteriors as the chosen priors are conjugate.</p>
+<p>Since the algorithm starts with stumps, it takes time for it to settle down. The algorithm must be run for an initial period known as the burn-in, which should be discarded. The hope is that after the burn-in the algorithm will mix effectively giving random trees from the posterior over all possible tree models.</p>
+</div>
+</div>
+<div id="r-packages-for-bayesian-tree-models" class="section level1">
+<h1>R Packages for Bayesian tree models</h1>
+<p>In R, there are four packages that implement this algorithm, <code>BayesTree</code>, <code>dbarts</code>, <code>bartMachine</code> and <code>BART</code>.</p>
+<p>The <code>BayesTree</code> package implements the methods described in</p>
+<p>Chipman, H., George, E., and McCulloch R.<br />
+<strong>Bayesian Additive Regression Trees. </strong><br />
+<em>The Annals of Applied Statistics</em>, 2010, 4,1, 266-298.</p>
+<p>Unfortunately, the <code>BayesTree</code> implementation in R is too slow for practical use. Two early attempts were made to speed the computation. <code>bartMachine</code> written in Java and run via the <code>rJava</code> package and <code>dbarts</code> written in C++ and accessed directly from R. In my limited experience, the Java version is the quicker, but it leaves the results in a Java object, which means that you either have to unpick that object yourself, or you are reliant on the functions provided in the package. <code>dbarts</code> is essentially a fast copy of <code>BayesTree</code>, but it is designed so that it could be incorporated into a more general user-written sampler.</p>
+<p>The most recent offering is the package <code>BART</code>, which is written in C++ and which has comparable speed to <code>dbarts</code> and <code>bartMacine</code>. Its big advantage is that it offers versions of the algorithm for different types of response, including binary, categorical, time to event and it incorporates variable selection. The package is described in</p>
+<p>Sparapani, Rodney, Charles Spanbauer, and Robert McCulloch.<br />
+<strong>Nonparametric machine learning and efficient computation with bayesian additive regression trees: the BART R package.</strong><br />
+<em>Journal of Statistical Software</em> 97.1 (2021): 1-66.</p>
+<p>This paper includes a useful table comparing the features available in each of the four packages. I have tried all four and in my opinion, <code>BART</code> is the best option.</p>
+</div>
+<div id="analysis-with-bart" class="section level1">
+<h1>Analysis with <code>BART</code></h1>
+<p>I will take the toy example and analyse it with <code>BART</code> to illustrate how the package is used. To complete the example, I first create a set of test data generated under the same model as <code>trainDF</code>.</p>
+<pre class="r"><code># --- create a test dataset ------------------------------
+set.seed(5504)
+tibble( x1 = rnorm(200, 0, 1),
+        x2 = runif(200, 0, 1),
+        y  = 10 - (x1 - 1)^2 + 10 * x2 - 
+          x1 * log(x2) + rnorm(200, 0, 0.25)) -&gt; testDF</code></pre>
+<p><code>BART</code> requires the data in vectors and matrices, so I create them.</p>
+<pre class="r"><code>library(BART)
+
+# --- extract training Y into a vector --------------------
+trainDF %&gt;%
+  pull(y) -&gt; Y
+
+# --- extract training predictors into a matrix -----------
+trainDF %&gt;%
+  select(x1, x2) %&gt;%
+  as.matrix() -&gt; X
+
+
+# --- extract test Y into a vector ------------------------
+testDF %&gt;%
+  pull(y) -&gt; YT
+  
+
+# --- extract test predictors into a matrix ---------------
+testDF %&gt;%
+  select(x1, x2) %&gt;%
+  as.matrix() -&gt; XT</code></pre>
+<p>First, I analyse the example by running three default chains using <code>wbart()</code>; this is the <code>BART</code> function for modelling continuous responses.</p>
+<p>I have written a simple function, <code>reportBart()</code>, that prints performance indicators. The code is given in an appendix at the end of this post.</p>
+<pre class="r"><code># --- default sum of trees: run 3 times --------------------
+set.seed(8987)
+bt1 &lt;- wbart(x.train = X, y.train = Y, x.test = XT)
+reportBart(bt1, Y, YT, thin=1)
+set.seed(3456)
+bt2 &lt;- wbart(x.train = X, y.train = Y, x.test = XT) 
+reportBart(bt2, Y, YT, thin=1)
+set.seed(2098)
+bt3 &lt;- wbart(x.train = X, y.train = Y, x.test = XT) 
+reportBart(bt3, Y, YT, thin=1)</code></pre>
+<pre><code>## 200  trees: run length  1000  burn-in  100  thin by  1 
+##  Posterior mean sigma     0.2804047 
+##  Average splits per tree  1.262235 
+##  training RMSE            0.1900273 
+##  test RMSE                0.431628</code></pre>
+<pre><code>## 200  trees: run length  1000  burn-in  100  thin by  1 
+##  Posterior mean sigma     0.2925698 
+##  Average splits per tree  1.257975 
+##  training RMSE            0.1989069 
+##  test RMSE                0.4902702</code></pre>
+<pre><code>## 200  trees: run length  1000  burn-in  100  thin by  1 
+##  Posterior mean sigma     0.2805821 
+##  Average splits per tree  1.232065 
+##  training RMSE            0.1920744 
+##  test RMSE                0.4391365</code></pre>
+<p>The computation took around 2s per chain. <code>BART</code>’s default is to sum over 200 trees using a chain of length 1000 after a burn-in of 100. My summary tables show that the trees are not very deep, they are based on average of about 1.2 splits per tree and the model seems to be over-fitting. The RMSE for the training data is much lower than that for the test data.</p>
+<p>The algorithm estimates two parameters; the residual standard deviation, <code>sigma</code>, and the sum of tree contributions for each observation, <span class="math inline">\(\sum g(x_i; T_h, M_h)\)</span>.</p>
+<p>It is important to check for convergence of the algorithm and the simplest starting point is the convergence of <code>sigma</code>. I use the trace plotting function, <code>trace_plot()</code>, described in my previous Bayesian methods posts.</p>
+<pre class="r"><code>library(MyPackage)
+
+# --- pack sigma estimates into a tibble ------------------
+tibble(sigma = c(bt1$sigma, bt2$sigma, bt3$sigma),
+       iter  = rep(1:length(bt1$sigma), times=3),
+       chain = rep(1:3, each=length(bt1$sigma))) %&gt;%
+  # --- drop burn-in ------------------
+  filter( iter &gt; 100 ) -&gt; simDF
+
+# --- trace plots of sigma --------------------------------
+simDF %&gt;%
+  trace_plot( sigma )</code></pre>
+<p><img src="/post/methods_bayesian_trees/bayesian_trees_files/figure-html/unnamed-chunk-13-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Mixing is not great and the three chains are not really in agreement. After a little trial and error, I decided on a burn-in of 5000 and a run of length 20,000 from which I saved every 20th iteration. Each of these chains takes 41s to run on my desktop.</p>
+<pre class="r"><code># --- sum of trees: longer chains -------------------------
+set.seed(8987)
+bt4 &lt;- wbart(x.train = X, y.train = Y, x.test = XT,
+             nskip=5000, ndpost = 1000, keepevery = 20) 
+reportBart(bt4, Y, YT, thin=20)
+set.seed(3456)
+bt5 &lt;- wbart(x.train = X, y.train = Y, x.test = XT,
+             nskip=5000, ndpost = 1000, keepevery = 20) 
+reportBart(bt5, Y, YT, thin=20)
+set.seed(2098)
+bt6 &lt;- wbart(x.train = X, y.train = Y, x.test = XT,
+             nskip=5000, ndpost = 1000, keepevery = 20) 
+reportBart(bt6, Y, YT, thin=20)</code></pre>
+<pre><code>## 200  trees: run length  1000  burn-in  5000  thin by  20 
+##  Posterior mean sigma     0.2654372 
+##  Average splits per tree  1.20304 
+##  training RMSE            0.168509 
+##  test RMSE                0.4317386</code></pre>
+<pre><code>## 200  trees: run length  1000  burn-in  5000  thin by  20 
+##  Posterior mean sigma     0.2632656 
+##  Average splits per tree  1.181055 
+##  training RMSE            0.1664701 
+##  test RMSE                0.4188793</code></pre>
+<pre><code>## 200  trees: run length  1000  burn-in  5000  thin by  20 
+##  Posterior mean sigma     0.2637268 
+##  Average splits per tree  1.187155 
+##  training RMSE            0.1687145 
+##  test RMSE                0.3821009</code></pre>
+<p>The trace plot for <code>sigma</code> is much better (code hidden as it is essentially the same as that used before).
+<img src="/post/methods_bayesian_trees/bayesian_trees_files/figure-html/unnamed-chunk-16-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Pooling the 3 chains allows us to visualise the posterior.</p>
+<pre class="r"><code>simDF %&gt;%
+  summarise( m = mean(sigma),
+             lb = quantile(sigma, probs=0.025),
+             ub = quantile(sigma, probs=0.975) ) %&gt;%
+  print() -&gt; statDF</code></pre>
+<pre><code>## # A tibble: 1 × 3
+##       m    lb    ub
+##   &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+## 1 0.264 0.238 0.293</code></pre>
+<pre class="r"><code>simDF %&gt;%
+  ggplot( aes(x=sigma)) +
+  geom_density( fill=&quot;steelblue&quot;) +
+  geom_vline( xintercept = c(statDF$m, statDF$lb, statDF$ub),
+                 linetype = c(1,2,2), colour=&quot;red&quot;) +
+  labs(title=&quot;Posterior distribution of sigma&quot;,
+       subtitle = &quot;Showing the posterior mean and 95% CrI&quot;)</code></pre>
+<p><img src="/post/methods_bayesian_trees/bayesian_trees_files/figure-html/unnamed-chunk-17-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p><code>BART</code> also returns the predictions for each of the 400 training data points after each of the 1000 iterations. They are placed in a 1000x400 matrix called <code>yhat.train</code>.</p>
+<p>I combine these estimates and then, for illustration, look at the convergence of the prediction corresponding to the first observation.</p>
+<pre class="r"><code># --- predictions for each training observation
+rbind(bt4$yhat.train, bt5$yhat.train, bt6$yhat.train)  %&gt;%
+  as_tibble() %&gt;%
+  mutate(iter  = rep(1:1000, times=3),
+         chain = rep(1:3, each=1000))  -&gt; predDF
+
+# --- trace plot of predictions for observation 1
+predDF %&gt;%
+  trace_plot(V1) +
+  geom_hline(yintercept=Y[1], size=1.5, colour=&quot;darkgreen&quot;) +
+  labs( y = &quot;Observation 1&quot;,
+        title = &quot;trace plot of prediction for observation 1&quot;,
+        subtitle = &quot;Actual value shown in green&quot;)</code></pre>
+<p><img src="/post/methods_bayesian_trees/bayesian_trees_files/figure-html/unnamed-chunk-18-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Convergence is ball-park OK, but far from perfect.</p>
+<p>For more detailed convergence checking the estimates can be coerced into <code>mcmc</code> objects for use in <code>coda</code>. Below, I look at the predictions for the first 100 observations and calculate the <code>Rhat</code> statistics that compare variances within and between chains.</p>
+<pre class="r"><code>library(coda)
+
+# --- predictions for the first 100 observations -----------
+mc &lt;- mcmc.list(
+        mcmc(bt4$yhat.train[,1:100]), 
+        mcmc(bt5$yhat.train[,1:100]), 
+        mcmc(bt6$yhat.train[,1:100]))
+
+# --- gelman statistic Rhat --------------------------------
+gd &lt;- gelman.diag(mc)
+
+# --- Rhat in descending order
+gd$psrf %&gt;%
+  as_tibble() %&gt;%
+  janitor::clean_names(&quot;lower_camel&quot;) %&gt;%
+  mutate( observation = paste0(&quot;V&quot;, 1:100)) %&gt;%
+  select( observation, everything() ) %&gt;%
+  arrange( desc(pointEst) )</code></pre>
+<pre><code>## # A tibble: 100 × 3
+##    observation pointEst upperCI
+##    &lt;chr&gt;          &lt;dbl&gt;   &lt;dbl&gt;
+##  1 V88             1.27    1.73
+##  2 V25             1.14    1.41
+##  3 V81             1.11    1.33
+##  4 V48             1.11    1.32
+##  5 V100            1.10    1.31
+##  6 V31             1.10    1.30
+##  7 V95             1.09    1.30
+##  8 V96             1.09    1.28
+##  9 V42             1.09    1.27
+## 10 V80             1.08    1.24
+## # … with 90 more rows</code></pre>
+<p>Ideally, Rhat should be 1.0 and there was a time when a point estimate of 1.2 was considered close enough to 1, but today, researchers typically require values below 1.05 (see my methods post on assessing convergence). Observation 88 is highlighted as having poor convergence, so below I plot its trace.</p>
+<pre class="r"><code># --- trace plot of Observation 88 selected because of its high Rhat
+predDF %&gt;%
+  trace_plot(V88) +
+  geom_hline(yintercept=Y[88], size=1.5, colour=&quot;darkgreen&quot;) +
+  labs( y = &quot;Observation 88&quot;,
+        title = &quot;trace plot of predictions for observation 88&quot;,
+        subtitle = &quot;Actual value shown in green&quot;)</code></pre>
+<p><img src="/post/methods_bayesian_trees/bayesian_trees_files/figure-html/unnamed-chunk-20-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>The chains are still drifting and the chains have different means.</p>
+<p>Although, the convergence is not really good enough, I’ll continue to look at the quality of the predictions. In the next plot, I reorder the observations and compare them with their posterior mean prediction and an approximate 95% CrI for the value y. To create the CrI for y rather than for the prediction I add a normal random error with standard deviation, sigma. The value of sigma should itself be randomly chosen from the posterior of sigma, but for simplicity I have used the posterior mean.</p>
+<pre class="r"><code># --- predictions + a random error term
+rbind(bt4$yhat.train, bt5$yhat.train, bt6$yhat.train) +
+  matrix( rnorm(1200000, 0 , 0.264 ), nrow=3000, ncol=400)  %&gt;%
+  as_tibble() %&gt;%
+  mutate(iter  = rep(1:1000, times=3),
+         chain = rep(1:3, each=1000))  -&gt; predDF
+
+# --- summary statistics for the 400 predictions --------------
+predDF %&gt;%
+  summarise( across(starts_with(&quot;V&quot;), 
+                    list(mean, sd,
+                         ~ quantile(.x, probs=0.025), 
+                         ~ quantile(.x, probs=0.975)))) %&gt;%
+  pivot_longer(everything(), names_to=&quot;v&quot;, values_to=&quot;stat&quot;) %&gt;%
+  separate( v, into=c(&quot;obs&quot;, &quot;j&quot;), sep=&quot;_&quot;) %&gt;%
+  pivot_wider(names_from=j, values_from=stat) %&gt;%
+  rename( m = `1`, sd = `2`, q1 = `3`, q2 = `4`) %&gt;%
+  mutate( obs = str_replace(obs, &quot;V&quot;, &quot;Y&quot;)) %&gt;%
+  mutate( y = Y)  -&gt; statDF
+
+# --- plot every 5th prediction -------------------------------
+statDF %&gt;%
+  arrange(m) %&gt;%
+  mutate( x = row_number()) %&gt;%
+  filter( x %% 5 == 0 ) %&gt;%
+  ggplot( aes(x= x, y=m)) +
+  geom_point() +
+  geom_errorbar( aes(ymin=q1, ymax=q2), width=0.2) +
+  geom_point( aes(x=x, y=y), colour=&quot;red&quot;) +
+  labs( y = &quot;Response&quot;, x = &quot;&quot;,
+  title = &quot;In-sample predictions and 95% intervals&quot;,
+  subtitle = &quot;Observed values shown in red&quot;)</code></pre>
+<p><img src="/post/methods_bayesian_trees/bayesian_trees_files/figure-html/unnamed-chunk-21-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>These credible intervals express our uncertainty about the observations y. It looks as though the observations are too close to the posterior mean predictions, suggesting that the model is over-fitting.</p>
+<p>Bayesian measures of surprise can be used to identify the observations that are poorly predicted.</p>
+<pre class="r"><code># --- residuals as a measure of surprise ------------------
+statDF %&gt;%
+  mutate( r = (y-m)/sd ) %&gt;%
+  arrange(r) %&gt;%
+  {
+    head(.) %&gt;% print()
+    tail(.) %&gt;% print()
+  }</code></pre>
+<pre><code>## # A tibble: 6 × 7
+##   obs       m    sd    q1    q2     y      r
+##   &lt;chr&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt;
+## 1 Y293   15.1 0.301  14.5  15.7  14.6 -1.73 
+## 2 Y134   15.9 0.311  15.3  16.5  15.4 -1.71 
+## 3 Y2     15.7 0.317  15.1  16.3  15.2 -1.47 
+## 4 Y138   11.4 0.303  10.8  12.0  11.0 -1.22 
+## 5 Y167   15.4 0.303  14.8  16.0  15.0 -1.04 
+## 6 Y140   17.5 0.329  16.9  18.2  17.2 -0.982
+## # A tibble: 6 × 7
+##   obs       m    sd    q1    q2     y     r
+##   &lt;chr&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+## 1 Y51    18.2 0.324  17.6  18.9  18.6  1.17
+## 2 Y349   15.0 0.323  14.4  15.6  15.4  1.21
+## 3 Y94    18.4 0.312  17.8  19.0  18.8  1.30
+## 4 Y354   14.0 0.317  13.4  14.6  14.4  1.31
+## 5 Y360   18.3 0.297  17.7  18.9  18.8  1.63
+## 6 Y5     16.5 0.308  15.9  17.1  17.2  2.37</code></pre>
+<p>Overall in-sample prediction looks good, perhaps too good.</p>
+<p>Next, I make the prediction plot for the test data. The code is so similar that I will not show it.
+<img src="/post/methods_bayesian_trees/bayesian_trees_files/figure-html/unnamed-chunk-23-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>Another matrix returned by <code>BART</code> is <code>varcount</code>, it represents the total number of times that each predictor is used to split a tree (summed over the 200 trees) and provides a measure of variable importance. The count is given for each iteration of the sampler.</p>
+<p>The plot shows <code>varcount</code> for the first of my longer runs.</p>
+<pre class="r"><code># --- average number of splits -----------------------------
+bt4$varcount %&gt;%
+  as_tibble() %&gt;%
+  ggplot( aes(x=1:1000, y=x1 /200) ) +
+  geom_line( colour=&quot;red&quot;) +
+  geom_line( aes(x=1:1000, y=x2 / 200), colour=&quot;blue&quot; ) +
+  geom_line( aes(x=1:1000, y=(x1+x2) / 200), colour=&quot;darkgreen&quot; ) +
+  labs( x = &quot;Iteration&quot;,
+        y = &quot;Splits&quot;,
+        title = &quot;Average number of splits per tree&quot;)</code></pre>
+<p><img src="/post/methods_bayesian_trees/bayesian_trees_files/figure-html/unnamed-chunk-24-1.png" width="528" style="display: block; margin: auto;" /></p>
+<p>We can see that x1 and x2 are used equally often and that the trees have on average only 1.2 splits; they very stumpy. As intended, the algorithm gets its performance by averaging a set of weak learners.</p>
+</div>
+<div id="varying-the-number-of-trees" class="section level1">
+<h1>Varying the number of trees</h1>
+<p>The priors have a regularising effect on the model, but the final form will owe much more to the data than to those priors. The defaults lead to sensible models for most datasets, however there is one hyperparameter than can make a difference; the number of trees. The <code>BayesTree</code> package set the default number of trees to 50, while <code>BART</code> has changed this to 200. At first sight, it might seem that summing over 200 trees is bound to give better predictions than summing over 50 trees, but this is not guaranteed.</p>
+<pre class="r"><code># --- sum of 50 trees ------------------------
+set.seed(8987)
+bt7 &lt;- wbart(x.train = X, y.train = Y, x.test = XT, ntree=50, nskip=5000, ndpost = 1000, keepevery = 20) </code></pre>
+<p>The performance measures are,</p>
+<pre class="r"><code># --- with 200 trees
+reportBart(bt4, Y, YT, thin=20)</code></pre>
+<pre><code>## 200  trees: run length  1000  burn-in  5000  thin by  20 
+##  Posterior mean sigma     0.2654372 
+##  Average splits per tree  1.20304 
+##  training RMSE            0.168509 
+##  test RMSE                0.4317386</code></pre>
+<pre class="r"><code># --- with 50 trees
+reportBart(bt7, Y, YT, thin=20)</code></pre>
+<pre><code>## 50  trees: run length  1000  burn-in  5000  thin by  20 
+##  Posterior mean sigma     0.296641 
+##  Average splits per tree  1.55248 
+##  training RMSE            0.2114193 
+##  test RMSE                0.596489</code></pre>
+<p>200 trees looks like the better option for these data. The posterior mean of <code>sigma</code> is reassuringly accurate, but the model is clearly over-fitting as the training set has a much smaller RMSE than the test set. Increasing k should reduce the over-fitting. The 50 tree model seeks to compensate for its lack of trees by making its trees deeper, but this is not totally successful.</p>
+</div>
+<div id="are-we-really-being-bayesian" class="section level1">
+<h1>Are we really being Bayesian?</h1>
+<p>There is a tendency, one might almost say, a danger, of treating <code>BART</code> as if it were just another way of fitting tree models. As I have done, we could judge performance by a loss, in this case the test RMSE, and even choose the number of trees by cross-validation. Such hybrid analyses, part Bayesian and part non-Bayesian, are a real temptation.</p>
+<p>So what is wrong with treating mixing priors and hyperparameter tuning? Why not try 50 trees and try 200 trees and pick the model that performs better? The reason is, of course, that by doing this we lose the probability interpretation of the results. Posterior distributions lose their meaning, credible intervals lose their meaning and so on.</p>
+<p>What we ought to do is choose the hyperparameters based on what we believed before we saw the data. The choice will be a point prior and the posterior distribution can be interpreted as describing our uncertainty after seeing the data.</p>
+<p>The trouble is that it is hard to be sure whether 50 trees or 200 trees will be more appropriate, or whether power=2 and base=0.95 is better than power=1.5 and base=0.98 when describing the probability of split in the tree. Ideally, it would be possible to place a distribution over <code>ntree</code> or over <code>power</code> and learn from the data what the value should be. Unfortunately, the <code>BART</code> package does not allow this and so we are left to try different hyperparameter values. In the absence of a way for expressing our real prior uncertainty, it is difficult to criticise someone who tries different values.</p>
+</div>
+<div id="appendix" class="section level1">
+<h1>Appendix</h1>
+<p>Code for producing statistics summarising predictive performance.</p>
+<pre class="r"><code># --- Calculate performance measures -----------------------
+perfBart &lt;- function(bt, Y, YT, thin) {
+  str &lt;- substr(bt$treedraws$trees, 1, 20)
+  iStr &lt;- word(str, 2)
+  n &lt;- as.integer(iStr)
+  nIter &lt;- nrow(bt$yhat.train)
+  nBurn &lt;- length(bt$sigma)  - nIter * thin
+  pms &lt;- mean(bt$sigma[(nBurn+1):length(bt$sigma)])
+  mSplit &lt;- mean(apply(bt$varcount, 1, sum)) / n
+  testSd &lt;- sqrt(mean( (YT - bt$yhat.test.mean)^2 ) )
+  trainSd &lt;- sqrt(mean( (Y - bt$yhat.train.mean)^2 ) )
+  return( c(pms, mSplit, trainSd, testSd, n, nIter, nBurn, thin))
+}
+# --- print the performance measures -----------------------
+reportBart &lt;- function(bt, Y, YT, thin=1) {
+  m &lt;- perfBart(bt, Y, YT, thin)
+  cat(m[5], &quot; trees: run length &quot;,m[6], &quot; burn-in &quot;,m[7],&quot; thin by &quot;, m[8],&quot;\n&quot;, 
+      &quot;Posterior mean sigma    &quot;, m[1],&quot;\n&quot;,
+      &quot;Average splits per tree &quot;, m[2],&quot;\n&quot;,
+      &quot;training RMSE           &quot;, m[3],&quot;\n&quot;,
+      &quot;test RMSE               &quot;, m[4],&quot;\n&quot;)
+}</code></pre>
+</div>
+
+  
+
+
+
+    <footer class="site-footer">
+  <span class="site-footer-credits">
+    Made with <a href="https://gohugo.io/">Hugo</a>. Themed by <a href="https://github.com/zwbetz-gh/cayman-hugo-theme">Cayman</a>. Deployed to <a href="https://www.netlify.com/">Netlify</a>.
+  </span>
+</footer>
+
+  </section>
+  
+  
+  <script>
+  window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+  ga('create', 'UA-123456789-1', 'auto');
+  ga('send', 'pageview');
+  </script>
+  <script async src='https://www.google-analytics.com/analytics.js'></script>
+  
+
+</body>
+</html>

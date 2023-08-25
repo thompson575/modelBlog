@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>BART on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/bart/</link>
+    <description>Recent content in BART on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Mon, 14 Nov 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/bart/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Kaggle Playground November 2022: BART again</title>
+      <link>https://modelling-with-r.netlify.app/ensemble_trees/</link>
+      <pubDate>Mon, 14 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/ensemble_trees/</guid>
+      <description>IntroductionEach month, kaggle releases a “playground” tabular dataset intended to test some aspect of machine learning. These data form the basis for a competition with its own leaderboard and kaggle merchandise as the prizes. In November 2022, the dataset consisted of 5,000 attempts at a binary classification task, think 5,000 entries to a kaggle competition. Each entry used a slightly different model to estimate predicted probabilities of a positive response for each of 40,000 items.</description>
+    </item>
+    
+    <item>
+      <title>Bayesian Sliced 5: Airbnb Price Prediction</title>
+      <link>https://modelling-with-r.netlify.app/bayes_airbnb_prices/</link>
+      <pubDate>Tue, 01 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/bayes_airbnb_prices/</guid>
+      <description>Summary:Background: In episode 5 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on Airbnb properties in New York City. The aim was to predict the price per night.
+My approach: I analyse the data using Bayesian additive regression trees (BART) fitted using the BART package.
+Result: Even with over 300 potential predictors, the BART models fit remarkably quickly, although the default burn-in proved insufficient.</description>
+    </item>
+    
+    <item>
+      <title>Methods: Bayesian trees</title>
+      <link>https://modelling-with-r.netlify.app/bayesian_trees/</link>
+      <pubDate>Mon, 31 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/bayesian_trees/</guid>
+      <description>IntroductionThe fundamental idea that underpins all machine learning is that of the universal approximator, that is, a function that is so flexible that it can be used to model any dataset. Trees provide one way to construct such a flexible function.
+The code below simulates a small regression problem that I will use to illustrate the discussion of Bayesian tree models.
+# --- create an example dataset ------------------------------set.</description>
+    </item>
+    
+  </channel>
+</rss>

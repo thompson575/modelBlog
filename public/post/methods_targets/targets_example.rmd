@@ -1,0 +1,747 @@
+---
+title: "Creating a blog post with targets"
+author: "John Thompson"
+format: html
+date: "2022-10-09"
+layout: post
+tags:
+- Sliced
+- targets
+- pipelines
+- workflow
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+#| echo: false
+#| warning: false
+#| message: false
+library(targets)
+library(tarchetypes)
+```
+
+## Introduction
+
+This post describes how I used the `targets` package to help create my blog post on the Bayesian analysis of the superstore profit data. It should be read alongside that post and together with my methods post on `targets`.
+
+The Bayesian analysis of the superstore profits is just complex enough to provide a vehicle for discussing the benefits of `targets`. 
+
+## Folder Structure
+
+First, I created a folder with the structure discussed in my methods post. The project has the rather unglamorous name, `Bayes-s01-e03`, standing for the Bayesian analysis of Sliced series 1 episode 3. I created an RStudio project, opened a local `git` repository, initialised `renv` and created an empty `_targets.R` script. When `targets` was first run, it created an archive called `_targets` and at that stage, the folder structure was,
+
+```{r eval=FALSE}
+|- Bayes-s01-e03
+   |-- .git/ (hidden)
+   |-- renv/
+   |-- _targets/
+   |
+   |-- docs/
+   |-- data/
+       |--- dataStore/
+       |--- rawData/
+       |--- rData/
+   |-- R/
+   |-- reports/
+   |-- temp/
+   |
+   |-- .gitignore
+   |-- .Rprofile
+   |-- myProject.Rproj
+   |-- renv.lock
+   |-- _targets.R
+```
+
+I use a final `/` to distinguish folders from files and order the contents in a way that seems sensible to me, rather than in the order used by Windows. Blank lines are for improved legibility and have no other significance.
+
+# Should you start with `targets`?
+
+An important practical question is, whether you should use `targets` from the very start of a project, or introduce it at some later stage.
+
+In this case, I had already posted a non-Bayesian analysis of the data and I had started to prepare the Bayesian analysis before I decided to switch to `targets`, so there was no possibility of using `targets` from the very beginning. I based my early `_targets.R` scripts on pre-existing R scripts.
+
+Most analyses start with an exploratory phase, in which the structure of the data is investigated and the general form of the analysis is decided upon. Using `targets` for such an exploration would be restrictive and largely pointless. Coding `_targets.R` is quick and simple, but it still takes time and there are few advantages in creating a record of an exploration, most of which will be discarded.
+
+The time to start using `targets` is when you know the overall direction of your analysis and you are ready to produce results that you want to archive, even if you are not yet sure whether they will make it into the final report.
+
+For the superstore project, I decided to,
+
+-   clean the data as I had for the non-Bayesian post\
+-   start with the linear model that I developed in my non-Bayesian post\
+-   use `stan` for Bayesian model fitting\
+-   produce a Bayesian version of my non-Bayesian analysis\
+-   modify the Bayesian model to allow different variances\
+-   compare the two Bayesian models using a Bayes Factor\
+-   calculate the Bayes Factor using bridge sampling\
+-   write a blog post summarising these steps\
+
+At this point, I was ready to use `targets`. In fact, I think that `targets` would have been justified after the first four of these decisions had been made.
+
+This plan is still incomplete, as there are plenty of things that could change. For instance, it is important to check the convergence of the chains produced by `stan` and if convergence is not good, the models will need to be re-fitted using different control parameters. Such a process should be recorded, but might well not make it into the final post.
+
+# My first `_targets.R`
+
+The `_targets.R` script grows as the analysis develops, which is quite difficult to convey without tediously cataloguing each stage. As a compromise, I'll show a couple of early stages and then jump to my final version.
+
+My first analysis reads and prepares the data and uses `lm()` to fit the linear model that I ended with in my non-Bayesian post. So, no Bayesian analysis at all.
+
+`targets` will work with relative addresses, but this approach fails if you try to run `targets` from a different working directory. I find it safer to specify full paths, as these always work.
+
+Here is my first version of `_targets.R`. It has a standard structure,
+
+-  load the targets package,\ 
+-  define file names and other R objects,\
+-  source the functions,\ 
+-  set targets' options,\ 
+-  define the pipeline.  
+
+```{r  eval=FALSE}
+# ---------------------------------------------------------------------
+# load the targets package
+#
+library(targets)
+library(tarchetypes)
+
+# ---------------------------------------------------------------------
+# define filenames
+#
+trainData     <- "C:/Projects/Sliced/s01-e03/data/rawData/train.csv"
+
+summaryReport <- "C:/Projects/Sliced/Bayes-s01-e03/reports/project_summary.qmd"
+
+# ---------------------------------------------------------------------
+# source the functions needed for the computations
+#
+source("C:/Projects/Sliced/Bayes-s01-e03/R/functions.R")
+
+# ---------------------------------------------------------------------
+# set project options, including all required packages
+#
+tar_option_set(packages = c("tidyverse") )
+
+# ===========================================================
+# define the pipeline
+#
+list(
+  # ---------------------------------------------------------
+  # filename: training data
+  #
+  tar_target(trainFile, trainData, format = "file"),
+  
+  # ---------------------------------------------------------
+  # read_training_data():
+  #
+  tar_target(trainDF, read_training_data(trainFile)),
+  
+  # ---------------------------------------------------------
+  # fit_base_lm(): parallel line linear model
+  #
+  tar_target(baseLm, fit_base_lm(trainDF)),
+  
+  # ---------------------------------------------------------
+  # render the quarto document
+  #
+  tar_quarto(report, summaryReport)
+)
+```
+
+In this code, I use a function called `read_training_data()` to read and prepare the data and a function called `fit_base_lm()` to fit the linear model. 
+
+Here are those functions.
+
+```{r  eval=FALSE}
+# -------------------------------------------------------
+# read csv file of training data & calculate the
+#    undiscounted profit and sales
+# drop a few items that were sold at a loss
+#
+read_training_data <- function( filename ) {
+  read_csv( filename ) %>%
+    mutate( baseSales  = sales / (1 - discount),
+            baseProfit = profit + sales * discount / (1 - discount) ) %>%
+    filter( baseProfit > 0.5 ) %>%
+    return()
+}
+
+# -------------------------------------------------------
+# fit parallel line model using lm()
+#
+fit_base_lm <- function(df) {
+  df %>%
+    { lm( log10(baseProfit) ~  - 1 + sub_category, 
+          offset=log10(baseSales), 
+          data=.) } %>%
+    return() 
+}
+```
+
+Whenever the pipeline is run, it is important to check the results to make sure that you have not done something stupid. The simplest way to do this is to create an rmarkdown or quarto document that summarises the results from each step in the pipeline. I keep this document very simple, just section headers and a print out of the archived results and I render the report as the last step in the pipeline.
+
+In this case, `targets` will archive the training data under the name `trainDF` and the model fit under the name `baseLm`, so the structure of my quarto file is,
+
+````{verbatim}
+---
+title: "Bayes-s01-e03 Summary"
+author: "John Thompson"
+format: html
+---
+
+```{r}
+#| message: false
+#| warning: false
+library(tidyverse)
+library(targets)
+library(broom)
+
+archive <- "C:/Projects/Sliced/Bayes-s01-e03/_targets"
+```
+
+## Training data
+
+```{r}
+tar_read(trainDF, store = archive) %>%
+  glimpse()
+```
+
+## Linear model
+
+```{r}
+tar_read(baseLm, store = archive) %>%
+  tidy()
+```
+````
+
+My .qmd files are tucked away in a subfolder, so `tar_read()` will not find the archive unless I explicitly tell it where to look using the `store` argument. Otherwise the code is straightforward.
+
+# Adding to `_targets.R`
+
+The next step is to add a Bayesian analysis that fits the same model as `lm()`. I saved the required `stan` model code in a file called `profit_mod1.stan` and added more steps to `_targets.R`.
+
+```{r  eval=FALSE}
+# additional file definition
+stan01    <- "C:/Projects/Sliced/Bayes-s01-e03/stan/profit_mod1.stan"
+```
+
+```{r  eval=FALSE}
+# additional packages
+tar_option_set(packages=c("tidyverse", "rstan", "MyPackage") )
+```
+
+```{r  eval=FALSE}
+# extra steps in the pipeline
+  # ---------------------------------------------------------
+  # prepare_stan_data(): extract data into a list
+  #
+  tar_target(stanData, prepare_stan_data(trainDF)),
+  
+  # ---------------------------------------------------------
+  # filename: stan model01
+  #
+  tar_target(stanModel01, stan01, format = "file"),
+  
+  # ---------------------------------------------------------
+  # run_stan(): fit stan model01
+  #
+  tar_target(stanFit01, run_stan(stanModel01, stanData)),
+  
+  # ---------------------------------------------------------
+  # stan_to_df(): parameters simulations in a tibble
+  #
+  tar_target(sim01DF, stan_to_df(stanFit01) )
+```
+
+`prepare_stan_data()` and `run_stan()` are simple functions that I wrote specifically for the project and `stan_to_df()` is a function from `MyPackage` that I described in my post on Bayesian software; it extracts the simulations from the object returned by `stan` and stores them in a tibble.
+
+I also added some lines to my `project_summary.qmd` to check the convergence of the chains produced by `run_stan()`. 
+
+# The final version of `_targets`
+
+Eventually, I ended up with this version of `_targets.R` that covers all stages in my planned analysis.
+
+```{r  eval=FALSE}
+# ---------------------------------------------------------------------
+# load the targets package
+#
+library(targets)
+library(tarchetypes)
+
+# ---------------------------------------------------------------------
+# define filenames
+#
+trainData <- "C:/Projects/Sliced/s01-e03/data/rawData/train.csv"
+
+stan01    <- "C:/Projects/Sliced/Bayes-s01-e03/stan/profit_mod1.stan"
+stan02    <- "C:/Projects/Sliced/Bayes-s01-e03/stan/profit_mod2.stan"
+stan01bf  <- "C:/Projects/Sliced/Bayes-s01-e03/stan/profit_mod1bf.stan"
+stan02bf  <- "C:/Projects/Sliced/Bayes-s01-e03/stan/profit_mod2bf.stan"
+
+summaryReport <- "C:/Projects/Sliced/Bayes-s01-e03/reports/project_summary.qmd"
+blogPost      <- "C:/Projects/Sliced/Bayes-s01-e03/reports/Bayes_superstore_profits.qmd"
+
+# ---------------------------------------------------------------------
+# source the functions needed for the computations
+#
+source("C:/Projects/Sliced/Bayes-s01-e03/R/functions.R")
+
+# ---------------------------------------------------------------------
+# set project options, including all required packages
+#
+tar_option_set(packages=c("tidyverse", "rstan", "MyPackage", "broom",
+                          "bridgesampling") )
+
+# =====================================================================
+# define the pipeline
+#
+list(
+  # ---------------------------------------------------------
+  # filename: training data
+  #
+  tar_target(trainFile, trainData, format = "file"),
+  
+  # ---------------------------------------------------------
+  # read_training_data():
+  #
+  tar_target(trainDF, read_training_data(trainFile)),
+  
+  # ---------------------------------------------------------
+  # fit_base_lm(): parallel line linear model
+  #
+  tar_target(baseLm, fit_base_lm(trainDF)),
+  
+  # ---------------------------------------------------------
+  # prepare_stan_data(): extract data into a list
+  #
+  tar_target(stanData, prepare_stan_data(trainDF)),
+  
+  # ---------------------------------------------------------
+  # filename: stan model1
+  #
+  tar_target(stanModel01, stan01, format = "file"),
+  
+  # ---------------------------------------------------------
+  # run_stan(): fit stan model01
+  #
+  tar_target(stanFit01, run_stan(stanModel01, stanData)),
+  
+  # ---------------------------------------------------------
+  # stan_to_df(): simulated parameters as tibble
+  #
+  tar_target(sim01DF, stan_to_df(stanFit01) ),
+
+  # ---------------------------------------------------------
+  # filename: stan model2
+  #
+  tar_target(stanModel02, stan02, format = "file"),
+  
+  # ---------------------------------------------------------
+  # run_stan(): fit stan model02
+  #
+  tar_target(stanFit02, run_stan(stanModel02, stanData)),
+  
+  # ---------------------------------------------------------
+  # stan_to_df(): simulated parameters as tibble
+  #
+  tar_target(sim02DF, stan_to_df(stanFit02) ),
+
+  # ---------------------------------------------------------
+  # compare_estimates(): tibble of estimates & std errors
+  #
+  tar_target(coefDF, compare_estimates(baseLm, sim01DF, sim02DF)),
+
+  # ---------------------------------------------------------
+  # filename: model1 for BF
+  #
+  tar_target(stanModel01bf, stan01bf, format = "file"),
+  
+  # ---------------------------------------------------------
+  # bf_fit(): fit model for BF
+  #
+  tar_target(stanFitBF01, bf_fit(stanModel01bf, stanData, "mod1")),
+  
+  # ---------------------------------------------------------
+  # bridge_sampler(): approximate the marginal likelihood
+  #
+  tar_target(bridge01, bridge_sampler(stanFitBF01, silent=TRUE)),
+
+  # ---------------------------------------------------------
+  # filename: model2 for BF
+  #
+  tar_target(stanModel02bf, stan02bf, format = "file"),
+  
+  # ---------------------------------------------------------
+  # bf_fit(): fit model for BF
+  #
+  tar_target(stanFitBF02, bf_fit(stanModel02bf, stanData, "mod2")),
+  
+  # ---------------------------------------------------------
+  # bridge_sampler(): approximate the marginal likelihood
+  #
+  tar_target(bridge02, bridge_sampler(stanFitBF02, silent=TRUE)),
+
+  # ---------------------------------------------------------
+  # render: the quarto documents
+  #
+  tar_quarto(report, summaryReport),
+  tar_quarto(post, blogPost)
+)
+```
+
+In this code `bridge_sampler()` is a function from the `bridgesampling` package and `compare_estimates()` is my function to combine the estimates and their standard errors (posterior means and posterior standard deviations) from the three models and return them in a tibble.
+
+# Repetition
+
+Glancing at the final "_targets.R" script, you will notice that the treatment of the two models is identical. As there are only two models, this duplication is hardly a problem, but were there many more models, the script file would become long, repetitious and hard to follow. 
+
+`targets` offers a way to repeat function calls with different arguments using the `tar_map()` function, which works in a similar way to the `map()` function of `purrr`. 
+
+In the following version of the code, I set up two tibbles that contain the names of the model files, together with a variable called `name` that contains suffixes that will be added to the name of the target. Thus, for the basic model fits, my code calls the target, `stanFit`, and the suffixes are `01` and `02`, so the resulting objects are archived as `stanFit_01` and `stanFit_02`.
+
+```{r  eval=FALSE}
+# ---------------------------------------------------------------------
+# load the targets package
+#
+library(tidyverse)
+library(targets)
+library(tarchetypes)
+
+# ---------------------------------------------------------------------
+# define paths
+#
+trainData     <- "C:/Projects/Sliced/s01-e03/data/rawData/train.csv"
+
+stanHome      <- "C:/Projects/Sliced/Bayes-s01-e03/stan"
+reportHome    <- "C:/Projects/Sliced/Bayes-s01-e03/reports"
+
+summaryReport <- file.path(reportHome, "project_summary.qmd")
+blogPost      <- file.path(reportHome, "Bayes_superstore_profits.qmd")
+
+# -----------------------------------------------------
+# options for model fits
+#
+modelDF <- tibble(
+              file = c(file.path(stanHome, "profit_mod1.stan"), 
+                       file.path(stanHome, "profit_mod2.stan")),
+              name = c("01", "02")
+           )
+
+# -----------------------------------------------------
+# options for bridge sampling
+#
+bfDF    <- tibble(
+              file = c(file.path(stanHome, "profit_mod1bf.stan"), 
+                       file.path(stanHome, "profit_mod2bf.stan")),
+              name = c("bf01", "bf02")
+           )
+
+# ---------------------------------------------------------------------
+# source the functions needed for the computations
+#
+source("C:/Projects/Sliced/Bayes-s01-e03/R/functions.R")
+
+# ---------------------------------------------------------------------
+# set project options, including all required packages
+#
+tar_option_set(packages=c("tidyverse", "rstan", "MyPackage", 
+                          "broom", "bridgesampling") )
+
+# =====================================================================
+# define the pipeline
+#
+list(
+  # ---------------------------------------------------------
+  # filename: training data
+  #
+  tar_target(trainFile, trainData, format = "file"),
+  
+  # ---------------------------------------------------------
+  # read_training_data():
+  #
+  tar_target(trainDF, read_training_data(trainFile)),
+  
+  # ---------------------------------------------------------
+  # fit_base_lm(): parallel line linear model
+  #
+  tar_target(baseLm, fit_base_lm(trainDF)),
+  
+  # ---------------------------------------------------------
+  # prepare_stan_data(): extract data into a list
+  #
+  tar_target(stanData, prepare_stan_data(trainDF)),
+  
+  # ---------------------------------------------------------
+  # fit the two Bayesian models
+  #
+  tar_map(
+    modelDF,
+    names = "name",
+    
+    # ---------------------------------
+    # filename: stan model
+    #
+    tar_target(stanModel, file, format = "file"),
+    
+    # ---------------------------------
+    # run_stan(): fit stan model
+    #
+    tar_target(stanFit, run_stan(stanModel, stanData)),
+    
+    # ---------------------------------
+    # stan_to_df(): simulations to tibble
+    #
+    tar_target(simDF, stan_to_df(stanFit) )
+  ),  
+  
+  # ---------------------------------------------------------
+  # compare_estimates(): tibble of estimates & std errors
+  #
+  tar_target(coefDF, compare_estimates(baseLm, simDF_01, simDF_02)),
+
+  # ---------------------------------------------------------
+  # marginal likelihoods for the two models
+  #
+  tar_map(
+    bfDF,
+    names = "name",
+    
+    # ---------------------------------
+    # filename: model for BF
+    #
+    tar_target(stanModel, file, format = "file"),
+    
+    # ---------------------------------
+    # bf_fit(): fit model for BF
+    #
+    tar_target(stanFit, bf_fit(stanModel, stanData)),
+    
+    # ---------------------------------
+    # bridge_sampler(): approximate the marginal likelihood
+    #
+    tar_target(bridge, bridge_sampler(stanFit, silent=TRUE))
+  ),  
+  
+  # ---------------------------------------------------------
+  # render the quarto documents
+  #
+  tar_quarto(report, summaryReport),
+  tar_quarto(post, blogPost)
+)
+```
+
+# Long pipelines
+
+Legibility is a vital to this approach, because `_targets.R` is the main record of the overall structure of the analysis. At present, my preferred style is quite verbose, but I fear that this would not be practical for much larger projects. I can see that it would soon become necessary to split the pipeline, otherwise `_targets.R` would become unreadable.   
+
+`target factories` are pre-prepared blocks of `targets` code for common tasks and so, I could create by pipelines out of sets of purpose built factories. My feeling is that this would be overly complex, especially as I do not want to reuse the code. 
+
+Another option is to break the main pipeline into several smaller linked pipelines using the `tar_config_set()` function. I prefer this idea, but I am concerned that I could lose the project overview provided by a single pipline. While I experiment with these ideas, here is a simple alternative.
+
+In the following approach, I extract blocks of targets code and place then in a subsidary file that I have called `target_blocks.R` The pipeline refers to the these blocks, rather than to the individual functions and the code is therefore much shorter.
+
+```{r eval=FALSE}
+# ---------------------------------------------------------------------
+# load the targets package
+#
+library(tidyverse)
+library(targets)
+library(tarchetypes)
+
+# ---------------------------------------------------------------------
+# define paths
+#
+trainData     <- "C:/Projects/Sliced/s01-e03/data/rawData/train.csv"
+
+stanHome      <- "C:/Projects/Sliced/Bayes-s01-e03/stan"
+reportHome    <- "C:/Projects/Sliced/Bayes-s01-e03/reports"
+
+summaryReport <- file.path(reportHome, "project_summary.qmd")
+blogPost      <- file.path(reportHome, "Bayes_superstore_profits.qmd")
+
+# ---------------------------------------------------------------------
+# source the functions needed for the computations
+#
+source("C:/Projects/Sliced/Bayes-s01-e03/R/functions.R")
+
+source("C:/Projects/Sliced/Bayes-s01-e03/R/target_functions.R")
+
+# ---------------------------------------------------------------------
+# set project options, including all required packages
+#
+tar_option_set(packages=c("tidyverse", "rstan", "MyPackage", 
+                          "broom", "bridgesampling") )
+
+# ====================================================================
+# define the pipeline
+#
+list(
+  # ---------------------------------------------------------
+  # BLOCK: steps to read training data
+  # archives: trainData, trainDF
+  #
+  eval( block_read() ),
+  
+  # ---------------------------------------------------------
+  # fit_base_lm(): parallel line linear model
+  #
+  tar_target(baseLm, fit_base_lm(trainDF)),
+  
+  # ---------------------------------------------------------
+  # prepare_stan_data(): extract data into a list
+  #
+  tar_target(stanData, prepare_stan_data(trainDF)),
+  
+  # ---------------------------------------------------------
+  # BLOCK: steps to fit two models using stan
+  # archives: stanFit_01, stanFit_02. simDF_01, simDF_02
+  #
+  eval( block_stan() ),
+  
+  # ---------------------------------------------------------
+  # compare_estimates(): tibble of estimates & std errors
+  #
+  tar_target(coefDF, compare_estimates(baseLm, simDF_01, simDF_02)),
+
+  # ---------------------------------------------------------
+  # BLOCK: steps to calculate two marginal likelihoods
+  # archives: stanFit_bf01, stanFit_bf02. bridge_bf01, bridge_bf02
+  #
+  eval( block_ml() ),  
+  
+  # ---------------------------------------------------------
+  # render the quarto documents
+  #
+  tar_quarto(report, summaryReport),
+  tar_quarto(post, blogPost)
+)
+```
+
+
+This way of working is not ideal, in particular the block functions will not accept arguments, so they cannot be reused. They merely insert a block of targets commands into the pipeline. My hacky way of doing this is to place the target function calls in a quoted list within the block function. This function returns the selected targets functions as an expression, which is evaluated by `eval()` within the main pipeline.
+
+The merits of this approach are that it is simple and it does shorten the `_targets.R` pipeline without losing the general flow of the analysis. The pipeline created by such code is identical in every respect to the pipeline that would be obtained had block functions not been used.
+
+Here is the file `target_blocks.R` that defines the blocks.
+```{r  eval=FALSE}
+# =====================================================================
+# BLOCK: steps to read training data
+#
+block_read <- function() {
+  quote(
+    list(
+      # ---------------------------------------------------------
+      # filename: training data
+      #
+      tar_target(trainFile, trainData, format = "file"),
+  
+      # ---------------------------------------------------------
+      # read_training_data():
+      #
+      tar_target(trainDF, read_training_data(trainFile))
+    )
+  )
+}
+
+# =====================================================================
+# BLOCK: steps to fit two models using stan
+#
+
+# -----------------------------------------------------
+# df defining the models
+#
+modelDF <- tibble(
+              file = c(file.path(stanHome, "profit_mod1.stan"), 
+                       file.path(stanHome, "profit_mod2.stan")),
+              name = c("01", "02")
+           )
+
+# -----------------------------------------------------
+# the block function
+#
+block_stan <- function()
+  quote(
+    list(
+      tar_map(
+        modelDF,
+        names = "name",
+    
+        # ---------------------------------
+        # filename: stan model
+        #
+        tar_target(stanModel, file, format = "file"),
+    
+        # ---------------------------------
+        # run_stan(): fit stan model
+        #
+        tar_target(stanFit, run_stan(stanModel, stanData)),
+    
+        # ---------------------------------
+        # stan_to_df(): simulations to tibble
+        #
+        tar_target(simDF, stan_to_df(stanFit) )
+      )    
+    )
+  )
+  
+# =====================================================================
+# BLOCK: steps to calculate two marginal likelihoods
+#
+
+# -----------------------------------------------------
+# df defining the models used in the bridge sampling
+#
+bfDF    <- tibble(
+              file = c(file.path(stanHome, "profit_mod1bf.stan"), 
+                       file.path(stanHome, "profit_mod2bf.stan")),
+              name = c("bf01", "bf02")
+           )
+
+# -----------------------------------------------------
+# the block function
+#
+block_ml <- function() {
+  quote(
+    list(
+      tar_map(
+        bfDF,
+        names = "name",
+    
+        # ---------------------------------
+        # filename: model for BF
+        #
+        tar_target(stanModel, file, format = "file"),
+    
+        # ---------------------------------
+        # bf_fit(): fit model for BF
+        #
+        tar_target(stanFit, bf_fit(stanModel, stanData)),
+    
+        # ---------------------------------
+        # bridge_sampler(): approximate the marginal likelihood
+        #
+        tar_target(bridge, bridge_sampler(stanFit, silent=TRUE))
+      )
+    )
+  )
+}
+```
+
+# Discussion
+
+I am completely sold on this way of working, so I am willing to overlook the rough edges of the `targets` package. I like the way that `targets` provides a record of the complete analysis in a single script and the way that it ensures that when I update my blog post, there is no unnecessary computation and I know that I am using the latest results.
+
+Of course, there is a learning curve when you first adopt `targets`, but I found that the hardest thing was not getting to know the different target functions, but rather it was finding a pattern of work that suited me. What I've settled on is,
+
+-   have an exploratory phase before using targets\  
+-   add a summary report from the very beginning\  
+-   use full path names\  
+-   grow the target script in small steps\
+-   use extensive comments in _targets.R\
+-   map over repetitive code\
+-   use blocks to keep _targets.R short and legible
+
+One thing that does not quite fit with my style of work, but which I should be able to change, is the default of having the `_targets` archive and the `_targets.R` script in the project's root folder. I like to keep the root folder an clean as possible by hiding everything in subfolders. I should be able to use `tar_config_set()` to pack everything into a `targets` subfolder, though I have not tried it yet.
+
+A question to which I have no definitive answer is, how much work should be done by a single function? At one extreme, the entire analysis could be enclosed in a single function and all of the calculated objects could be packed into a list and returned together. At the other extreme, every function could be fragmented, so that each fragment contains a single line of R code. The balance point will depend on the project and on the user's personal style. I am guided by considerations such as the time taken to compute a function, whether the result of a function feeds into more than one later step and whether I want to archive the calculated object. At present, I may be guilty of creating too many steps.  

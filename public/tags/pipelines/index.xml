@@ -6,7 +6,37 @@
     <description>Recent content in pipelines on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Mon, 01 Nov 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/pipelines/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Wed, 12 Apr 2023 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/pipelines/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>My Evolving Workflow</title>
+      <link>https://modelling-with-r.netlify.app/recent_progress/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/recent_progress/</guid>
+      <description>Workflow ChangesI like to preach the importance of having a consistent workflow across all of one’s data analysis projects. Consistency is both more efficient and it helps reduce errors. Yet, nothing can exist without change and despite my wish for consistency, my workflow is constantly evolving. Sometimes it changes for good reason, sometimes for experimentation and sometimes because I just get bored with the old way.
+My plan for this post is to discuss some of the recent changes in the way that I organise my data analysis projects.</description>
+    </item>
+    
+    <item>
+      <title>Creating a blog post with targets</title>
+      <link>https://modelling-with-r.netlify.app/targets_example/</link>
+      <pubDate>Sun, 09 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/targets_example/</guid>
+      <description>IntroductionThis post describes how I used the targets package to help create my blog post on the Bayesian analysis of the superstore profit data. It should be read alongside that post and together with my methods post on targets.
+The Bayesian analysis of the superstore profits is just complex enough to provide a vehicle for discussing the benefits of targets.
+Folder StructureFirst, I created a folder with the structure discussed in my methods post.</description>
+    </item>
+    
+    <item>
+      <title>Methods: The `targets` Package</title>
+      <link>https://modelling-with-r.netlify.app/targets_package/</link>
+      <pubDate>Sat, 08 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/targets_package/</guid>
+      <description>IntroductionI have recently been converted to the merits of the targets package and like all recent converts, I am keen to spread the word, so I thought that I would use targets for some of my Bayesian posts. In this post, I introduce targets, then in a subsequent post, I’ll explain how I used targets to help create my post on the Bayesian analysis of superstore profits.</description>
+    </item>
+    
     <item>
       <title>Methods: Introduction to mlr3</title>
       <link>https://modelling-with-r.netlify.app/mlr3/</link>

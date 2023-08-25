@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>mixed logistic regression on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/mixed-logistic-regression/</link>
+    <description>Recent content in mixed logistic regression on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Sat, 15 Oct 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/mixed-logistic-regression/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Bayesian Sliced 4: Rain Tomorrow</title>
+      <link>https://modelling-with-r.netlify.app/bayes_rain_tomorrow/</link>
+      <pubDate>Sat, 15 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/bayes_rain_tomorrow/</guid>
+      <description>Summary:Background: In episode 4 of the 2021 series of Sliced, the competitors were given two hours to analyse a set of data on rainy days in Australia. The aim was to use today’s weather data to predict whether or not it will rain tomorrow.
+My approach: In this post, I use a series of hierarchical models, where the location within Australia is one level and day within the location is the other.</description>
+    </item>
+    
+  </channel>
+</rss>

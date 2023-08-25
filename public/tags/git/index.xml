@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Git on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/git/</link>
+    <description>Recent content in Git on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Wed, 12 Apr 2023 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/git/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Git and GitHub Course</title>
+      <link>https://modelling-with-r.netlify.app/gitcourse/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/gitcourse/</guid>
+      <description>Course Object</description>
+    </item>
+    
+    <item>
+      <title>My Evolving Workflow</title>
+      <link>https://modelling-with-r.netlify.app/recent_progress/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/recent_progress/</guid>
+      <description>Workflow ChangesI like to preach the importance of having a consistent workflow across all of one’s data analysis projects. Consistency is both more efficient and it helps reduce errors. Yet, nothing can exist without change and despite my wish for consistency, my workflow is constantly evolving. Sometimes it changes for good reason, sometimes for experimentation and sometimes because I just get bored with the old way.
+My plan for this post is to discuss some of the recent changes in the way that I organise my data analysis projects.</description>
+    </item>
+    
+  </channel>
+</rss>

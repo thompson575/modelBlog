@@ -1,0 +1,431 @@
+---
+title: "The fileArchive Package"
+author: "John Thompson"
+date: "2023-04-12"
+layout: post
+tags:
+- archiving
+- fileArchive
+- simulation
+- gt
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(gt)
+library(tidyverse)
+library(fileArchive)
+library(fs)
+
+cache   <- "C:/Projects/RDevelopment/fileArchive/temp/cache"
+archive <- "C:/Projects/RDevelopment/fileArchive/temp/archive"
+
+```
+
+## fileArchive
+
+In the post entitled 'My Evolving Workflow', I discussed various ways in which my data analysis workflow has changed since I started this blog in 2021. It this post, I elaborate on one of those changes namely the way in which I now archive files of results.  
+
+`fileArchive` is my own package for archiving files. It fits well with my current workflow, but I have made no attempt to extend it to have wider use. If it also fits your needs, then use it, but be aware of its limitations. It is available on GitHub at https://github.com/thompson575/fileArchive.  
+
+The package is defined as much by what it is does not do as by what it does. Here are some classic archiving features that fileArchive does not have
+
+- Files only: the package operates on pre-existing files, it has no functions for saving R objects in files or for reading the archived files. Such functions already exist in other packages.  
+- Simplicity: the package does not duplicate features that the user could easily implement in base R or the tidyverse, such as reading or searching the index.  
+- No built-in protection. The user has full access to the index and contents of the archive, so it would be easy to corrupt everything.  
+- Single user: there is no lock on the index that would stop two users from attempting to modify it at the same time, so fileArchive is only suitable for a single user and index changes should not be parallelised.
+
+What fileArchive will do,
+
+- create an archive  
+- add, replace and remove files from the archive  
+- update the tag that enables searching of the archive  
+- ensure that there are no filename clashes  
+- check the integrity of the archive  
+- maintain the index of the contents of the archive     
+- keep a record of all archive transactions in a text file called history.txt  
+
+It might seem that the archive is too basic to be useful, but in fact it fits well with my needs. My style involves saving intermediate and final results in rds files in a cache folder. At the end of the computation, I copy selected cached files into my archive. In this way the computation can be performed in parallel, while the archiving remains a single process that does not need a lock on the index.  
+
+## Illustration
+
+I have chosen a small simulation study to illustrate the way in which I use fileArchive. The simulation is based on a paper that appeared in the International Journal of Epidemiology in 2008.
+
+Edwin P Martens, Wiebe R Pestman, Anthonius de Boer, Svetlana V Belitser, Olaf H Klungel  
+**Simulation after Systematic differences in treatment effect estimates between propensity score methods and logistic regression**  
+*International Journal of Epidemiology*, Volume 37, Issue 5, October 2008, Pages 1142–1147  
+https://doi-org.ezproxy3.lib.le.ac.uk/10.1093/ije/dyn079  
+
+My main reason for selecting this paper for the illustration is its relative simplicity, which makes it easier to explain. Briefly, the paper discussed the difference between odds ratio estimates obtained by logistic regression and by propensity score adjustment, showing that under some conditions the estimates from logistic regression are systematically higher.  
+
+Table 1 from the paper shows some simulated results, which I will reproduce.
+
+**Table 1 Summary measures of the ratio of adjusted odds ratios of treatment effect in LReg compared with PS analysis in 1000 samples**  
+
+|                   |    n = 200 |	  n = 400 |	  n = 800	|    n = 1600     
+|:-----------------| -----------:|-----------: |-----------: |------------:   
+| Mean	             |   1.102	|    1.087	|    1.085	|     1.082    
+| Median	           |   1.094	|    1.081	|    1.082	|     1.082     
+| Standard deviation |	  0.096	|    0.055	|    0.038	|     0.030    
+| Fraction > 1	     |   0.887	|    0.970	|    0.994	|     0.999   
+
+The odds ratio estimate from a logistic regression model, $OR_{reg}$, was compared with the odds ratio estimate from a propensity score analysis, $OR_{ps}, by taking the ratio $r = OR_{reg} / OR_{ps}$. When the estimates were calculated on 1000 samples of size 200, this ratio averaged 1.102, showing that the logistic regression estimates were systematically higher.  
+
+The simulation used to create Table 1 was based on a binary outcome, y, and a binary treatment variable, t. Over the population, t=1 in 50% of people and y=1 in 30%. There were also 5 covariates
+
+\[
+x_i \sim \text{N}( 0.5, \text{sd}=0.4) \ \ \ i=1,\dots,5
+\]
+
+The logit probability of the treatment was related to the covariates by the equation
+\[
+logit(t_i) = \alpha_0 + \sum_{i=1}^5\alpha_i x_i 
+\]
+although in the simulation for Table 1 all $\alpha_i$ were zero, so treatment did not depend on the covariates. $\alpha_0$ was fixed to ensure 50% with t=1 in the population.
+
+The logit probability of a positive outcome was related to the treatment and covariates by the equation,
+\[
+logit(y_i) = \beta_0 + \beta t_i + \sum_{i=1}^5\beta_i x_i 
+\]
+where $\beta$=log(2.5), each of the $\beta_i$=log(2) and $\beta_0$ was fixed to ensure 30% positive outcomes in the population. 
+
+Since the treatment does not depend on the covariates, there is no confounding in Table 1.  
+
+The logistic regression model followed this exact same form, but of course estimated the coefficients from the simulated data. The propensity score analysis fitted the logistic regression model for $t_i$ on the covariates and then divided the subjects in 5 strata based on the quintiles of there estimated probability of a positive treatment, i.e. the propensity score. Of course, in Table 1, treatment does not depend on the covariates and so these strata are effectively assigned randomly. A Mantel-Haenszal analysis across the 5 strata provides the propensity score adjusted estimate of the odds ratio.  
+
+## Simulation
+
+To code this simulation, I first packed the chosen coefficients into a list
+```{r}
+#| eval: false
+coef <- list(
+  n     = 200,
+  at    = rep(0, 5),
+  by    = rep(log(2), 5),
+  beta  = log(2.5),
+  py    = 0.3,
+  pt    = 0.5,
+  mu    = rep(0.5, 5),
+  sd    = rep(0.4, 5)
+)
+```
+
+Then I wrote a function that would simulate a single sample given these coefficients plus a seed to ensure reproducibility.
+
+```{r}
+#| eval: false
+sim_sample <- function(coef, seed) {
+
+  # --- seed for reproducibility
+  set.seed(seed)
+  # --- unpack coefficients
+  n <- coef$n
+  p <- length(coef$by)
+  a0 <- log(coef$pt/(1-coef$pt)) - sum(coef$at*coef$mu)
+  b0 <- log(coef$py/(1-coef$py)) - coef$beta*coef$pt -
+    sum(coef$by*coef$mu)
+  # --- matrix to hold the covariates
+  X <- matrix(0, nrow=n, ncol=p,
+              dimnames=list(NULL, paste0("x", 1:p)))
+  # --- simulate covariates & logit P(t) & logit P(y)
+  zt <- rep(a0, n)
+  zy <- rep(b0, n)
+  for( j in 1:p ) {
+    X[, j] <- rnorm(n, coef$mu[j], coef$sd[j])
+    zt <- zt + coef$at[j]*X[, j]
+    zy <- zy + coef$by[j]*X[, j]
+  }
+  # --- simulate T and Y
+  pt <- 1 / (1 + exp(-zt))
+  t  <- rbinom(n, 1, pt)
+  zy <- zy + coef$beta*t
+  py <- 1 / (1 + exp(-zy))
+  y  <- rbinom(n, 1, py)
+
+  # --- return simulated sample as a tibble
+  return(as_tibble(cbind(y, t, X)))
+}
+```
+
+Next I prepared a function that would calculate three estimates of the log odds ratio and their standard errors     
+- logistic regression unadjusted for covariates  
+- logistic regression adjusted for covariates  
+- Mantel-Haenszel with 5 propensity score strata  
+
+```{r}
+#| eval: false
+fit_models <- function(thisDF) {
+
+  # --- unadjusted model
+  mod <- glm( y ~ t, family=binomial(), data=thisDF)
+  tab <- coef(summary(mod))
+  est1 <- c( tab[2,1], tab[2,2])
+
+
+  # --- adjusted model
+  mod <- glm( y ~ t + x1 + x2 + x3 + x4 + x5,
+              family=binomial(), data=thisDF)
+  tab <- coef(summary(mod))
+  est2 <- c( tab[2,1], tab[2,2])
+
+  # -- propensity score
+  mod <- glm( t ~ x1 + x2 + x3 + x4 + x5,
+              family=binomial(), data=thisDF)
+
+  # --- Mantel-Haenszel Analysis
+  thisDF %>%
+    mutate( phat = predict(mod, type="response"),
+            set  = cut(phat,
+                       breaks=quantile(phat,
+                                       probs=seq(0, 1, 0.2)),
+                       include.lowest=TRUE, labels=1:5) ) %>%
+    { table( .$y, .$t, .$set) } %>%
+    mantelhaen.test() -> mh
+  # --- extract estimate and st error
+  est3 <- c(log(as.numeric(mh$estimate)),
+            (log(mh$conf.int[2]) - log(mh$conf.int[1])) /
+              (2 * qnorm(0.975)))
+
+  return( c( est1, est2, est3 ) )
+}
+```
+
+To run the simulation nsim times, I used the function sim_or.
+
+```{r}
+#| eval: false
+sim_or <- function(nsim, coef) {
+  # --- create seeds for reproducibility
+  seeds <- sample(1:20000, size=nsim, replace=FALSE)
+  # --- matrix to hold the results
+  sims <- matrix(0, nrow=nsim, ncol=6)
+  colnames(sims) <- c("lor1", "se1", "lor2", 
+                      "se2", "lor3", "se3")
+  # --- run nsim simulations
+  for( i in 1:nsim ) {
+    df        <- sim_sample(coef, seeds[i])
+    sims[i, ] <- fit_models(df)
+  }
+  mutate(as_tibble(sims), seed = seeds )
+}
+```
+
+Each simulated sample has its own randomly generated seed, which may seem excessive, but it does mean that I can easily regenerate any sample should one of the simulations give an unexpected result.  
+
+## Archiving
+
+The point of this example is to illustrate how I archive results. The code below creates a new archive and then runs sim_or for four different sample sizes creating four files of results that are copied into that archive. The name and tag will help me recognise the file contents.
+
+```{r}
+#| eval: false
+library(tidyverse)
+library(fileArchive)
+library(fs)
+
+cache   <- "C:/Projects/RDevelopment/fileArchive/temp/cache"
+archive <- "C:/Projects/RDevelopment/fileArchive/temp/archive"
+
+# --- create an empty archive
+createArchive(archive)
+
+# --- simulate for different sample sizes
+set.seed(2879)
+for( n in c(200, 400, 800, 1600)) {
+  coef$n <- n
+  # --- save set of simulations in cache
+  saveRDS( list(coef = coef, simDF = sim_or(5000, coef)),
+           path(cache, "martens.rds"))
+  # --- copy simulations to the archive
+  copyToArchive(path = archive,
+                file = path(cache, "martens.rds"),
+                name = paste0("sims_",n),
+                tag  = "no confounding")
+}
+```
+
+The four files corresponding to the four sample sizes are each stored in the cache under the name martens.rds, but when copied to the archive the names are changed to avoid over-writing the previous version.
+
+The index of the archive shows the name changes
+```{r}
+#| eval: false
+readRDS(path(archive, "index.rds"))
+```
+
+```{r}
+#| echo: false
+readRDS(path(archive, "index_v1.rds"))
+```
+
+and the history file records the transactions.
+```{r}
+#| eval: false
+cat(paste(readLines(path(archive, "history.txt")),"\n"))
+```
+
+```{r}
+#| echo: false
+cat(paste(readLines(path(archive, "history_v1.txt"), n=30),"\n"))
+```
+
+## Summarising the results
+
+To reproduce the statistics in Table 1 of the paper, I need to search the index and identify the filename for the appropriate results, then the summary stats are calculated for that file. The resulting data frame needs to be transposed to create the same appearance as Table 1.
+```{r}
+# --- read the archive's index
+INDEX <- readRDS(path(archive, "index.rds"))
+# --- empty data frame for the stats
+df <- NULL
+# --- for each sample size
+for( n in c(200, 400, 800, 1600)) {
+  # --- locate the row of the required file in the index
+  i <- which(INDEX$tag  == "no confounding" &
+             INDEX$name == paste0("sims_", n))
+  # --- read the file and calculate stats
+  readRDS(path(archive, INDEX$filename[i]))$simDF |>
+    mutate( ratio = exp(lor2) / exp(lor3)) |>
+    summarise( m  = mean(ratio),
+               md = median(ratio),
+               s  = sd(ratio),
+               f  = sum(ratio>1)/5000) |>
+    mutate(n = n ) -> stats
+  # --- add to the df
+  df <- rbind(df, stats )
+}
+
+# --- transpose df and rename stats
+df |>
+  pivot_longer(m:f, names_to = "stat", values_to = "value") |>
+  pivot_wider(names_from = n, values_from = value) |>
+  mutate( stat = c("Mean",
+                   "Median",
+                   "Standard deviation",
+                   "Fraction > 1") ) |>
+  print() -> df
+```
+
+The gt package can be used to create a prettier display
+```{r}
+df |>
+  gt() |>
+  tab_caption("Summary measures of the ratio of adjusted odds
+             ratios of treatment effect in LReg compared with PS
+             analysis in 5000 samples (after Martens 2008)") |>
+  fmt_number(columns=2:5, decimals=3) |>
+  cols_label( stat   = "",
+              `200`  = "n = 200",
+              `400`  = "n = 400",
+              `800`  = "n = 800",
+              `1600` = "n = 1600") |>
+  tab_style(
+    style = list("padding-left:40px;",
+                 cell_text(weight = "bold"),
+                 cell_fill(color = "#e8e4da")),
+    locations = cells_column_labels()
+  )
+```
+
+The results are reassuringly close to those given in the paper. The practical significance of those results is less obvious. The simulation has reproduced a scenario in which there is no confounding, but has employed two methods, logistic regression and the propensity score that are intended to adjust for confounding. At least, the outcome that is modelled by the logistic regression does depend on the covariates.  
+
+Perhaps, it would have been better to look at the properties of the different estimators. In Table 2 I present the bias and root mean square error (rmse) of the three estimators of the log odds ratio namely, the unadjusted logistic regression, the adjusted logistic regression and the propensity score. The code is similar to that for generating Table 1, so I have omitted it.  
+
+```{r}
+#| echo: false
+# --- empty data frame for the stats
+df <- NULL
+# --- for each sample size
+for( n in c(200, 400, 800, 1600)) {
+  # --- locate the row of the required file in the index
+  i <- which(INDEX$tag == "no confounding" &
+               INDEX$name == paste0("sims_", n))
+  # --- read the file and calculate stats
+  readRDS(path(archive, INDEX$filename[i]))$simDF |>
+    mutate( e1 = lor1 - log(2.5),
+            e2 = lor2 - log(2.5),
+            e3 = lor3 - log(2.5) ) |>
+    summarise( bias1  = mean(e1),
+               rmse1  = sqrt(mean(e1*e1)),
+               bias2  = mean(e2),
+               rmse2  = sqrt(mean(e2*e2)),
+               bias3  = mean(e3),
+               rmse3  = sqrt(mean(e3*e3))) |>
+    mutate(n = n ) -> stats
+  # --- add to the df
+  df <- rbind(df, stats )
+}
+
+df |>
+  pivot_longer(cols = -n, names_to = c("stat", "method"),
+               names_pattern = "^([a-z]+)(\\d+)") |>
+  unite("col", c(stat,n), sep="_") |>
+  pivot_wider(names_from=col, values_from=value) |>
+  mutate(method = factor(method,
+                         labels = c("unadjusted LR",
+                                    "adjusted LR",
+                                    "propensity"))) |>
+  gt() |>
+  tab_caption("Properties of the log Odds Ratio estimators") |>
+  fmt_number(columns=2:9, decimals=3) |>
+  tab_spanner(
+    label = "n = 200",
+    columns = c(bias_200, rmse_200)
+  ) |>
+  tab_spanner(
+    label = "n = 400",
+    columns = c(bias_400, rmse_400)
+  ) |>
+  tab_spanner(
+    label = "n = 800",
+    columns = c(bias_800, rmse_800)
+  ) |>
+  tab_spanner(
+    label = "n = 1600",
+    columns = c(bias_1600, rmse_1600)
+  ) |>
+  cols_label( method = "",
+              bias_200 = "bias",
+              rmse_200 = "rmse",
+              bias_400 = "bias",
+              rmse_400 = "rmse",
+              bias_800 = "bias",
+              rmse_800 = "rmse",
+              bias_1600 = "bias",
+              rmse_1600 = "rmse") |>
+  cols_align(
+    align = "left",
+    columns = method) |>
+  tab_style(
+    style = list(cell_text(weight = "bold"),
+                 cell_fill(color = "#e8e4da")),
+    locations = cells_column_labels()
+  ) |>
+  tab_style(
+    style = list(cell_text(weight = "bold"),
+                 cell_fill(color = "#e8e4da")),
+    locations = cells_column_spanners()
+  )
+```
+
+The results for the unadjusted logistic regression and the propensity score are similar as one might expect. The propensity score is based on covariates unrelated to treatment, so effective the patients are stratified at random meaning that the Mantel-Haenszel analysis is similar to the analysis of a single 2x2 table and the unadjusted logistic regression is mathematically equivalent to the analysis of a 2x2 table.  
+
+The bias in the adjusted logistic regression does reduce with increasing sample size, but the rmse is much the same as that for the propensity score.  
+
+## Alternative methods of Archiving
+
+There are three R packages that could be used as an alternative to fileArchive, they are `archive`, `archivist` and `repo`. I found that none of them quite fitted my workflow.  
+
+The archive package creates compressed archives in a variety of different formats, think a Zip file. There is no index and no history of transactions so you need to know in advance the name of the file that you need. The package has its uses, for instance it would be perfect for sending a set of files to a colleague, but it not intended as a general archiving package.  
+
+The archivist package is very well-developed, but I found that I became irritated with two aspects of its design that didn't quite fit with my needs. First, it archives R objects rather than files, a problem if sometimes you want to save things that are not R objects. Second, it uses long hash codes to identify the files, more professional but unnecessarily complex for my work.  
+
+The repo package is perhaps closest to being an option for my workflow and indeed I did use it for a while before writing fileArchive.  Repo also saves R objects, but has the option to save files directly. My only quibbles with repo are very minor. It is written as object orientated code, which does not fit with my normal coding style and which only gives access to the metadata on the archive via the methods provided by the package. Hiding the equivalent of the archive index is a sound design decision, it protects the user from accidentally corrupting everything, but it places the user at arms length from their data. I prefer to take responsibility for my own mistakes.  
+
+I use fileArchive because it is simple and it leaves me in control.  
+
+
+
+

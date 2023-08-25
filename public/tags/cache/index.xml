@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>cache on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/cache/</link>
+    <description>Recent content in cache on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Thu, 22 Jun 2023 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/cache/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>makepipe vs targets</title>
+      <link>https://modelling-with-r.netlify.app/pipelines/</link>
+      <pubDate>Thu, 22 Jun 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/pipelines/</guid>
+      <description>Workflow managementMakefiles are a way of controlling large programming projects. Complex software is typically organised into multiple files of code. Each file requires compilation before the object files are linked together with pre-compiled libraries to create the final executable. When a change is made to one section of the code, it is important to recompile everything affected by that change, but not the code files that are unaffected. A makefile contains a list of all of the code files and libraries together with a set of rules that determine when re-compilation will be needed.</description>
+    </item>
+    
+  </channel>
+</rss>

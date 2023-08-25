@@ -6,7 +6,115 @@
     <description>Recent content in Posts on Modelling with R</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-uk</language>
-    <lastBuildDate>Mon, 03 Oct 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Mon, 24 Jul 2023 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/post/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Methods: Introduction to Neural Networks</title>
+      <link>https://modelling-with-r.netlify.app/01methods_nn_intro/</link>
+      <pubDate>Mon, 24 Jul 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/01methods_nn_intro/</guid>
+      <description>IntroductionThis is the first of a series of posts on the use of Artificial Neural Networks (ANNs) in data analysis. For simplicity, I’ll drop the word artifical and just refer to them as Neural Networks (NNs). The general question that I plan to address is, are NNs a useful tool for modelling small to medium sized datasets and if so, how should they be used.</description>
+    </item>
+    
+    <item>
+      <title>makepipe vs targets</title>
+      <link>https://modelling-with-r.netlify.app/pipelines/</link>
+      <pubDate>Thu, 22 Jun 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/pipelines/</guid>
+      <description>Workflow managementMakefiles are a way of controlling large programming projects. Complex software is typically organised into multiple files of code. Each file requires compilation before the object files are linked together with pre-compiled libraries to create the final executable. When a change is made to one section of the code, it is important to recompile everything affected by that change, but not the code files that are unaffected. A makefile contains a list of all of the code files and libraries together with a set of rules that determine when re-compilation will be needed.</description>
+    </item>
+    
+    <item>
+      <title>Git and GitHub Course</title>
+      <link>https://modelling-with-r.netlify.app/gitcourse/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/gitcourse/</guid>
+      <description>Course Object</description>
+    </item>
+    
+    <item>
+      <title>My Evolving Workflow</title>
+      <link>https://modelling-with-r.netlify.app/recent_progress/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/recent_progress/</guid>
+      <description>Workflow ChangesI like to preach the importance of having a consistent workflow across all of one’s data analysis projects. Consistency is both more efficient and it helps reduce errors. Yet, nothing can exist without change and despite my wish for consistency, my workflow is constantly evolving. Sometimes it changes for good reason, sometimes for experimentation and sometimes because I just get bored with the old way.
+My plan for this post is to discuss some of the recent changes in the way that I organise my data analysis projects.</description>
+    </item>
+    
+    <item>
+      <title>The fileArchive Package</title>
+      <link>https://modelling-with-r.netlify.app/filearchive/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/filearchive/</guid>
+      <description>fileArchiveIn the post entitled ‘My Evolving Workflow’, I discussed various ways in which my data analysis workflow has changed since I started this blog in 2021. It this post, I elaborate on one of those changes namely the way in which I now archive files of results.
+fileArchive is my own package for archiving files. It fits well with my current workflow, but I have made no attempt to extend it to have wider use.</description>
+    </item>
+    
+    <item>
+      <title>Kaggle Playground November 2022: BART again</title>
+      <link>https://modelling-with-r.netlify.app/ensemble_trees/</link>
+      <pubDate>Mon, 14 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/ensemble_trees/</guid>
+      <description>IntroductionEach month, kaggle releases a “playground” tabular dataset intended to test some aspect of machine learning. These data form the basis for a competition with its own leaderboard and kaggle merchandise as the prizes. In November 2022, the dataset consisted of 5,000 attempts at a binary classification task, think 5,000 entries to a kaggle competition. Each entry used a slightly different model to estimate predicted probabilities of a positive response for each of 40,000 items.</description>
+    </item>
+    
+    <item>
+      <title>Bayesian Sliced 5: Airbnb Price Prediction</title>
+      <link>https://modelling-with-r.netlify.app/bayes_airbnb_prices/</link>
+      <pubDate>Tue, 01 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/bayes_airbnb_prices/</guid>
+      <description>Summary:Background: In episode 5 of the 2021 series of Sliced, the competitors were given two hours in which to analyse a set of data on Airbnb properties in New York City. The aim was to predict the price per night.
+My approach: I analyse the data using Bayesian additive regression trees (BART) fitted using the BART package.
+Result: Even with over 300 potential predictors, the BART models fit remarkably quickly, although the default burn-in proved insufficient.</description>
+    </item>
+    
+    <item>
+      <title>Methods: Bayesian trees</title>
+      <link>https://modelling-with-r.netlify.app/bayesian_trees/</link>
+      <pubDate>Mon, 31 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/bayesian_trees/</guid>
+      <description>IntroductionThe fundamental idea that underpins all machine learning is that of the universal approximator, that is, a function that is so flexible that it can be used to model any dataset. Trees provide one way to construct such a flexible function.
+The code below simulates a small regression problem that I will use to illustrate the discussion of Bayesian tree models.
+# --- create an example dataset ------------------------------set.</description>
+    </item>
+    
+    <item>
+      <title>Bayesian Sliced 4: Rain Tomorrow</title>
+      <link>https://modelling-with-r.netlify.app/bayes_rain_tomorrow/</link>
+      <pubDate>Sat, 15 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/bayes_rain_tomorrow/</guid>
+      <description>Summary:Background: In episode 4 of the 2021 series of Sliced, the competitors were given two hours to analyse a set of data on rainy days in Australia. The aim was to use today’s weather data to predict whether or not it will rain tomorrow.
+My approach: In this post, I use a series of hierarchical models, where the location within Australia is one level and day within the location is the other.</description>
+    </item>
+    
+    <item>
+      <title>Creating a blog post with targets</title>
+      <link>https://modelling-with-r.netlify.app/targets_example/</link>
+      <pubDate>Sun, 09 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/targets_example/</guid>
+      <description>IntroductionThis post describes how I used the targets package to help create my blog post on the Bayesian analysis of the superstore profit data. It should be read alongside that post and together with my methods post on targets.
+The Bayesian analysis of the superstore profits is just complex enough to provide a vehicle for discussing the benefits of targets.
+Folder StructureFirst, I created a folder with the structure discussed in my methods post.</description>
+    </item>
+    
+    <item>
+      <title>Methods: The `targets` Package</title>
+      <link>https://modelling-with-r.netlify.app/targets_package/</link>
+      <pubDate>Sat, 08 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/targets_package/</guid>
+      <description>IntroductionI have recently been converted to the merits of the targets package and like all recent converts, I am keen to spread the word, so I thought that I would use targets for some of my Bayesian posts. In this post, I introduce targets, then in a subsequent post, I’ll explain how I used targets to help create my post on the Bayesian analysis of superstore profits.</description>
+    </item>
+    
     <item>
       <title>Bayesian Sliced 3: Superstore profits</title>
       <link>https://modelling-with-r.netlify.app/bayes_superstore_profits/</link>

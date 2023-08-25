@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>fileArchive on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/filearchive/</link>
+    <description>Recent content in fileArchive on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Wed, 12 Apr 2023 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/filearchive/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>My Evolving Workflow</title>
+      <link>https://modelling-with-r.netlify.app/recent_progress/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/recent_progress/</guid>
+      <description>Workflow ChangesI like to preach the importance of having a consistent workflow across all of one’s data analysis projects. Consistency is both more efficient and it helps reduce errors. Yet, nothing can exist without change and despite my wish for consistency, my workflow is constantly evolving. Sometimes it changes for good reason, sometimes for experimentation and sometimes because I just get bored with the old way.
+My plan for this post is to discuss some of the recent changes in the way that I organise my data analysis projects.</description>
+    </item>
+    
+    <item>
+      <title>The fileArchive Package</title>
+      <link>https://modelling-with-r.netlify.app/filearchive/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/filearchive/</guid>
+      <description>fileArchiveIn the post entitled ‘My Evolving Workflow’, I discussed various ways in which my data analysis workflow has changed since I started this blog in 2021. It this post, I elaborate on one of those changes namely the way in which I now archive files of results.
+fileArchive is my own package for archiving files. It fits well with my current workflow, but I have made no attempt to extend it to have wider use.</description>
+    </item>
+    
+  </channel>
+</rss>

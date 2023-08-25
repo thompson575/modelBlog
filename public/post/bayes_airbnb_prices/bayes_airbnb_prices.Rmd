@@ -1,0 +1,435 @@
+---
+title: "Bayesian Sliced 5: Airbnb Price Prediction"
+author: "John Thompson"
+date: "2022-11-01"
+layout: post
+tags:
+- Sliced
+- Bayesian regression trees
+- BART
+- BayesTree
+- dbarts
+- sparsity-inducing prior
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE, fig.align = 'center', fig.width=5.5, fig.height=4)
+```
+
+```{r echo=FALSE}
+library(tidyverse)
+library(targets)
+library(MyPackage)
+library(BART)
+
+theme_set(theme_light())
+
+archive <- "C:/Projects/sliced/bayes-s01-e05/_targets"
+source("C:/Projects/sliced/Bayes-s01-e05/R/targets_functions.R")
+
+```
+
+# Summary:
+
+**Background:** In episode 5 of the 2021 series of *Sliced*, the competitors were given two hours in which to analyse a set of data on Airbnb properties in New York City. The aim was to predict the price per night.  
+**My approach:** I analyse the data using Bayesian additive regression trees (BART) fitted using the `BART` package.   
+**Result:** Even with over 300 potential predictors, the BART models fit remarkably quickly, although the default burn-in proved insufficient. The results are comparable with those obtained with XGBoost. The choice of priors can alter the predictors that are used without changing the predictive performance.  
+**Conclusion:** For moderate sized problems, BART is a practical and well-performing algorithm for machine learning.  
+
+# Introduction
+
+For this episode of *Sliced*, the competitors were asked to predict the prices of Airbnb accommodation in New York City based on features that describe the property and its location. The evaluation metric was the RMSE measured on a log(price+1) scale.  
+
+In my previous post on these data, I carried out extensive data cleaning and feature selection before creating an `XGBoost` model that performed very well. For my Bayesian analysis, I read the cleaned version of the data and then I use a Bayesian Additive Regression Tree (BART) model.
+
+I have a methods post on Bayesian regression trees in which I discuss R packages that fit BART models and conclude that the package `BART` is the best. That post also discusses the mechanics of using `BART`, so it might be helpful to read that post before trying to follow this specific application.
+
+# Reading the data
+
+I start by reading the cleaned data that I saved as part of my earlier non-Bayesian post.
+```{r }
+# --- setup: libraries & options ------------------------
+library(tidyverse)
+
+theme_set( theme_light())
+
+# --- set home directory -------------------------------
+oldHome <- "C:/Projects/sliced/s01-e05"
+home <- "C:/Projects/sliced/bayes-s01-e05"
+
+# --- read clean data -----------------------------
+trainDF <- readRDS( file.path(oldHome, "data/rData/processed_train.rds"))
+testimateDF  <- readRDS( file.path(oldHome, "data/rData/processed_test.rds"))
+```
+
+As Bayesian analysis is computationally intensive and often slow, I find it helps to sample a subset of the data for use during the model development phase. I decided to sample 8000 observations from the training data and to use 5000 of them for model estimation and 3000 for model validation.
+
+```{r eval=FALSE}
+# --- select 8000 properties from the training data -----------
+set.seed(4569)
+split <- sample(1:nrow(trainDF), 8000, replace=FALSE)
+train8000DF <- trainDF[split, ]
+
+# --- split the 8000 into sets of 5000 and 3000 ---------------
+set.seed(2993)
+split2 <- sample(1:8000, 5000, replace=FALSE)
+estimateDF <- train8000DF[ split2, ]
+validateDF <- train8000DF[-split2, ]
+```
+
+```{r echo=FALSE}
+estimateDF <- tar_read(estimateDF, store=archive)
+validateDF <- tar_read(validateDF, store=archive)
+```
+
+# An initial Model
+
+In my initial analysis, I predict price (already transformed to log(price+1)) from 5 of the predictors. Here is a plot that summarises the relationships between those predictors and price.
+
+```{r}
+# --- Visualisation of the 5 predictors ---------------
+library(patchwork)
+estimateDF %>%
+  ggplot( aes(x=latitude, y=price)) +
+  geom_point() -> p1
+
+estimateDF %>%
+  ggplot( aes(x=longitude, y=price)) +
+  geom_point() -> p2
+
+estimateDF %>%
+  ggplot( aes(x=log10(1+minimum_nights), y=price)) +
+  geom_point() -> p3
+
+estimateDF %>%
+  ggplot( aes(x=availability_365, y=price)) +
+  geom_point() -> p4
+
+estimateDF %>%
+  ggplot( aes(x=room_type, y=price)) +
+  geom_boxplot() -> p5
+
+(p1 + p2) / (p3 + p4 + p5)
+```
+
+Room type is strongly predictive but the patterns in the other plots are weak.
+
+## Linear regression
+
+To provide a baseline, I first run a linear regression
+```{r}
+library(broom)
+
+estimateDF %>%
+  mutate( room_type = factor(room_type),
+          minimum_nights = log10(1+minimum_nights)) %>%
+  lm( price ~ room_type + latitude + longitude + 
+        minimum_nights + availability_365, data=.) -> linreg
+
+tidy(linreg) %>% print()
+glance(linreg) %>% print()
+```
+
+The validation RMSE for this model is
+```{r}
+validateDF %>%
+  mutate( room_type = factor(room_type),
+          minimum_nights = log10(1+minimum_nights)) %>%
+  mutate( mu = predict(linreg, newdata = .) ) %>%
+  summarise(RMSE = sqrt( mean( (price - mu)^2)))
+```
+
+The validation RMSE is 0.492. For comparison, the leading entry on the sliced leaderboard scored 0.408 with the full test data. My earlier post used `XGBoost` and achieved a RMSE of 0.431, which I reduced to 0.418 with hyperparameter tuning.
+
+## BART
+
+The `BART` package provides functions for fitting the BART model to different types of response. In the case of a continuous response the appropriate function is called `wbart()`. To run this function, the data need to be saved in vectors and matrices.
+```{r}
+# --- Place the response and predictors in matrices -----
+
+# --- estimation data -----------------------------------
+estimateDF %>%
+  pull(price) -> Y
+  
+estimateDF %>%
+    mutate( room_type = as.numeric(factor(room_type)),
+            minimum_nights = log10(1+minimum_nights)) %>%
+    select(room_type, latitude, longitude, minimum_nights, 
+           availability_365) %>%
+    as.matrix() -> X
+
+# --- validation data -----------------------------------
+validateDF %>%
+  pull(price) -> YV
+  
+validateDF %>%
+    mutate( room_type = as.numeric(factor(room_type)),
+            minimum_nights = log10(1+minimum_nights)) %>%
+    select(room_type, latitude, longitude, minimum_nights, 
+           availability_365) %>%
+    as.matrix() -> XV
+```
+
+I start by running `wbart()` with default values for all of its parameters. This combines 200 trees over a chain of length 1000 following a burn-in of 100. To help assess convergence, I run three chains with different seeds. Each chain takes about 20s to run on my desktop.
+
+My function `reportBART()` summarises the results of a chain. The function's code is given in the accompanying methods post.
+
+```{r eval=FALSE}
+# --- Chain 1 -----------------------------------------
+set.seed(4592)
+bt1 <- wbart(x.train = X, y.train = Y, x.test = XV)
+reportBART(bt1, Y, YV)
+# --- Chain 2 -----------------------------------------
+set.seed(2893)
+bt2 <- wbart(x.train = X, y.train = Y, x.test = XV)
+reportBART(bt2, Y, YV)
+# --- Chain 3 -----------------------------------------
+set.seed(7872)
+bt3 <- wbart(x.train = X, y.train = Y, x.test = XV)
+reportBART(bt3, Y, YV)
+```
+
+```{r echo=FALSE}
+estim <- tar_read(estim, store=archive)
+valid <- tar_read(valid, store=archive)
+bt1 <- tar_read(bart01, store=archive)
+reportBart(bt1, estim$Y, valid$Y)
+bt2 <- tar_read(bart02, store=archive)
+reportBart(bt2, estim$Y, valid$Y)
+bt3 <- tar_read(bart03, store=archive)
+reportBart(bt3, estim$Y, valid$Y)
+```
+
+The validation RMSE (labelled test RMSE by my function) is  0.454, better than linear regression, but worse than my `XGBoost` model. In fact, 0.454 is embarrassingly good, if that performance were to carry over to the test data, it would rank 6th on the private leaderboard.
+
+Notice that there is little evidence of over-fitting, as the training and test RMSE are similar. The summary tables also show that the trees generated by the algorithm are very stumpy, they average under 1.2 splits per tree.
+
+Before using this model, I need to check that the algorithm has converged. I discuss convergence checking in the methods post, so here I will just present results.
+
+Here are the trace plots for `sigma`, the inherent variation about the trend.
+
+```{r echo=FALSE}
+library(MyPackage)
+
+bart_sigma_to_df(bt1, bt2, bt3) %>%
+  filter( iter > 100 ) %>%
+  trace_plot(sigma)
+```
+
+Mixing is quite good but the 3 chains are still drifting down, which suggests that I need a longer burn-in.
+
+Here is the trace plot for 3 chains with the burn-in increased for 100 to 5000. These chains each take about 100 seconds to run.
+```{r echo=FALSE}
+bt1 <- tar_read(bart04, store=archive)
+bt2 <- tar_read(bart05, store=archive)
+bt3 <- tar_read(bart06, store=archive)
+bart_sigma_to_df(bt1, bt2, bt3) %>%
+  filter( iter > 5000 ) %>%
+  trace_plot(sigma)
+```
+
+Agreement is better, but not ideal. The validation (test) RMSE has hardly changed; it is still around 0.454.
+
+Using code developed in the methods post, I look at the in-sample predictive performance. With 5000 observations the plot is very crowded, so I only show every 20th observation.
+
+```{r echo=FALSE}
+tar_read(stat01, store=archive) %>%
+  arrange(m) %>%
+  mutate( x = row_number()) %>%
+  filter( x %% 20 == 0 ) %>%
+  ggplot( aes(x=x, y=m)) +
+  geom_point() +
+  geom_errorbar( aes(ymin=q1, ymax=q2), width=0.2) +
+  geom_point( aes(x=x, y=y), colour="red") +
+  labs( y = "log(price+1)", x = "",
+  title = "5% of training sample: predictions and 95% credible intervals",
+  subtitle = "Observed values shown in red")
+```
+
+Here is the equivalent plot for the validation sample.
+
+```{r echo=FALSE}
+tar_read(stat02, store=archive) %>%
+  arrange(m) %>%
+  mutate( x = row_number()) %>%
+  filter( x %% 20 == 0 ) %>%
+  ggplot( aes(x=x, y=m)) +
+  geom_point() +
+  geom_errorbar( aes(ymin=q1, ymax=q2), width=0.2) +
+  geom_point( aes(x=x, y=y), colour="red") +
+  labs( y = "log(price+1)", x = "",
+  title = "5% of test sample: predictions and 95% credible intervals",
+  subtitle = "Observed values shown in red")
+```
+
+In both cases, the performance is much as expected.
+
+`wbart()` returns an object that includes the number of times that each predictor is used to split a tree. This provides a measure of variable importance. The plot below shows the average usage per tree based on the first of the chains with a 5000 burn-in.
+
+```{r echo=FALSE}
+bt1$varcount -> M
+
+total <- apply(M, 1, sum)
+
+M %>%
+  as_tibble() %>%
+  mutate( total = total) %>%
+  mutate(iter = 1:1000) %>%
+  pivot_longer(-iter, names_to="x", values_to="freq") %>%
+  ggplot( aes(x=iter, y=freq /200, colour=x) ) +
+  geom_line()  +
+  labs( x = "Iteration",
+        y = "Splits",
+        title = "Average number of splits per tree")
+```
+
+Room type is used more than the other predictors but not by as much as I would have thought. I guess that this is because there are only 3 levels of room type and once a couple of the trees have split on room type, there is nothing to be gained by reusing that predictor. This is a weakness of using the number of splits as a measure of variable importance.
+
+# The full set of predictors
+
+In my original post on these data, I performed extensive feature selection that included identifying 134 neighbourhoods within New York and 174 key words extracted from the host's description of the property. To these predictors, I add the number of reviews per month and the number of properties listed by the host, some hosts rent out a single property, but others rent out multiple properties and run as a business. Adding these predictors to the five used in the initial analysis gives a total of 315 potential predictors.
+
+After redefining the matrices that contain the predictors, I re-ran the BART analysis. I found that a 5000 burn-in still produced a chain that was drifting, so I increased the burn-in to 10,000.
+```{r eval=FALSE}
+# --- Chain 1 -----------------------------------------
+set.seed(4592)
+bt1 <- wbart(x.train = X, y.train = Y, x.test = XV, nskip=10000)
+reportBART(bt1, Y, YV)
+# --- Chain 2 -----------------------------------------
+set.seed(2893)
+bt2 <- wbart(x.train = X, y.train = Y, x.test = XV, nskip=10000)
+reportBART(bt2, Y, YV)
+# --- Chain 3 -----------------------------------------
+set.seed(7872)
+bt3 <- wbart(x.train = X, y.train = Y, x.test = XV, nskip=10000)
+reportBART(bt3, Y, YV)
+```
+
+Each chain took about 6 minutes to run.
+
+```{r echo=FALSE}
+estim <- tar_read(estim2, store=archive)
+valid <- tar_read(valid2, store=archive)
+bt1 <- tar_read(bart10, store=archive)
+reportBart(bt1, estim$Y, valid$Y)
+bt2 <- tar_read(bart11, store=archive)
+reportBart(bt2, estim$Y, valid$Y)
+bt3 <- tar_read(bart12, store=archive)
+reportBart(bt3, estim$Y, valid$Y)
+```
+
+Here is the trace plot of sigma
+```{r echo=FALSE}
+bart_sigma_to_df(bt1, bt2, bt3) %>%
+  filter( iter > 10000 ) %>%
+  trace_plot(sigma)
+```
+
+Not perfect but usable. The test RMSE is now about 0.425, better than the default `XGBoost` model, though that RMSE was based on the test data supplied by sliced.
+
+Here are the average frequencies (per 200 trees) with which the main predictors were used for splitting.
+```{r}
+# --- frequ3ncies of use in 200 trees --------------------
+apply(bt1$varcount, 2, mean) %>%
+  as_tibble() %>%
+  mutate( var = colnames(bt1$varcount)) %>%
+  rename( freq = value )  %>%
+  filter( freq > 1 ) %>%
+  arrange( desc(freq) ) %>%
+  relocate( var, freq) %>%
+  print() 
+```
+
+In chain 1, 57 predictors were used more than once per set of 200 trees.
+
+The results for the other two chains are similar, but the order of importance changes slightly. For example, here is the order for chain 3.
+```{r}
+# --- frequencies of use in 200 trees --------------------
+apply(bt3$varcount, 2, mean) %>%
+  as_tibble() %>%
+  mutate( var = colnames(bt1$varcount)) %>%
+  rename( freq = value )  %>%
+  filter( freq > 1 ) %>%
+  arrange( desc(freq) ) %>%
+  relocate( var, freq) %>%
+  print() 
+```
+
+## Sparsity-inducing priors
+
+So far, I have not changed any of the default priors. In my limited experience, the defaults are well-chosen and making small changes to them does not noticeably alter the fitted model.
+
+Even changing the number of trees, only has a small impact on performance. The original papers on the BART algorithm suggested summing over 50 trees, rather than the 200 that `BART` defaults to. When the algorithm is limited to 50 trees, it tends to make those trees deeper, but ends with a similar predictive performance. I think that 200 trees is a marginally better choice.
+
+One interesting choice made when setting the priors is the probability with which the predictors are chosen when the model seeks to extend a tree. The default is to make each predictor equally likely to be tried, though of course, poorly performing predictors will get rejected and will not make it into the final model.
+
+In 2018, Antonio Linero published a paper that advocated the use of sparsity-inducing priors that encourage the model to use a smaller set of predictors.
+
+Linero, A. R. (2018).  
+**Bayesian regression trees for high-dimensional prediction and variable selection.**  
+Journal of the American Statistical Association, 113(522), 626-636.  
+
+Suppose that there are J potential predictors (J=315 for my model). When the default analysis picks a predictor to add to the tree, each one has a probability 1/J of being chosen. Instead, Linero suggests making the selection probabilities follow a Dirichlet distribution with equal parameters $\theta/J$. The model then places a beta prior on $\theta$ and treats the selection probabilities of the predictors as parameters to be learnt.
+
+The form of the prior on $\theta$ is,
+\[
+\frac{\theta}{\theta+\rho} \sim \text{Beta}(a, b)
+\]
+where the user chooses a, b and $\rho$. The defaults are a=0.5, b=1, $\rho$=J.
+
+Although, the Dirichlet prior starts by treating all predictors equally, the model is free to learn which predictors are most useful and to use that information when selecting a new predictor to use in the BART model. By changing, a, b and $\rho$, the user changes the sparsity of the selection. Once BART has identified the important predictors, it tends to stick with them.  
+
+I tried changing a and b but found that they have little impact on the airbnb model. However, reducing $\rho$ does make the predictor selection more sparse. Below, I show the results for $\rho$=100.
+
+```{r eval=FALSE}
+# --- single sparse chain -----------------------------
+set.seed(4592)
+bt1 <- wbart(x.train = X, y.train = Y, x.test = XV,
+             nskip=10000, sparse=TRUE, rho=100)
+reportBART(bt1, Y, YV)
+```
+
+```{r echo=FALSE}
+bt1 <- tar_read(bart13, store=archive)
+reportBart(bt1, estim$Y, valid$Y)
+```
+
+The chain took about 3.5 minutes to run.
+
+The tree depths have increased very slightly and the test RMSE is slightly better. Remember that a default `XGBoost` model had a RMSE of 0.431 (though that was with the sliced test data).
+
+Here are the frequencies for the top predictors
+```{r echo=FALSE}
+apply(bt1$varcount, 2, mean) %>%
+  as_tibble() %>%
+  mutate( var = colnames(bt1$varcount)) %>%
+  rename( freq = value )  %>%
+  filter( freq > 1 ) %>%
+  arrange( desc(freq) ) %>%
+  relocate( var, freq) %>%
+  print( ) 
+```
+
+Notice that the frequencies have increased dramatically, so that fewer predictors are used.
+
+Finally, here are the selection probabilities that the model learns from its Dirichlet prior. The order is more or less the same as that for the frequencies.
+```{r echo=FALSE}
+tibble( 
+  var  = attr(bt1$varprob.mean, "names"),
+  prob = bt1$varprob.mean )  %>%
+  filter( prob > 0.01 ) %>%
+  arrange( desc(prob) ) %>%
+  print() 
+```
+
+# Conclusions
+
+I was struck by the speed of the BART algorithm, unlike many Bayesian models, it really is a practical option for moderate sized problems.
+
+The default priors are well-chosen, but even saying that is to deny the Bayesian method. A true Bayesian would want to select the priors based on their genuine beliefs, To say that the priors are well-chosen, just means that they give good predictions for a wide range of problems. Do the default values of power and base really reflect a belief about how deep the trees should be? I have my doubts. It may just be a reflection of my purist tendencies, but "it works" is not enough for me.  
+

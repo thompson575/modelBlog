@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>gt on Modelling with R</title>
+    <link>https://modelling-with-r.netlify.app/tags/gt/</link>
+    <description>Recent content in gt on Modelling with R</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-uk</language>
+    <lastBuildDate>Wed, 12 Apr 2023 00:00:00 +0000</lastBuildDate><atom:link href="https://modelling-with-r.netlify.app/tags/gt/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>The fileArchive Package</title>
+      <link>https://modelling-with-r.netlify.app/filearchive/</link>
+      <pubDate>Wed, 12 Apr 2023 00:00:00 +0000</pubDate>
+      
+      <guid>https://modelling-with-r.netlify.app/filearchive/</guid>
+      <description>fileArchiveIn the post entitled ‘My Evolving Workflow’, I discussed various ways in which my data analysis workflow has changed since I started this blog in 2021. It this post, I elaborate on one of those changes namely the way in which I now archive files of results.
+fileArchive is my own package for archiving files. It fits well with my current workflow, but I have made no attempt to extend it to have wider use.</description>
+    </item>
+    
+  </channel>
+</rss>
