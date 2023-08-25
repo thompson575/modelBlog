@@ -154,12 +154,12 @@ When `pipeline.R` is run, the `makepipe` package will consider each `make_with_s
 
 The code below runs `pipeline.R` and finds that everything is up to date and so does not need re-running. It then plots a diagram of the workflow pipeline.
 ```{r}
-source("pipeline.R")
+source("C:/Projects/Kaggle/Playground/crab/pipeline.R")
 show_pipeline()
 ```
 
 ```{r echo=FALSE, out.width = '100%'}
-knitr::include_graphics("makepipe.png")
+knitr::include_graphics("C:/Projects/Kaggle/Playground/crab/data/cache/makepipe.png")
 ```
 
 As an illustration of the way that I write my code, I will show the R script for reading the downloaded data and saving it in rds format. The input files are provided in csv format. Each one is read, converted to a tibble and saved to my cache. Then the rds files are copied to my archive for permanent storage (see https://modelling-with-r.netlify.app/filearchive/). In the `pipeline.R` file the three csv files are specified as dependencies and the three cached rds files are the targets. When `pipeline.R` is sourced, the date-times of the files determine whether the step needs re-running.
