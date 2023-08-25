@@ -564,7 +564,7 @@ lines(xt[, 1], yt[, 1])</code></pre>
 fit &lt;- fit_nn(X, Y, design, eta=0.1, nIter = 10000, trace=FALSE)
 end_time &lt;- Sys.time()
 print(end_time - start_time)</code></pre>
-<pre><code>## Time difference of 3.928143 secs</code></pre>
+<pre><code>## Time difference of 3.992728 secs</code></pre>
 <pre class="r"><code>plot(fit$lossHistory, type = &quot;l&quot;, ylim = c(0, 0.2))</code></pre>
 <p><img src="/post/neural_networks/02methods_nn_rcode_files/figure-html/unnamed-chunk-25-1.png" width="672" style="display: block; margin: auto;" /></p>
 <p>It only takes a few seconds for the algorithm to locate a better solution.</p>
