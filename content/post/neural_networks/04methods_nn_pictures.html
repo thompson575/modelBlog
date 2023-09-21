@@ -1,0 +1,4821 @@
+---
+title: "Neural Networks: Search Paths"
+author: "John Thompson"
+date: "2023-09-21"
+layout: post
+categories:
+- neural networks
+- convergence
+- early stopping
+- expected loss
+- training loss
+- search paths  
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>In my last post, I described C code for fitting neural networks by gradient descent and explained how that code can be incorporated into R using the Rcpp package. Now, I want to consider how that gradient descent algorithm works.</p>
+<p>I find it easier to understand concepts if I can represent them in a diagram, so I base this discussion on my preferred visualisation of the search paths of gradient descent. I believe that this diagram is helpful in understanding many of the ideas behind machine learning and I will use it again when I cover topics such as over-fitting, cross-validation and regularization.</p>
+</div>
+<div id="current-and-future-performance" class="section level1">
+<h1>Current and Future Performance</h1>
+<p>Think of a model as a machine <span class="math inline">\(f_\theta(X)\)</span> for making predictions of a response Y. Here X represents the measured features, f() is the general form of the model and <span class="math inline">\(\theta\)</span> is the set of model parameters.</p>
+<p>The performance of the model on training data {<span class="math inline">\(X_T, Y_T\)</span>} is measured by the value of some chosen loss function.</p>
+<p><span class="math display">\[
+\text{Training loss} = Loss(Y_T, f_\theta(X_T))
+\]</span></p>
+<p>The loss measures the distance between the true response and its prediction.</p>
+<p>The plan is to use the model to predict response Y for as yet unknown data, X, which is independent of the training data but from the same source. The best measure of the performance of the model on new data is the average or expected loss over all possible sets {X, Y}.</p>
+<p><span class="math display">\[
+\text{Expected Loss} = E_{X,Y} \left\{ Loss(Y, f_\theta(X)) \right\}
+\]</span></p>
+<p>The new data {X, Y} may not have the same number of observations as {<span class="math inline">\(X_T, Y_T\)</span>} so to make the training loss and the expected loss comparable, the loss is scaled as loss per observation. This means that we can create a very good approximation to the expected loss by taking a single large test dataset {X, Y} and calculating</p>
+<p><span class="math display">\[
+\text{Test Loss} =  Loss(Y, f_\theta(X)) \approx \text{Expected Loss}
+\]</span></p>
+<p>The training loss measures performance of the model on one specific dataset and is of limited interest, while the expected loss measures the average performance across all new data and is the best indicator of the worth of the model. It is the expected loss that needs to be minimised.</p>
+<p>In practice, the training loss can be calculated directly, but it is unlikely that data will exist to enable calculation of the expected loss, since it is rare to have large amounts of test data from the same source as the training data. One situation in which the expected loss can be calculated is in a simulation study. As we will see later in this post, any amount of test data can be simulated using the same model as was used to create the training data.</p>
+</div>
+<div id="picturing-the-model-fitting" class="section level1">
+<h1>Picturing the Model Fitting</h1>
+<p>Figure 1 shows the diagram that I use to understand model fitting. It takes the form of a plot of the training loss per observation (x-axis) against the expected loss per observation (y-axis).</p>
+<p>Think of the expectation of the loss for a given model and given data source as fixed but unknown, while the training loss depends on the particular training sample that is used and can be calculated exactly. In practice, the expected and training loss of a specified model should be similar, because they are defined on data from the same source. We can think of the training loss as an estimate of the expected loss.</p>
+<p>Every possible model with known parameter values has both a training loss and an expected loss, so every model can be plotted as a point on the diagram. It is possible that two models with different parameter values will have the same training loss and the same expected loss, so <strong>a single point on the plot might equate to multiple models</strong>.</p>
+<p><img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-2-1.png" width="864" style="display: block; margin: auto;" /></p>
+<div id="the-ladder-of-models" class="section level2">
+<h2>The Ladder of Models</h2>
+<p>Figures 2 and 3 show what I call the ladder of prediction models. Let’s consider the four steps in this ladder.</p>
+<div id="level-0-the-perfect-model" class="section level3">
+<h3>Level 0: The Perfect Model</h3>
+<p>Suppose that you wanted to predict my height, y. All you know about me is <span class="math inline">\(x\)</span>={male, biostatistician, lives in UK}, so I doubt that your prediction will be very accurate. However, we can imagine having complete information, <span class="math inline">\(x^c\)</span>, which would include my genome, the history of every meal that I have ever eaten, every illness etc. You would also need to know how to use this complete information, which is to say, a function <span class="math inline">\(G(x^c)\)</span> that predicts y with total accuracy.</p>
+<p>A loss function, <span class="math inline">\(L()\)</span>, is chosen to measure the average difference between the real response, <span class="math inline">\(y\)</span>, and the prediction, <span class="math inline">\(G(x^c)\)</span>, over a set of subjects i=1,…,n.
+<span class="math display">\[
+\frac{1}{n} \sum_{i-1}^n L(y_i, G(x^c_i)) = 0
+\]</span>
+Since the predictions are always perfect this loss will be zero regards of the selection of subjects, so both the expected and the training loss will be zero.</p>
+</div>
+<div id="level-1-the-ideal-model" class="section level3">
+<h3>Level 1: The Ideal Model</h3>
+<p>Unfortunately, you have <span class="math inline">\(x\)</span> and not <span class="math inline">\(x^c\)</span>, but there will be a model, <span class="math inline">\(g()\)</span>, that makes the best possible use of x, that is to say, it minimises the expected loss. Predictions are no longer perfect, so the value of the loss over a sample of subjects will vary from sample to sample. None the less, the expected loss, which is averaged over all possible samples, will be fixed and as small as it can be without more features.</p>
+</div>
+<div id="level-2-the-best-model" class="section level3">
+<h3>Level 2: The Best Model</h3>
+<p>Unfortunately, you do not know the functional form of <span class="math inline">\(g()\)</span>, so you are forced to pick a flexible function <span class="math inline">\(f_\theta()\)</span> that changes its shape depending on parameters <span class="math inline">\(\theta\)</span>. The hope is that by choosing the parameters carefully, you will be able to make <span class="math inline">\(f_\theta(x)\)</span> close to <span class="math inline">\(g(x)\)</span>. Let’s call the optimal choice of parameters <span class="math inline">\(\Theta\)</span>.</p>
+<p>The loss in a sample of size n will be,
+<span class="math display">\[
+\frac{1}{n} \sum_{i-1}^n L(y_i, f_\Theta(x_i))
+\]</span>
+For very large n, this approximates the expected loss, but the training set will usually have much smaller size and its loss will vary randomly about the expected value. The Best Model (for this family) should lie reasonably close to the line of equality on the diagram.</p>
+</div>
+<div id="level-3-the-fitted-model" class="section level3">
+<h3>Level 3: The Fitted Model</h3>
+<p>Unfortunately, you do not know the optimal values of the parameters <span class="math inline">\(\Theta\)</span>, so you are forced to make a reasonable guess <span class="math inline">\(\hat{\theta}\)</span>, which you do based on the training data and your favourite algorithm. The fitted model is <span class="math inline">\(f_\hat{\theta}(x)\)</span>.</p>
+<p>You want the expected loss based on <span class="math inline">\(\hat{\theta}\)</span> to be as close as possible to the expected loss based on <span class="math inline">\(\Theta\)</span>. Most algorithms select <span class="math inline">\(\hat{\theta}\)</span>, because those parameters gives a low training loss, so usually the fitted model lies above the line of equality where the training loss is less than the expected loss.</p>
+</div>
+</div>
+<div id="representing-the-ladder-of-models" class="section level2">
+<h2>Representing the ladder of models</h2>
+<p>Figure 2 represents the four steps in the ladder of models. The perfect model (purple) has zero training loss and zero expected loss, but it requires complete data, which we do not have. The ideal model (green) uses the available predictors is the optimal way, but we do not know what model is optimal, so we select a flexible family of models as represented by the red parabolic shape. The best model (red) is the member of this family with the minimum expected loss. Sadly, we do not even know the combination of parameters needed to define the best model, so we have to fall back on a fitted model (dark blue).</p>
+<p>In this figure, the possible combinations of training and expected loss for the chosen family of models with different parameters define a regular parabolic shape. This is purely diagrammatic, for complex models the shape could be highly irregular,
+<img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-3-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>Why is the best model in figure 2 to the right of the line of equality? This is just the luck of the draw. We have a single random set of training data and as figure 2 is drawn, it so happens that the training sample has a relatively high loss.</p>
+<p>Draw a different set of training data and the area defined by the family might move to the left. All models have the same expected loss regardless of the training data, so models move to the left or right when the training data change, but they stay parallel to the x-axis. Not every model moves to the same extent; a model that does relatively well on one training set may do less well on others. It is <strong>not</strong> a rigid movement of the area to the left with all models keeping their relative position.</p>
+<p>Of course, the best model has exactly the same parameters, because it is defined by the expected loss and does not depend on the training data. Figure 3 shows the same diagram as figure 2, but for different training data.</p>
+<p><img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-4-1.png" width="864" style="display: block; margin: auto;" /></p>
+</div>
+<div id="search-paths" class="section level2">
+<h2>Search Paths</h2>
+<p>Fitting a neural network involves choosing random starting values for the parameters and then adjusting them in small steps based on the gradient of the training loss. These small improvements correspond to a series of steps to the left in figure 4. The algorithm will stop when it reaches a local minimum in the training loss, or when it finds the global minimum, or when the user tells the algorithm to stop early.</p>
+<p>In figure 4, the path taken by the algorithm is shown as a brown dashed line and the point along the path with the minimum expected loss is shown as a dark green point. This is the fitted model and represents the best of the models visited by the algorithm.</p>
+<p>We live in the hope that the search path will pass through, or close to, the Best Model with its minimum expected loss, but this is just a hope.</p>
+<p><img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-5-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>Figure 5 shows a second search path with different starting values that ends with the global minimum. Converging to the global minimum of the training loss does not guarantee that the path will pass close to the best model.</p>
+<p>Remember that this is just a diagram, the search paths might not be as smooth and regular as the ones shown in figures 4 and 5.</p>
+<p><img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-6-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>It is common practice to draw two separate curves to show the progress of the algorithm from iteration to iteration, one curve for the training loss and one for the expected loss (or some approximation to it). Figure 6 shows such a plot using exactly the same values as those used to generate figure 5.</p>
+<p>For this example, the fitted model is found at iteration 320 of the algorithm.</p>
+<p><img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-7-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>Whichever plot is drawn, when the fitted model is chosen based on the minimum of the expected loss estimated from a second (validation) dataset, that estimate of the expected loss will tend to exaggerate the true future performance. A third (test) sample would be needed to give a more reliable estimate. When the validation sample is very large, this bias should be small.</p>
+</div>
+<div id="increasing-the-size-of-the-training-set" class="section level2">
+<h2>Increasing the size of the training set</h2>
+<p>We can increase the chance that the global minimum of the training loss will have a low expected loss by making the training data more representative and the way to do this is to <strong>increase the size of the training set</strong>. As figure 7 shows, this would make the area defined by the family narrower and closer to the line of equality. The chance that the training loss is very different from the expected loss is reduced.</p>
+<p><img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-8-1.png" width="864" style="display: block; margin: auto;" /></p>
+</div>
+</div>
+<div id="a-simulated-example" class="section level1">
+<h1>A simulated example</h1>
+<p>Figure 8 shows a training set of 100 observations that vary randomly about a bell-shaped Gaussian curve. The random noise in the simulation has a standard deviation of one, so we would expect a well-fitting model to have a RMSE that is close to one.</p>
+<p>This example requires a new C function that monitors the loss in the test data as well as the loss in the training loss. The additions to my C code are described in an appendix at the end of this post.</p>
+<pre class="r"><code>set.seed(9293)
+X &lt;- matrix( runif(100), ncol=1)
+Y &lt;- matrix( 5 * exp( -20*(X[, 1]-0.6)^2) + rnorm(100, 0, 1))
+xp &lt;- seq(0, 1, 0.01)
+yp &lt;- 5 * exp( -20*(xp-0.6)^2)
+plot(X[, 1], Y[, 1], pch=16,
+     xlab=&quot;X&quot;, ylab=&quot;Y&quot;, main=&quot;Figure 8: Training data n=100&quot;)
+lines(xp, yp, lwd=2, col=&quot;blue&quot;)</code></pre>
+<p><img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-9-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>A large test dataset with n=10,000 will be used to estimate the expected loss.</p>
+<pre class="r"><code>XV &lt;- matrix( runif(10000), ncol=1)
+YV &lt;- matrix( 5 * exp( -20*(XV[, 1]-0.6)^2) + rnorm(10000, 0, 1))
+xp &lt;- seq(0, 1, 0.01)
+yp &lt;- 5 * exp( -20*(xp-0.6)^2)
+plot(XV[, 1], YV[, 1], pch=16,
+     xlab=&quot;X&quot;, ylab=&quot;Y&quot;, main=&quot;Figure 9: Test data n=10,000&quot;)
+lines(xp, yp, lwd=2, col=&quot;blue&quot;)</code></pre>
+<p><img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-10-1.png" width="864" style="display: block; margin: auto;" /></p>
+<div id="analysis-1-a-1-4-1-neural-network" class="section level2">
+<h2>Analysis 1: A (1, 4, 1) Neural Network</h2>
+<p>My first analysis models the training data using the family of neural networks that have one input, 4 hidden nodes and 1 output. The gradient descent algorithm is run five times on the same training data with different randomly chosen starting values. The algorithm uses a sigmoid activation function for the hidden layer, a learning rate (step length) of 0.1 and is run for 10,000 iterations. Performance is assessed using the RMSE loss function.</p>
+<p>Figure 10 shows the five search paths. The paths start well to the right of then area shown and progress leftwards to the fitted models, which are shown as coloured dots. After reaching the fitted models the search paths continue to reduce the training loss, but the expected loss increases.</p>
+<p><img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-11-1.png" width="864" style="display: block; margin: auto;" /></p>
+Table 1 gives summary information about the five fitted models. It shows the iteration when the fitted model is reached and the values of the training loss and expected loss at that point. The other statistics show the means and standard deviations of the 8 weights and 5 biases of the fitted models.
+<div id="wfxsenckqp" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#wfxsenckqp table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#wfxsenckqp thead, #wfxsenckqp tbody, #wfxsenckqp tfoot, #wfxsenckqp tr, #wfxsenckqp td, #wfxsenckqp th {
+  border-style: none;
+}
+
+#wfxsenckqp p {
+  margin: 0;
+  padding: 0;
+}
+
+#wfxsenckqp .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#wfxsenckqp .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#wfxsenckqp .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#wfxsenckqp .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#wfxsenckqp .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#wfxsenckqp .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#wfxsenckqp .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#wfxsenckqp .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#wfxsenckqp .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#wfxsenckqp .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#wfxsenckqp .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#wfxsenckqp .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#wfxsenckqp .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#wfxsenckqp .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#wfxsenckqp .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#wfxsenckqp .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#wfxsenckqp .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#wfxsenckqp .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#wfxsenckqp .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#wfxsenckqp .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#wfxsenckqp .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#wfxsenckqp .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#wfxsenckqp .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#wfxsenckqp .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#wfxsenckqp .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#wfxsenckqp .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#wfxsenckqp .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#wfxsenckqp .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#wfxsenckqp .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#wfxsenckqp .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#wfxsenckqp .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#wfxsenckqp .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#wfxsenckqp .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#wfxsenckqp .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#wfxsenckqp .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#wfxsenckqp .gt_left {
+  text-align: left;
+}
+
+#wfxsenckqp .gt_center {
+  text-align: center;
+}
+
+#wfxsenckqp .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#wfxsenckqp .gt_font_normal {
+  font-weight: normal;
+}
+
+#wfxsenckqp .gt_font_bold {
+  font-weight: bold;
+}
+
+#wfxsenckqp .gt_font_italic {
+  font-style: italic;
+}
+
+#wfxsenckqp .gt_super {
+  font-size: 65%;
+}
+
+#wfxsenckqp .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#wfxsenckqp .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#wfxsenckqp .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#wfxsenckqp .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#wfxsenckqp .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#wfxsenckqp .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#wfxsenckqp .gt_indent_5 {
+  text-indent: 25px;
+}
+</style>
+<table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+<thead>
+<tr class="gt_heading">
+<td colspan="8" class="gt_heading gt_title gt_font_normal" style>
+Table 1: Neural Network (1, 4, 1)
+</td>
+</tr>
+<tr class="gt_heading">
+<td colspan="8" class="gt_heading gt_subtitle gt_font_normal gt_bottom_border" style>
+Details of the Fitted Models
+</td>
+</tr>
+<tr class="gt_col_headings gt_spanner_row">
+<th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="2" colspan="1" scope="col" id="Colour">
+Colour
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="2" colspan="1" scope="col" id="Iteration">
+Iteration
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Loss (RMSE)">
+<span class="gt_column_spanner">Loss (RMSE)</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Weights">
+<span class="gt_column_spanner">Weights</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Biases">
+<span class="gt_column_spanner">Biases</span>
+</th>
+</tr>
+<tr class="gt_col_headings">
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Training">
+Training
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Expected">
+Expected
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="mean">
+mean
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std">
+std
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="mean">
+mean
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std">
+std
+</th>
+</tr>
+</thead>
+<tbody class="gt_table_body">
+<tr>
+<th id="stub_1_1" scope="row" class="gt_row gt_left gt_stub">
+Purple
+</th>
+<td headers="stub_1_1 Iter" class="gt_row gt_right">
+1635
+</td>
+<td headers="stub_1_1 TrLoss" class="gt_row gt_right">
+0.914
+</td>
+<td headers="stub_1_1 VaLoss" class="gt_row gt_right">
+1.053
+</td>
+<td headers="stub_1_1 mW" class="gt_row gt_right">
+1.95
+</td>
+<td headers="stub_1_1 sdW" class="gt_row gt_right">
+7.64
+</td>
+<td headers="stub_1_1 mB" class="gt_row gt_right">
+−0.40
+</td>
+<td headers="stub_1_1 sdB" class="gt_row gt_right">
+4.77
+</td>
+</tr>
+<tr>
+<th id="stub_1_2" scope="row" class="gt_row gt_left gt_stub">
+Blue
+</th>
+<td headers="stub_1_2 Iter" class="gt_row gt_right">
+2258
+</td>
+<td headers="stub_1_2 TrLoss" class="gt_row gt_right">
+0.913
+</td>
+<td headers="stub_1_2 VaLoss" class="gt_row gt_right">
+1.054
+</td>
+<td headers="stub_1_2 mW" class="gt_row gt_right">
+−2.12
+</td>
+<td headers="stub_1_2 sdW" class="gt_row gt_right">
+7.32
+</td>
+<td headers="stub_1_2 mB" class="gt_row gt_right">
+2.47
+</td>
+<td headers="stub_1_2 sdB" class="gt_row gt_right">
+3.30
+</td>
+</tr>
+<tr>
+<th id="stub_1_3" scope="row" class="gt_row gt_left gt_stub">
+Red
+</th>
+<td headers="stub_1_3 Iter" class="gt_row gt_right">
+2325
+</td>
+<td headers="stub_1_3 TrLoss" class="gt_row gt_right">
+0.911
+</td>
+<td headers="stub_1_3 VaLoss" class="gt_row gt_right">
+1.056
+</td>
+<td headers="stub_1_3 mW" class="gt_row gt_right">
+2.76
+</td>
+<td headers="stub_1_3 sdW" class="gt_row gt_right">
+7.11
+</td>
+<td headers="stub_1_3 mB" class="gt_row gt_right">
+−4.21
+</td>
+<td headers="stub_1_3 sdB" class="gt_row gt_right">
+2.77
+</td>
+</tr>
+<tr>
+<th id="stub_1_4" scope="row" class="gt_row gt_left gt_stub">
+Dark Green
+</th>
+<td headers="stub_1_4 Iter" class="gt_row gt_right">
+2013
+</td>
+<td headers="stub_1_4 TrLoss" class="gt_row gt_right">
+0.910
+</td>
+<td headers="stub_1_4 VaLoss" class="gt_row gt_right">
+1.056
+</td>
+<td headers="stub_1_4 mW" class="gt_row gt_right">
+3.20
+</td>
+<td headers="stub_1_4 sdW" class="gt_row gt_right">
+6.93
+</td>
+<td headers="stub_1_4 mB" class="gt_row gt_right">
+−2.39
+</td>
+<td headers="stub_1_4 sdB" class="gt_row gt_right">
+4.85
+</td>
+</tr>
+<tr>
+<th id="stub_1_5" scope="row" class="gt_row gt_left gt_stub">
+Orange
+</th>
+<td headers="stub_1_5 Iter" class="gt_row gt_right">
+2281
+</td>
+<td headers="stub_1_5 TrLoss" class="gt_row gt_right">
+0.907
+</td>
+<td headers="stub_1_5 VaLoss" class="gt_row gt_right">
+1.058
+</td>
+<td headers="stub_1_5 mW" class="gt_row gt_right">
+−0.70
+</td>
+<td headers="stub_1_5 sdW" class="gt_row gt_right">
+8.23
+</td>
+<td headers="stub_1_5 mB" class="gt_row gt_right">
+0.33
+</td>
+<td headers="stub_1_5 sdB" class="gt_row gt_right">
+4.95
+</td>
+</tr>
+<tr>
+<th id="stub_1_6" scope="row" class="gt_row gt_left gt_stub">
+Average
+</th>
+<td headers="stub_1_6 Iter" class="gt_row gt_right">
+2102
+</td>
+<td headers="stub_1_6 TrLoss" class="gt_row gt_right">
+0.911
+</td>
+<td headers="stub_1_6 VaLoss" class="gt_row gt_right">
+1.055
+</td>
+<td headers="stub_1_6 mW" class="gt_row gt_right">
+1.02
+</td>
+<td headers="stub_1_6 sdW" class="gt_row gt_right">
+7.45
+</td>
+<td headers="stub_1_6 mB" class="gt_row gt_right">
+−0.84
+</td>
+<td headers="stub_1_6 sdB" class="gt_row gt_right">
+4.13
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div id="points-to-notice" class="section level3">
+<h3>Points to notice</h3>
+<ul>
+<li>The fitted models all have Expected losses (RMSEs) slightly above 1. The RMSE of the Ideal model (a Gaussian) is 1.0, so the Best Model must be close to Ideal.<br />
+</li>
+<li>The expected losses of the fitted models are similar. They differ by a maximum of 0.007, which is 6.6% of their average<br />
+</li>
+<li>The Expected loss of the Best Model must be less than 1.053 (purple path), the consistency of the five paths gives us hope that the best expected loss will not be far from 1.053, but it is just hope.<br />
+</li>
+<li>No two sets of starting values lead to the same fitted model.<br />
+</li>
+<li>The training loss at convergence (in this case after 10,000 iterations) has no relation to the actual performance of the model.<br />
+</li>
+<li>It is important to re-run any gradient descent analysis with different starting values.</li>
+</ul>
+<p>In figure 11 the orange path crosses the other paths. When search paths cross, it might be supposed that the two paths have reached the same model, that is to say, neural networks with the same weights and biases, but <strong>this is not so</strong>. The paths cross when a model on one path has the same training and expected loss as a model on the other path, but having the same losses does not imply that the weights and biases are the same. Two quite different models can have the same losses, especially when the model is over-parameterised. Had the models been identical, they would have had the same gradients and after coming together they would have continued along the same path. This clearly does not happen.</p>
+</div>
+</div>
+<div id="analysis-2-a-1-8-1-neural-network" class="section level2">
+<h2>Analysis 2: A (1, 8, 1) Neural Network</h2>
+<p>Next, a (1, 8, 1) neural network is fitted to the same training data. The form of the gradient descent algorithm is kept the same. The resulting search paths are shown in figure 11 with the fitted models summarised in table 2. The fitted models have very similar performance to those found in the (1, 4, 1) analysis, but perhaps the training losses of the fitted models are slightly larger.</p>
+<p><img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-13-1.png" width="864" style="display: block; margin: auto;" /></p>
+<div id="sycxwmiyts" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#sycxwmiyts table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#sycxwmiyts thead, #sycxwmiyts tbody, #sycxwmiyts tfoot, #sycxwmiyts tr, #sycxwmiyts td, #sycxwmiyts th {
+  border-style: none;
+}
+
+#sycxwmiyts p {
+  margin: 0;
+  padding: 0;
+}
+
+#sycxwmiyts .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#sycxwmiyts .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#sycxwmiyts .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#sycxwmiyts .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#sycxwmiyts .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#sycxwmiyts .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#sycxwmiyts .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#sycxwmiyts .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#sycxwmiyts .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#sycxwmiyts .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#sycxwmiyts .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#sycxwmiyts .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#sycxwmiyts .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#sycxwmiyts .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#sycxwmiyts .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#sycxwmiyts .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#sycxwmiyts .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#sycxwmiyts .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#sycxwmiyts .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#sycxwmiyts .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#sycxwmiyts .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#sycxwmiyts .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#sycxwmiyts .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#sycxwmiyts .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#sycxwmiyts .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#sycxwmiyts .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#sycxwmiyts .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#sycxwmiyts .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#sycxwmiyts .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#sycxwmiyts .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#sycxwmiyts .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#sycxwmiyts .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#sycxwmiyts .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#sycxwmiyts .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#sycxwmiyts .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#sycxwmiyts .gt_left {
+  text-align: left;
+}
+
+#sycxwmiyts .gt_center {
+  text-align: center;
+}
+
+#sycxwmiyts .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#sycxwmiyts .gt_font_normal {
+  font-weight: normal;
+}
+
+#sycxwmiyts .gt_font_bold {
+  font-weight: bold;
+}
+
+#sycxwmiyts .gt_font_italic {
+  font-style: italic;
+}
+
+#sycxwmiyts .gt_super {
+  font-size: 65%;
+}
+
+#sycxwmiyts .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#sycxwmiyts .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#sycxwmiyts .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#sycxwmiyts .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#sycxwmiyts .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#sycxwmiyts .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#sycxwmiyts .gt_indent_5 {
+  text-indent: 25px;
+}
+</style>
+<table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+<thead>
+<tr class="gt_heading">
+<td colspan="8" class="gt_heading gt_title gt_font_normal" style>
+Table 2: Neural Network (1, 8, 1)
+</td>
+</tr>
+<tr class="gt_heading">
+<td colspan="8" class="gt_heading gt_subtitle gt_font_normal gt_bottom_border" style>
+Details of the Fitted Models
+</td>
+</tr>
+<tr class="gt_col_headings gt_spanner_row">
+<th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="2" colspan="1" scope="col" id="Colour">
+Colour
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="2" colspan="1" scope="col" id="Iteration">
+Iteration
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Loss (RMSE)">
+<span class="gt_column_spanner">Loss (RMSE)</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Weights">
+<span class="gt_column_spanner">Weights</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Biases">
+<span class="gt_column_spanner">Biases</span>
+</th>
+</tr>
+<tr class="gt_col_headings">
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Training">
+Training
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Expected">
+Expected
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="mean">
+mean
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std">
+std
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="mean">
+mean
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std">
+std
+</th>
+</tr>
+</thead>
+<tbody class="gt_table_body">
+<tr>
+<th id="stub_1_1" scope="row" class="gt_row gt_left gt_stub">
+Purple
+</th>
+<td headers="stub_1_1 Iter" class="gt_row gt_right">
+1925
+</td>
+<td headers="stub_1_1 TrLoss" class="gt_row gt_right">
+0.912
+</td>
+<td headers="stub_1_1 VaLoss" class="gt_row gt_right">
+1.052
+</td>
+<td headers="stub_1_1 mW" class="gt_row gt_right">
+−0.36
+</td>
+<td headers="stub_1_1 sdW" class="gt_row gt_right">
+5.79
+</td>
+<td headers="stub_1_1 mB" class="gt_row gt_right">
+1.96
+</td>
+<td headers="stub_1_1 sdB" class="gt_row gt_right">
+3.81
+</td>
+</tr>
+<tr>
+<th id="stub_1_2" scope="row" class="gt_row gt_left gt_stub">
+Blue
+</th>
+<td headers="stub_1_2 Iter" class="gt_row gt_right">
+2288
+</td>
+<td headers="stub_1_2 TrLoss" class="gt_row gt_right">
+0.909
+</td>
+<td headers="stub_1_2 VaLoss" class="gt_row gt_right">
+1.053
+</td>
+<td headers="stub_1_2 mW" class="gt_row gt_right">
+−1.30
+</td>
+<td headers="stub_1_2 sdW" class="gt_row gt_right">
+5.72
+</td>
+<td headers="stub_1_2 mB" class="gt_row gt_right">
+1.34
+</td>
+<td headers="stub_1_2 sdB" class="gt_row gt_right">
+4.01
+</td>
+</tr>
+<tr>
+<th id="stub_1_3" scope="row" class="gt_row gt_left gt_stub">
+Red
+</th>
+<td headers="stub_1_3 Iter" class="gt_row gt_right">
+2037
+</td>
+<td headers="stub_1_3 TrLoss" class="gt_row gt_right">
+0.910
+</td>
+<td headers="stub_1_3 VaLoss" class="gt_row gt_right">
+1.055
+</td>
+<td headers="stub_1_3 mW" class="gt_row gt_right">
+−0.56
+</td>
+<td headers="stub_1_3 sdW" class="gt_row gt_right">
+5.38
+</td>
+<td headers="stub_1_3 mB" class="gt_row gt_right">
+0.25
+</td>
+<td headers="stub_1_3 sdB" class="gt_row gt_right">
+4.22
+</td>
+</tr>
+<tr>
+<th id="stub_1_4" scope="row" class="gt_row gt_left gt_stub">
+Dark Green
+</th>
+<td headers="stub_1_4 Iter" class="gt_row gt_right">
+1499
+</td>
+<td headers="stub_1_4 TrLoss" class="gt_row gt_right">
+0.917
+</td>
+<td headers="stub_1_4 VaLoss" class="gt_row gt_right">
+1.055
+</td>
+<td headers="stub_1_4 mW" class="gt_row gt_right">
+1.84
+</td>
+<td headers="stub_1_4 sdW" class="gt_row gt_right">
+5.35
+</td>
+<td headers="stub_1_4 mB" class="gt_row gt_right">
+0.57
+</td>
+<td headers="stub_1_4 sdB" class="gt_row gt_right">
+3.98
+</td>
+</tr>
+<tr>
+<th id="stub_1_5" scope="row" class="gt_row gt_left gt_stub">
+Orange
+</th>
+<td headers="stub_1_5 Iter" class="gt_row gt_right">
+1713
+</td>
+<td headers="stub_1_5 TrLoss" class="gt_row gt_right">
+0.921
+</td>
+<td headers="stub_1_5 VaLoss" class="gt_row gt_right">
+1.055
+</td>
+<td headers="stub_1_5 mW" class="gt_row gt_right">
+1.73
+</td>
+<td headers="stub_1_5 sdW" class="gt_row gt_right">
+5.44
+</td>
+<td headers="stub_1_5 mB" class="gt_row gt_right">
+−1.38
+</td>
+<td headers="stub_1_5 sdB" class="gt_row gt_right">
+4.14
+</td>
+</tr>
+<tr>
+<th id="stub_1_6" scope="row" class="gt_row gt_left gt_stub">
+Average
+</th>
+<td headers="stub_1_6 Iter" class="gt_row gt_right">
+1892
+</td>
+<td headers="stub_1_6 TrLoss" class="gt_row gt_right">
+0.914
+</td>
+<td headers="stub_1_6 VaLoss" class="gt_row gt_right">
+1.054
+</td>
+<td headers="stub_1_6 mW" class="gt_row gt_right">
+0.27
+</td>
+<td headers="stub_1_6 sdW" class="gt_row gt_right">
+5.54
+</td>
+<td headers="stub_1_6 mB" class="gt_row gt_right">
+0.55
+</td>
+<td headers="stub_1_6 sdB" class="gt_row gt_right">
+4.03
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div id="analysis-3-a-1-16-1-neural-network" class="section level2">
+<h2>Analysis 3: A (1, 16, 1) Neural Network</h2>
+<p>Next, the data are analysed using a (1, 16, 1) neural network. Everything else is kept the same. The resulting search paths are shown in figure 12. The search paths show wide oscillations in the losses along the search path leading to the blocked out appearance.</p>
+<p><img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-15-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>Since so much of the detail in figure 12 is obscured by the oscillation in the green path, I have replotted it showing only alternate iterations of the algorithm so that figure 12 shows the lower boundary of the green region. The oscillation in the orange and purple paths is now evident.</p>
+<p>It is clear that the orange path produces a fitted model that is very different to the others, even though the training loss of the orange fitted model is similar. This difference is also clear from the values in table 3.
+<img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-16-1.png" width="864" style="display: block; margin: auto;" /></p>
+<div id="hptednwllw" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#hptednwllw table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#hptednwllw thead, #hptednwllw tbody, #hptednwllw tfoot, #hptednwllw tr, #hptednwllw td, #hptednwllw th {
+  border-style: none;
+}
+
+#hptednwllw p {
+  margin: 0;
+  padding: 0;
+}
+
+#hptednwllw .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#hptednwllw .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#hptednwllw .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#hptednwllw .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#hptednwllw .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#hptednwllw .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#hptednwllw .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#hptednwllw .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#hptednwllw .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#hptednwllw .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#hptednwllw .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#hptednwllw .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#hptednwllw .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#hptednwllw .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#hptednwllw .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#hptednwllw .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#hptednwllw .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#hptednwllw .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#hptednwllw .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#hptednwllw .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#hptednwllw .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#hptednwllw .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#hptednwllw .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#hptednwllw .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#hptednwllw .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#hptednwllw .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#hptednwllw .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#hptednwllw .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#hptednwllw .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#hptednwllw .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#hptednwllw .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#hptednwllw .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#hptednwllw .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#hptednwllw .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#hptednwllw .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#hptednwllw .gt_left {
+  text-align: left;
+}
+
+#hptednwllw .gt_center {
+  text-align: center;
+}
+
+#hptednwllw .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#hptednwllw .gt_font_normal {
+  font-weight: normal;
+}
+
+#hptednwllw .gt_font_bold {
+  font-weight: bold;
+}
+
+#hptednwllw .gt_font_italic {
+  font-style: italic;
+}
+
+#hptednwllw .gt_super {
+  font-size: 65%;
+}
+
+#hptednwllw .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#hptednwllw .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#hptednwllw .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#hptednwllw .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#hptednwllw .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#hptednwllw .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#hptednwllw .gt_indent_5 {
+  text-indent: 25px;
+}
+</style>
+<table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+<thead>
+<tr class="gt_heading">
+<td colspan="8" class="gt_heading gt_title gt_font_normal" style>
+Table 3: Neural Network (1, 16, 1)
+</td>
+</tr>
+<tr class="gt_heading">
+<td colspan="8" class="gt_heading gt_subtitle gt_font_normal gt_bottom_border" style>
+Details of the Fitted Models
+</td>
+</tr>
+<tr class="gt_col_headings gt_spanner_row">
+<th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="2" colspan="1" scope="col" id="Colour">
+Colour
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="2" colspan="1" scope="col" id="Iteration">
+Iteration
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Loss (RMSE)">
+<span class="gt_column_spanner">Loss (RMSE)</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Weights">
+<span class="gt_column_spanner">Weights</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Biases">
+<span class="gt_column_spanner">Biases</span>
+</th>
+</tr>
+<tr class="gt_col_headings">
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Training">
+Training
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Expected">
+Expected
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="mean">
+mean
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std">
+std
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="mean">
+mean
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std">
+std
+</th>
+</tr>
+</thead>
+<tbody class="gt_table_body">
+<tr>
+<th id="stub_1_1" scope="row" class="gt_row gt_left gt_stub">
+Purple
+</th>
+<td headers="stub_1_1 Iter" class="gt_row gt_right">
+2801
+</td>
+<td headers="stub_1_1 TrLoss" class="gt_row gt_right">
+0.910
+</td>
+<td headers="stub_1_1 VaLoss" class="gt_row gt_right">
+1.054
+</td>
+<td headers="stub_1_1 mW" class="gt_row gt_right">
+0.66
+</td>
+<td headers="stub_1_1 sdW" class="gt_row gt_right">
+4.76
+</td>
+<td headers="stub_1_1 mB" class="gt_row gt_right">
+0.24
+</td>
+<td headers="stub_1_1 sdB" class="gt_row gt_right">
+4.02
+</td>
+</tr>
+<tr>
+<th id="stub_1_2" scope="row" class="gt_row gt_left gt_stub">
+Blue
+</th>
+<td headers="stub_1_2 Iter" class="gt_row gt_right">
+2304
+</td>
+<td headers="stub_1_2 TrLoss" class="gt_row gt_right">
+0.917
+</td>
+<td headers="stub_1_2 VaLoss" class="gt_row gt_right">
+1.054
+</td>
+<td headers="stub_1_2 mW" class="gt_row gt_right">
+0.76
+</td>
+<td headers="stub_1_2 sdW" class="gt_row gt_right">
+4.48
+</td>
+<td headers="stub_1_2 mB" class="gt_row gt_right">
+−0.86
+</td>
+<td headers="stub_1_2 sdB" class="gt_row gt_right">
+3.59
+</td>
+</tr>
+<tr>
+<th id="stub_1_3" scope="row" class="gt_row gt_left gt_stub">
+Red
+</th>
+<td headers="stub_1_3 Iter" class="gt_row gt_right">
+2244
+</td>
+<td headers="stub_1_3 TrLoss" class="gt_row gt_right">
+0.915
+</td>
+<td headers="stub_1_3 VaLoss" class="gt_row gt_right">
+1.053
+</td>
+<td headers="stub_1_3 mW" class="gt_row gt_right">
+0.12
+</td>
+<td headers="stub_1_3 sdW" class="gt_row gt_right">
+4.39
+</td>
+<td headers="stub_1_3 mB" class="gt_row gt_right">
+−0.73
+</td>
+<td headers="stub_1_3 sdB" class="gt_row gt_right">
+3.66
+</td>
+</tr>
+<tr>
+<th id="stub_1_4" scope="row" class="gt_row gt_left gt_stub">
+Dark Green
+</th>
+<td headers="stub_1_4 Iter" class="gt_row gt_right">
+2681
+</td>
+<td headers="stub_1_4 TrLoss" class="gt_row gt_right">
+0.930
+</td>
+<td headers="stub_1_4 VaLoss" class="gt_row gt_right">
+1.052
+</td>
+<td headers="stub_1_4 mW" class="gt_row gt_right">
+−0.36
+</td>
+<td headers="stub_1_4 sdW" class="gt_row gt_right">
+4.76
+</td>
+<td headers="stub_1_4 mB" class="gt_row gt_right">
+0.75
+</td>
+<td headers="stub_1_4 sdB" class="gt_row gt_right">
+3.90
+</td>
+</tr>
+<tr>
+<th id="stub_1_5" scope="row" class="gt_row gt_left gt_stub">
+Orange
+</th>
+<td headers="stub_1_5 Iter" class="gt_row gt_right">
+4403
+</td>
+<td headers="stub_1_5 TrLoss" class="gt_row gt_right">
+0.912
+</td>
+<td headers="stub_1_5 VaLoss" class="gt_row gt_right">
+1.069
+</td>
+<td headers="stub_1_5 mW" class="gt_row gt_right">
+0.48
+</td>
+<td headers="stub_1_5 sdW" class="gt_row gt_right">
+4.59
+</td>
+<td headers="stub_1_5 mB" class="gt_row gt_right">
+−0.30
+</td>
+<td headers="stub_1_5 sdB" class="gt_row gt_right">
+3.97
+</td>
+</tr>
+<tr>
+<th id="stub_1_6" scope="row" class="gt_row gt_left gt_stub">
+Average
+</th>
+<td headers="stub_1_6 Iter" class="gt_row gt_right">
+2887
+</td>
+<td headers="stub_1_6 TrLoss" class="gt_row gt_right">
+0.917
+</td>
+<td headers="stub_1_6 VaLoss" class="gt_row gt_right">
+1.056
+</td>
+<td headers="stub_1_6 mW" class="gt_row gt_right">
+0.33
+</td>
+<td headers="stub_1_6 sdW" class="gt_row gt_right">
+4.60
+</td>
+<td headers="stub_1_6 mB" class="gt_row gt_right">
+−0.18
+</td>
+<td headers="stub_1_6 sdB" class="gt_row gt_right">
+3.83
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>To show that the oscillation is a result of step length, I re-fit the (1, 16, 1) network using a step length, eta, of 0.05. The new results are shown in figure 14 and table 4. The orange search path still performs much worse than the others, but there is no longer any oscillation.</p>
+<p><img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-18-1.png" width="864" style="display: block; margin: auto;" /></p>
+<div id="wiuugkvjlm" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#wiuugkvjlm table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#wiuugkvjlm thead, #wiuugkvjlm tbody, #wiuugkvjlm tfoot, #wiuugkvjlm tr, #wiuugkvjlm td, #wiuugkvjlm th {
+  border-style: none;
+}
+
+#wiuugkvjlm p {
+  margin: 0;
+  padding: 0;
+}
+
+#wiuugkvjlm .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#wiuugkvjlm .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#wiuugkvjlm .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#wiuugkvjlm .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#wiuugkvjlm .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#wiuugkvjlm .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#wiuugkvjlm .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#wiuugkvjlm .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#wiuugkvjlm .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#wiuugkvjlm .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#wiuugkvjlm .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#wiuugkvjlm .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#wiuugkvjlm .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#wiuugkvjlm .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#wiuugkvjlm .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#wiuugkvjlm .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#wiuugkvjlm .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#wiuugkvjlm .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#wiuugkvjlm .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#wiuugkvjlm .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#wiuugkvjlm .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#wiuugkvjlm .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#wiuugkvjlm .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#wiuugkvjlm .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#wiuugkvjlm .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#wiuugkvjlm .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#wiuugkvjlm .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#wiuugkvjlm .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#wiuugkvjlm .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#wiuugkvjlm .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#wiuugkvjlm .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#wiuugkvjlm .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#wiuugkvjlm .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#wiuugkvjlm .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#wiuugkvjlm .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#wiuugkvjlm .gt_left {
+  text-align: left;
+}
+
+#wiuugkvjlm .gt_center {
+  text-align: center;
+}
+
+#wiuugkvjlm .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#wiuugkvjlm .gt_font_normal {
+  font-weight: normal;
+}
+
+#wiuugkvjlm .gt_font_bold {
+  font-weight: bold;
+}
+
+#wiuugkvjlm .gt_font_italic {
+  font-style: italic;
+}
+
+#wiuugkvjlm .gt_super {
+  font-size: 65%;
+}
+
+#wiuugkvjlm .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#wiuugkvjlm .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#wiuugkvjlm .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#wiuugkvjlm .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#wiuugkvjlm .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#wiuugkvjlm .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#wiuugkvjlm .gt_indent_5 {
+  text-indent: 25px;
+}
+</style>
+<table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+<thead>
+<tr class="gt_heading">
+<td colspan="8" class="gt_heading gt_title gt_font_normal" style>
+Table 4: Neural Network (1, 16, 1) eta=0.05
+</td>
+</tr>
+<tr class="gt_heading">
+<td colspan="8" class="gt_heading gt_subtitle gt_font_normal gt_bottom_border" style>
+Details of the Fitted Models
+</td>
+</tr>
+<tr class="gt_col_headings gt_spanner_row">
+<th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="2" colspan="1" scope="col" id="Colour">
+Colour
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="2" colspan="1" scope="col" id="Iteration">
+Iteration
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Loss (RMSE)">
+<span class="gt_column_spanner">Loss (RMSE)</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Weights">
+<span class="gt_column_spanner">Weights</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Biases">
+<span class="gt_column_spanner">Biases</span>
+</th>
+</tr>
+<tr class="gt_col_headings">
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Training">
+Training
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Expected">
+Expected
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="mean">
+mean
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std">
+std
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="mean">
+mean
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std">
+std
+</th>
+</tr>
+</thead>
+<tbody class="gt_table_body">
+<tr>
+<th id="stub_1_1" scope="row" class="gt_row gt_left gt_stub">
+Purple
+</th>
+<td headers="stub_1_1 Iter" class="gt_row gt_right">
+5179
+</td>
+<td headers="stub_1_1 TrLoss" class="gt_row gt_right">
+0.913
+</td>
+<td headers="stub_1_1 VaLoss" class="gt_row gt_right">
+1.054
+</td>
+<td headers="stub_1_1 mW" class="gt_row gt_right">
+0.73
+</td>
+<td headers="stub_1_1 sdW" class="gt_row gt_right">
+4.74
+</td>
+<td headers="stub_1_1 mB" class="gt_row gt_right">
+0.48
+</td>
+<td headers="stub_1_1 sdB" class="gt_row gt_right">
+3.87
+</td>
+</tr>
+<tr>
+<th id="stub_1_2" scope="row" class="gt_row gt_left gt_stub">
+Blue
+</th>
+<td headers="stub_1_2 Iter" class="gt_row gt_right">
+4605
+</td>
+<td headers="stub_1_2 TrLoss" class="gt_row gt_right">
+0.917
+</td>
+<td headers="stub_1_2 VaLoss" class="gt_row gt_right">
+1.054
+</td>
+<td headers="stub_1_2 mW" class="gt_row gt_right">
+0.78
+</td>
+<td headers="stub_1_2 sdW" class="gt_row gt_right">
+4.51
+</td>
+<td headers="stub_1_2 mB" class="gt_row gt_right">
+−0.76
+</td>
+<td headers="stub_1_2 sdB" class="gt_row gt_right">
+3.61
+</td>
+</tr>
+<tr>
+<th id="stub_1_3" scope="row" class="gt_row gt_left gt_stub">
+Red
+</th>
+<td headers="stub_1_3 Iter" class="gt_row gt_right">
+4457
+</td>
+<td headers="stub_1_3 TrLoss" class="gt_row gt_right">
+0.931
+</td>
+<td headers="stub_1_3 VaLoss" class="gt_row gt_right">
+1.054
+</td>
+<td headers="stub_1_3 mW" class="gt_row gt_right">
+0.28
+</td>
+<td headers="stub_1_3 sdW" class="gt_row gt_right">
+4.38
+</td>
+<td headers="stub_1_3 mB" class="gt_row gt_right">
+−0.27
+</td>
+<td headers="stub_1_3 sdB" class="gt_row gt_right">
+3.46
+</td>
+</tr>
+<tr>
+<th id="stub_1_4" scope="row" class="gt_row gt_left gt_stub">
+Dark Green
+</th>
+<td headers="stub_1_4 Iter" class="gt_row gt_right">
+4072
+</td>
+<td headers="stub_1_4 TrLoss" class="gt_row gt_right">
+0.923
+</td>
+<td headers="stub_1_4 VaLoss" class="gt_row gt_right">
+1.054
+</td>
+<td headers="stub_1_4 mW" class="gt_row gt_right">
+−0.24
+</td>
+<td headers="stub_1_4 sdW" class="gt_row gt_right">
+4.70
+</td>
+<td headers="stub_1_4 mB" class="gt_row gt_right">
+1.33
+</td>
+<td headers="stub_1_4 sdB" class="gt_row gt_right">
+3.57
+</td>
+</tr>
+<tr>
+<th id="stub_1_5" scope="row" class="gt_row gt_left gt_stub">
+Orange
+</th>
+<td headers="stub_1_5 Iter" class="gt_row gt_right">
+8295
+</td>
+<td headers="stub_1_5 TrLoss" class="gt_row gt_right">
+0.911
+</td>
+<td headers="stub_1_5 VaLoss" class="gt_row gt_right">
+1.066
+</td>
+<td headers="stub_1_5 mW" class="gt_row gt_right">
+0.44
+</td>
+<td headers="stub_1_5 sdW" class="gt_row gt_right">
+4.56
+</td>
+<td headers="stub_1_5 mB" class="gt_row gt_right">
+0.29
+</td>
+<td headers="stub_1_5 sdB" class="gt_row gt_right">
+3.92
+</td>
+</tr>
+<tr>
+<th id="stub_1_6" scope="row" class="gt_row gt_left gt_stub">
+Average
+</th>
+<td headers="stub_1_6 Iter" class="gt_row gt_right">
+5322
+</td>
+<td headers="stub_1_6 TrLoss" class="gt_row gt_right">
+0.919
+</td>
+<td headers="stub_1_6 VaLoss" class="gt_row gt_right">
+1.056
+</td>
+<td headers="stub_1_6 mW" class="gt_row gt_right">
+0.40
+</td>
+<td headers="stub_1_6 sdW" class="gt_row gt_right">
+4.58
+</td>
+<td headers="stub_1_6 mB" class="gt_row gt_right">
+0.22
+</td>
+<td headers="stub_1_6 sdB" class="gt_row gt_right">
+3.68
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div id="analysis-4-a-1-32-1-neural-network" class="section level2">
+<h2>Analysis 4: A (1, 32, 1) Neural Network</h2>
+<p>Next, the data are analysed using a (1, 32, 1) neural network. This model has 97 parameters, far more that are needed for the simple Gausaain curve. I use a step length of 0.05 to avoid oscillation. The results are shown in figure 15 and table 5.</p>
+<p>The green and red paths almost overlap and the weights and biases of their fitted models are similar. The performance of this over-parameterised model is remarkably similar to that of the 13 parameter model used in the first analysis.</p>
+<p><img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-20-1.png" width="864" style="display: block; margin: auto;" /></p>
+<div id="bfbswtxtvb" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#bfbswtxtvb table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#bfbswtxtvb thead, #bfbswtxtvb tbody, #bfbswtxtvb tfoot, #bfbswtxtvb tr, #bfbswtxtvb td, #bfbswtxtvb th {
+  border-style: none;
+}
+
+#bfbswtxtvb p {
+  margin: 0;
+  padding: 0;
+}
+
+#bfbswtxtvb .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#bfbswtxtvb .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#bfbswtxtvb .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#bfbswtxtvb .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#bfbswtxtvb .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#bfbswtxtvb .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#bfbswtxtvb .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#bfbswtxtvb .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#bfbswtxtvb .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#bfbswtxtvb .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#bfbswtxtvb .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#bfbswtxtvb .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#bfbswtxtvb .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#bfbswtxtvb .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#bfbswtxtvb .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#bfbswtxtvb .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#bfbswtxtvb .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#bfbswtxtvb .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#bfbswtxtvb .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#bfbswtxtvb .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#bfbswtxtvb .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#bfbswtxtvb .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#bfbswtxtvb .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#bfbswtxtvb .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#bfbswtxtvb .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#bfbswtxtvb .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#bfbswtxtvb .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#bfbswtxtvb .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#bfbswtxtvb .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#bfbswtxtvb .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#bfbswtxtvb .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#bfbswtxtvb .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#bfbswtxtvb .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#bfbswtxtvb .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#bfbswtxtvb .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#bfbswtxtvb .gt_left {
+  text-align: left;
+}
+
+#bfbswtxtvb .gt_center {
+  text-align: center;
+}
+
+#bfbswtxtvb .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#bfbswtxtvb .gt_font_normal {
+  font-weight: normal;
+}
+
+#bfbswtxtvb .gt_font_bold {
+  font-weight: bold;
+}
+
+#bfbswtxtvb .gt_font_italic {
+  font-style: italic;
+}
+
+#bfbswtxtvb .gt_super {
+  font-size: 65%;
+}
+
+#bfbswtxtvb .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#bfbswtxtvb .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#bfbswtxtvb .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#bfbswtxtvb .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#bfbswtxtvb .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#bfbswtxtvb .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#bfbswtxtvb .gt_indent_5 {
+  text-indent: 25px;
+}
+</style>
+<table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+<thead>
+<tr class="gt_heading">
+<td colspan="8" class="gt_heading gt_title gt_font_normal" style>
+Table 5: Neural Network (1, 32, 1) eta=0.05
+</td>
+</tr>
+<tr class="gt_heading">
+<td colspan="8" class="gt_heading gt_subtitle gt_font_normal gt_bottom_border" style>
+Details of the Fitted Model
+</td>
+</tr>
+<tr class="gt_col_headings gt_spanner_row">
+<th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="2" colspan="1" scope="col" id="Colour">
+Colour
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="2" colspan="1" scope="col" id="Iteration">
+Iteration
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Loss (RMSE)">
+<span class="gt_column_spanner">Loss (RMSE)</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Weights">
+<span class="gt_column_spanner">Weights</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Biases">
+<span class="gt_column_spanner">Biases</span>
+</th>
+</tr>
+<tr class="gt_col_headings">
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Training">
+Training
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Expected">
+Expected
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="mean">
+mean
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std">
+std
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="mean">
+mean
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std">
+std
+</th>
+</tr>
+</thead>
+<tbody class="gt_table_body">
+<tr>
+<th id="stub_1_1" scope="row" class="gt_row gt_left gt_stub">
+Purple
+</th>
+<td headers="stub_1_1 Iter" class="gt_row gt_right">
+3930
+</td>
+<td headers="stub_1_1 TrLoss" class="gt_row gt_right">
+0.925
+</td>
+<td headers="stub_1_1 VaLoss" class="gt_row gt_right">
+1.054
+</td>
+<td headers="stub_1_1 mW" class="gt_row gt_right">
+0.26
+</td>
+<td headers="stub_1_1 sdW" class="gt_row gt_right">
+3.52
+</td>
+<td headers="stub_1_1 mB" class="gt_row gt_right">
+0.08
+</td>
+<td headers="stub_1_1 sdB" class="gt_row gt_right">
+3.45
+</td>
+</tr>
+<tr>
+<th id="stub_1_2" scope="row" class="gt_row gt_left gt_stub">
+Blue
+</th>
+<td headers="stub_1_2 Iter" class="gt_row gt_right">
+4009
+</td>
+<td headers="stub_1_2 TrLoss" class="gt_row gt_right">
+0.929
+</td>
+<td headers="stub_1_2 VaLoss" class="gt_row gt_right">
+1.055
+</td>
+<td headers="stub_1_2 mW" class="gt_row gt_right">
+−0.53
+</td>
+<td headers="stub_1_2 sdW" class="gt_row gt_right">
+3.86
+</td>
+<td headers="stub_1_2 mB" class="gt_row gt_right">
+0.16
+</td>
+<td headers="stub_1_2 sdB" class="gt_row gt_right">
+3.23
+</td>
+</tr>
+<tr>
+<th id="stub_1_3" scope="row" class="gt_row gt_left gt_stub">
+Red
+</th>
+<td headers="stub_1_3 Iter" class="gt_row gt_right">
+6058
+</td>
+<td headers="stub_1_3 TrLoss" class="gt_row gt_right">
+0.914
+</td>
+<td headers="stub_1_3 VaLoss" class="gt_row gt_right">
+1.055
+</td>
+<td headers="stub_1_3 mW" class="gt_row gt_right">
+−1.06
+</td>
+<td headers="stub_1_3 sdW" class="gt_row gt_right">
+3.50
+</td>
+<td headers="stub_1_3 mB" class="gt_row gt_right">
+0.08
+</td>
+<td headers="stub_1_3 sdB" class="gt_row gt_right">
+3.28
+</td>
+</tr>
+<tr>
+<th id="stub_1_4" scope="row" class="gt_row gt_left gt_stub">
+Dark Green
+</th>
+<td headers="stub_1_4 Iter" class="gt_row gt_right">
+4612
+</td>
+<td headers="stub_1_4 TrLoss" class="gt_row gt_right">
+0.915
+</td>
+<td headers="stub_1_4 VaLoss" class="gt_row gt_right">
+1.055
+</td>
+<td headers="stub_1_4 mW" class="gt_row gt_right">
+−0.65
+</td>
+<td headers="stub_1_4 sdW" class="gt_row gt_right">
+3.82
+</td>
+<td headers="stub_1_4 mB" class="gt_row gt_right">
+1.29
+</td>
+<td headers="stub_1_4 sdB" class="gt_row gt_right">
+3.19
+</td>
+</tr>
+<tr>
+<th id="stub_1_5" scope="row" class="gt_row gt_left gt_stub">
+Orange
+</th>
+<td headers="stub_1_5 Iter" class="gt_row gt_right">
+6761
+</td>
+<td headers="stub_1_5 TrLoss" class="gt_row gt_right">
+0.917
+</td>
+<td headers="stub_1_5 VaLoss" class="gt_row gt_right">
+1.058
+</td>
+<td headers="stub_1_5 mW" class="gt_row gt_right">
+0.00
+</td>
+<td headers="stub_1_5 sdW" class="gt_row gt_right">
+3.77
+</td>
+<td headers="stub_1_5 mB" class="gt_row gt_right">
+0.55
+</td>
+<td headers="stub_1_5 sdB" class="gt_row gt_right">
+3.39
+</td>
+</tr>
+<tr>
+<th id="stub_1_6" scope="row" class="gt_row gt_left gt_stub">
+Average
+</th>
+<td headers="stub_1_6 Iter" class="gt_row gt_right">
+5074
+</td>
+<td headers="stub_1_6 TrLoss" class="gt_row gt_right">
+0.920
+</td>
+<td headers="stub_1_6 VaLoss" class="gt_row gt_right">
+1.055
+</td>
+<td headers="stub_1_6 mW" class="gt_row gt_right">
+−0.40
+</td>
+<td headers="stub_1_6 sdW" class="gt_row gt_right">
+3.70
+</td>
+<td headers="stub_1_6 mB" class="gt_row gt_right">
+0.43
+</td>
+<td headers="stub_1_6 sdB" class="gt_row gt_right">
+3.31
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div id="analysis-5-a-1-2-1-neural-network" class="section level2">
+<h2>Analysis 5: A (1, 2, 1) Neural Network</h2>
+<p>Finally, the data are analysed using a model with only 7 parameters; a (1, 2, 1) neural network that is probably a little under-parameterised for a Gaussian curve. For this analysis, I revert to a step length of 0.1. The results are shown in figure 16 and table 6.</p>
+<p>Figure 16 only shows four search paths because the fifth (orange) did not have any training or expected RMSE below 1.65.</p>
+<p><img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-22-1.png" width="864" style="display: block; margin: auto;" /></p>
+<div id="fwmqfqqmxa" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#fwmqfqqmxa table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#fwmqfqqmxa thead, #fwmqfqqmxa tbody, #fwmqfqqmxa tfoot, #fwmqfqqmxa tr, #fwmqfqqmxa td, #fwmqfqqmxa th {
+  border-style: none;
+}
+
+#fwmqfqqmxa p {
+  margin: 0;
+  padding: 0;
+}
+
+#fwmqfqqmxa .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#fwmqfqqmxa .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#fwmqfqqmxa .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#fwmqfqqmxa .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#fwmqfqqmxa .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#fwmqfqqmxa .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#fwmqfqqmxa .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#fwmqfqqmxa .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#fwmqfqqmxa .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#fwmqfqqmxa .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#fwmqfqqmxa .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#fwmqfqqmxa .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#fwmqfqqmxa .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#fwmqfqqmxa .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#fwmqfqqmxa .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#fwmqfqqmxa .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#fwmqfqqmxa .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#fwmqfqqmxa .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#fwmqfqqmxa .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#fwmqfqqmxa .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#fwmqfqqmxa .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#fwmqfqqmxa .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#fwmqfqqmxa .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#fwmqfqqmxa .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#fwmqfqqmxa .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#fwmqfqqmxa .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#fwmqfqqmxa .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#fwmqfqqmxa .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#fwmqfqqmxa .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#fwmqfqqmxa .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#fwmqfqqmxa .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#fwmqfqqmxa .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#fwmqfqqmxa .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#fwmqfqqmxa .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#fwmqfqqmxa .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#fwmqfqqmxa .gt_left {
+  text-align: left;
+}
+
+#fwmqfqqmxa .gt_center {
+  text-align: center;
+}
+
+#fwmqfqqmxa .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#fwmqfqqmxa .gt_font_normal {
+  font-weight: normal;
+}
+
+#fwmqfqqmxa .gt_font_bold {
+  font-weight: bold;
+}
+
+#fwmqfqqmxa .gt_font_italic {
+  font-style: italic;
+}
+
+#fwmqfqqmxa .gt_super {
+  font-size: 65%;
+}
+
+#fwmqfqqmxa .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#fwmqfqqmxa .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#fwmqfqqmxa .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#fwmqfqqmxa .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#fwmqfqqmxa .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#fwmqfqqmxa .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#fwmqfqqmxa .gt_indent_5 {
+  text-indent: 25px;
+}
+</style>
+<table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+<thead>
+<tr class="gt_heading">
+<td colspan="8" class="gt_heading gt_title gt_font_normal" style>
+Table 5: Neural Network (1, 2, 1)
+</td>
+</tr>
+<tr class="gt_heading">
+<td colspan="8" class="gt_heading gt_subtitle gt_font_normal gt_bottom_border" style>
+Details of the Fitted Models
+</td>
+</tr>
+<tr class="gt_col_headings gt_spanner_row">
+<th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="2" colspan="1" scope="col" id="Colour">
+Colour
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="2" colspan="1" scope="col" id="Iteration">
+Iteration
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Loss (RMSE)">
+<span class="gt_column_spanner">Loss (RMSE)</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Weights">
+<span class="gt_column_spanner">Weights</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Biases">
+<span class="gt_column_spanner">Biases</span>
+</th>
+</tr>
+<tr class="gt_col_headings">
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Training">
+Training
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Expected">
+Expected
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="mean">
+mean
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std">
+std
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="mean">
+mean
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std">
+std
+</th>
+</tr>
+</thead>
+<tbody class="gt_table_body">
+<tr>
+<th id="stub_1_1" scope="row" class="gt_row gt_left gt_stub">
+Purple
+</th>
+<td headers="stub_1_1 Iter" class="gt_row gt_right">
+4069
+</td>
+<td headers="stub_1_1 TrLoss" class="gt_row gt_right">
+0.911
+</td>
+<td headers="stub_1_1 VaLoss" class="gt_row gt_right">
+1.055
+</td>
+<td headers="stub_1_1 mW" class="gt_row gt_right">
+5.31
+</td>
+<td headers="stub_1_1 sdW" class="gt_row gt_right">
+9.87
+</td>
+<td headers="stub_1_1 mB" class="gt_row gt_right">
+−3.71
+</td>
+<td headers="stub_1_1 sdB" class="gt_row gt_right">
+3.48
+</td>
+</tr>
+<tr>
+<th id="stub_1_2" scope="row" class="gt_row gt_left gt_stub">
+Blue
+</th>
+<td headers="stub_1_2 Iter" class="gt_row gt_right">
+1931
+</td>
+<td headers="stub_1_2 TrLoss" class="gt_row gt_right">
+0.911
+</td>
+<td headers="stub_1_2 VaLoss" class="gt_row gt_right">
+1.053
+</td>
+<td headers="stub_1_2 mW" class="gt_row gt_right">
+−4.70
+</td>
+<td headers="stub_1_2 sdW" class="gt_row gt_right">
+9.95
+</td>
+<td headers="stub_1_2 mB" class="gt_row gt_right">
+2.30
+</td>
+<td headers="stub_1_2 sdB" class="gt_row gt_right">
+8.04
+</td>
+</tr>
+<tr>
+<th id="stub_1_3" scope="row" class="gt_row gt_left gt_stub">
+Red
+</th>
+<td headers="stub_1_3 Iter" class="gt_row gt_right">
+2609
+</td>
+<td headers="stub_1_3 TrLoss" class="gt_row gt_right">
+0.911
+</td>
+<td headers="stub_1_3 VaLoss" class="gt_row gt_right">
+1.054
+</td>
+<td headers="stub_1_3 mW" class="gt_row gt_right">
+−4.48
+</td>
+<td headers="stub_1_3 sdW" class="gt_row gt_right">
+10.12
+</td>
+<td headers="stub_1_3 mB" class="gt_row gt_right">
+2.17
+</td>
+<td headers="stub_1_3 sdB" class="gt_row gt_right">
+8.28
+</td>
+</tr>
+<tr>
+<th id="stub_1_4" scope="row" class="gt_row gt_left gt_stub">
+Dark Green
+</th>
+<td headers="stub_1_4 Iter" class="gt_row gt_right">
+4982
+</td>
+<td headers="stub_1_4 TrLoss" class="gt_row gt_right">
+0.907
+</td>
+<td headers="stub_1_4 VaLoss" class="gt_row gt_right">
+1.060
+</td>
+<td headers="stub_1_4 mW" class="gt_row gt_right">
+5.78
+</td>
+<td headers="stub_1_4 sdW" class="gt_row gt_right">
+9.90
+</td>
+<td headers="stub_1_4 mB" class="gt_row gt_right">
+−2.96
+</td>
+<td headers="stub_1_4 sdB" class="gt_row gt_right">
+7.45
+</td>
+</tr>
+<tr>
+<th id="stub_1_5" scope="row" class="gt_row gt_left gt_stub">
+Orange
+</th>
+<td headers="stub_1_5 Iter" class="gt_row gt_right">
+10000
+</td>
+<td headers="stub_1_5 TrLoss" class="gt_row gt_right">
+1.690
+</td>
+<td headers="stub_1_5 VaLoss" class="gt_row gt_right">
+1.660
+</td>
+<td headers="stub_1_5 mW" class="gt_row gt_right">
+3.45
+</td>
+<td headers="stub_1_5 sdW" class="gt_row gt_right">
+7.26
+</td>
+<td headers="stub_1_5 mB" class="gt_row gt_right">
+−2.97
+</td>
+<td headers="stub_1_5 sdB" class="gt_row gt_right">
+2.68
+</td>
+</tr>
+<tr>
+<th id="stub_1_6" scope="row" class="gt_row gt_left gt_stub">
+Average
+</th>
+<td headers="stub_1_6 Iter" class="gt_row gt_right">
+4718
+</td>
+<td headers="stub_1_6 TrLoss" class="gt_row gt_right">
+1.066
+</td>
+<td headers="stub_1_6 VaLoss" class="gt_row gt_right">
+1.177
+</td>
+<td headers="stub_1_6 mW" class="gt_row gt_right">
+1.07
+</td>
+<td headers="stub_1_6 sdW" class="gt_row gt_right">
+9.42
+</td>
+<td headers="stub_1_6 mB" class="gt_row gt_right">
+−1.03
+</td>
+<td headers="stub_1_6 sdB" class="gt_row gt_right">
+5.99
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The progress of training loss of the five searches is shown in figure 17. The shape of the unsuccessful search is not dissimilar to the others except that it does not drop as far. Just like the others, it consists of periods of rapid loss reduction followed by long plateaus. It is unclear whether the orange curve would dip again were the algorithm run for long enough, or whether it has converged to a local minimum that is a long way from the Best model.
+<img src="/post/neural_networks/04methods_nn_pictures_files/figure-html/unnamed-chunk-24-1.png" width="864" style="display: block; margin: auto;" /></p>
+</div>
+<div id="comparing-these-models" class="section level2">
+<h2>Comparing these Models</h2>
+<p>Table 6 collects together the averages from the tables of fitted model statistics. It is remarkable how neural networks of different size produce models with such similar training and expected loss.</p>
+<div id="jysqozwsdg" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#jysqozwsdg table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#jysqozwsdg thead, #jysqozwsdg tbody, #jysqozwsdg tfoot, #jysqozwsdg tr, #jysqozwsdg td, #jysqozwsdg th {
+  border-style: none;
+}
+
+#jysqozwsdg p {
+  margin: 0;
+  padding: 0;
+}
+
+#jysqozwsdg .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#jysqozwsdg .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#jysqozwsdg .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#jysqozwsdg .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#jysqozwsdg .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#jysqozwsdg .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#jysqozwsdg .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#jysqozwsdg .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#jysqozwsdg .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#jysqozwsdg .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#jysqozwsdg .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#jysqozwsdg .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#jysqozwsdg .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#jysqozwsdg .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#jysqozwsdg .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#jysqozwsdg .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#jysqozwsdg .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#jysqozwsdg .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#jysqozwsdg .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#jysqozwsdg .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#jysqozwsdg .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#jysqozwsdg .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#jysqozwsdg .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#jysqozwsdg .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#jysqozwsdg .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#jysqozwsdg .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#jysqozwsdg .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#jysqozwsdg .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#jysqozwsdg .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#jysqozwsdg .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#jysqozwsdg .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#jysqozwsdg .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#jysqozwsdg .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#jysqozwsdg .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#jysqozwsdg .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#jysqozwsdg .gt_left {
+  text-align: left;
+}
+
+#jysqozwsdg .gt_center {
+  text-align: center;
+}
+
+#jysqozwsdg .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#jysqozwsdg .gt_font_normal {
+  font-weight: normal;
+}
+
+#jysqozwsdg .gt_font_bold {
+  font-weight: bold;
+}
+
+#jysqozwsdg .gt_font_italic {
+  font-style: italic;
+}
+
+#jysqozwsdg .gt_super {
+  font-size: 65%;
+}
+
+#jysqozwsdg .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#jysqozwsdg .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#jysqozwsdg .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#jysqozwsdg .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#jysqozwsdg .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#jysqozwsdg .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#jysqozwsdg .gt_indent_5 {
+  text-indent: 25px;
+}
+</style>
+<table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+<thead>
+<tr class="gt_heading">
+<td colspan="10" class="gt_heading gt_title gt_font_normal" style>
+Table 6: Average performance
+</td>
+</tr>
+<tr class="gt_heading">
+<td colspan="10" class="gt_heading gt_subtitle gt_font_normal gt_bottom_border" style>
+Details of the Fitted Models
+</td>
+</tr>
+<tr class="gt_col_headings gt_spanner_row">
+<th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="2" colspan="1" scope="col" id="Model">
+Model
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="2" colspan="1" scope="col" id="eta">
+eta
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="2" colspan="1" scope="col" id="p&lt;span class=&quot;gt_footnote_marks&quot; style=&quot;white-space:nowrap;font-style:italic;font-weight:normal;&quot;&gt;&lt;sup&gt;1&lt;/sup&gt;&lt;/span&gt;">
+p<span class="gt_footnote_marks" style="white-space:nowrap;font-style:italic;font-weight:normal;"><sup>1</sup></span>
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="2" colspan="1" scope="col" id="Iteration">
+Iteration
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Loss (RMSE)">
+<span class="gt_column_spanner">Loss (RMSE)</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Weights">
+<span class="gt_column_spanner">Weights</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="Biases">
+<span class="gt_column_spanner">Biases</span>
+</th>
+</tr>
+<tr class="gt_col_headings">
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Training">
+Training
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Expected">
+Expected
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="mean">
+mean
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std">
+std
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="mean">
+mean
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std">
+std
+</th>
+</tr>
+</thead>
+<tbody class="gt_table_body">
+<tr>
+<th id="stub_1_1" scope="row" class="gt_row gt_right gt_stub">
+1, 2, 1
+</th>
+<td headers="stub_1_1 eta" class="gt_row gt_right">
+0.10
+</td>
+<td headers="stub_1_1 par" class="gt_row gt_right">
+7
+</td>
+<td headers="stub_1_1 Iter" class="gt_row gt_right">
+4718
+</td>
+<td headers="stub_1_1 TrLoss" class="gt_row gt_right">
+1.066
+</td>
+<td headers="stub_1_1 VaLoss" class="gt_row gt_right">
+1.177
+</td>
+<td headers="stub_1_1 mW" class="gt_row gt_right">
+1.07
+</td>
+<td headers="stub_1_1 sdW" class="gt_row gt_right">
+9.42
+</td>
+<td headers="stub_1_1 mB" class="gt_row gt_right">
+−1.03
+</td>
+<td headers="stub_1_1 sdB" class="gt_row gt_right">
+5.99
+</td>
+</tr>
+<tr>
+<th id="stub_1_2" scope="row" class="gt_row gt_right gt_stub">
+1, 4, 1
+</th>
+<td headers="stub_1_2 eta" class="gt_row gt_right">
+0.10
+</td>
+<td headers="stub_1_2 par" class="gt_row gt_right">
+13
+</td>
+<td headers="stub_1_2 Iter" class="gt_row gt_right">
+2102
+</td>
+<td headers="stub_1_2 TrLoss" class="gt_row gt_right">
+0.911
+</td>
+<td headers="stub_1_2 VaLoss" class="gt_row gt_right">
+1.055
+</td>
+<td headers="stub_1_2 mW" class="gt_row gt_right">
+1.02
+</td>
+<td headers="stub_1_2 sdW" class="gt_row gt_right">
+7.45
+</td>
+<td headers="stub_1_2 mB" class="gt_row gt_right">
+−0.84
+</td>
+<td headers="stub_1_2 sdB" class="gt_row gt_right">
+4.13
+</td>
+</tr>
+<tr>
+<th id="stub_1_3" scope="row" class="gt_row gt_right gt_stub">
+1, 8, 1
+</th>
+<td headers="stub_1_3 eta" class="gt_row gt_right">
+0.10
+</td>
+<td headers="stub_1_3 par" class="gt_row gt_right">
+25
+</td>
+<td headers="stub_1_3 Iter" class="gt_row gt_right">
+1892
+</td>
+<td headers="stub_1_3 TrLoss" class="gt_row gt_right">
+0.914
+</td>
+<td headers="stub_1_3 VaLoss" class="gt_row gt_right">
+1.054
+</td>
+<td headers="stub_1_3 mW" class="gt_row gt_right">
+0.27
+</td>
+<td headers="stub_1_3 sdW" class="gt_row gt_right">
+5.54
+</td>
+<td headers="stub_1_3 mB" class="gt_row gt_right">
+0.55
+</td>
+<td headers="stub_1_3 sdB" class="gt_row gt_right">
+4.03
+</td>
+</tr>
+<tr>
+<th id="stub_1_4" scope="row" class="gt_row gt_right gt_stub">
+1, 16, 1
+</th>
+<td headers="stub_1_4 eta" class="gt_row gt_right">
+0.10
+</td>
+<td headers="stub_1_4 par" class="gt_row gt_right">
+49
+</td>
+<td headers="stub_1_4 Iter" class="gt_row gt_right">
+2887
+</td>
+<td headers="stub_1_4 TrLoss" class="gt_row gt_right">
+0.917
+</td>
+<td headers="stub_1_4 VaLoss" class="gt_row gt_right">
+1.056
+</td>
+<td headers="stub_1_4 mW" class="gt_row gt_right">
+0.33
+</td>
+<td headers="stub_1_4 sdW" class="gt_row gt_right">
+4.60
+</td>
+<td headers="stub_1_4 mB" class="gt_row gt_right">
+−0.18
+</td>
+<td headers="stub_1_4 sdB" class="gt_row gt_right">
+3.83
+</td>
+</tr>
+<tr>
+<th id="stub_1_5" scope="row" class="gt_row gt_right gt_stub">
+1, 16, 1
+</th>
+<td headers="stub_1_5 eta" class="gt_row gt_right">
+0.05
+</td>
+<td headers="stub_1_5 par" class="gt_row gt_right">
+49
+</td>
+<td headers="stub_1_5 Iter" class="gt_row gt_right">
+5322
+</td>
+<td headers="stub_1_5 TrLoss" class="gt_row gt_right">
+0.919
+</td>
+<td headers="stub_1_5 VaLoss" class="gt_row gt_right">
+1.056
+</td>
+<td headers="stub_1_5 mW" class="gt_row gt_right">
+0.40
+</td>
+<td headers="stub_1_5 sdW" class="gt_row gt_right">
+4.58
+</td>
+<td headers="stub_1_5 mB" class="gt_row gt_right">
+0.22
+</td>
+<td headers="stub_1_5 sdB" class="gt_row gt_right">
+3.68
+</td>
+</tr>
+<tr>
+<th id="stub_1_6" scope="row" class="gt_row gt_right gt_stub">
+1, 32, 1
+</th>
+<td headers="stub_1_6 eta" class="gt_row gt_right">
+0.05
+</td>
+<td headers="stub_1_6 par" class="gt_row gt_right">
+97
+</td>
+<td headers="stub_1_6 Iter" class="gt_row gt_right">
+5074
+</td>
+<td headers="stub_1_6 TrLoss" class="gt_row gt_right">
+0.920
+</td>
+<td headers="stub_1_6 VaLoss" class="gt_row gt_right">
+1.055
+</td>
+<td headers="stub_1_6 mW" class="gt_row gt_right">
+−0.40
+</td>
+<td headers="stub_1_6 sdW" class="gt_row gt_right">
+3.70
+</td>
+<td headers="stub_1_6 mB" class="gt_row gt_right">
+0.43
+</td>
+<td headers="stub_1_6 sdB" class="gt_row gt_right">
+3.31
+</td>
+</tr>
+</tbody>
+<tfoot class="gt_footnotes">
+<tr>
+<td class="gt_footnote" colspan="10">
+<span class="gt_footnote_marks" style="white-space:nowrap;font-style:italic;font-weight:normal;"><sup>1</sup></span> p = Number of parameters
+</td>
+</tr>
+</tfoot>
+</table>
+</div>
+</div>
+</div>
+<div id="conclusions" class="section level1">
+<h1>Conclusions</h1>
+<p>Flexible regression is a particularly simple use of neural networks, none the less, it highlights many of the features of gradient descent. In the next post, I will consider ways of simulating multi-dimensional data for analysis by larger neural networks, meanwhile here are some of the important messages from this post.</p>
+<ul>
+<li>Neural networks with very different looking parameters can have the same expected loss and/or the same training loss.<br />
+</li>
+<li>Unless the training set is very large, a low training loss does not imply a low expected loss, so the training loss is a poor indicator of future performance.<br />
+</li>
+<li>Running gradient descent until the training loss converges to a minimum is not a good strategy.<br />
+</li>
+<li>When a model is selected based on having a low training loss, that final loss will exaggerate the performance of the model on future data.<br />
+</li>
+<li>Model selection should be based on the loss in a large dataset that is independent of the training data. Such datasets rarely exist in practice.<br />
+</li>
+<li>It is impossible to tell from a single run of gradient descent whether or not the algorithm is close to the best model, so always run gradient descent from a range of starting values.<br />
+</li>
+<li>Oscillation or increasing training loss indicate that a smaller step size should be used.<br />
+</li>
+<li>Over-parameterised neural networks perform remarkably well. The main disadvantage of having too many parameters is the increased computation time.<br />
+</li>
+<li>It is better to use a neural network with too many parameters than one with too few.</li>
+</ul>
+<p>Losses calculated by resampling are often used as a practical alternative to the expected loss. I will write a separate post on cross-validated and bootstrap losses and investigate whether they are good substitutes for the expected loss.</p>
+</div>
+<div id="appendix-code-changes" class="section level1">
+<h1>Appendix: Code Changes</h1>
+<p>I added a function <code>cfit_valid_nn()</code> that is a modification of <code>cfit_nn()</code>. It runs gradient descent in exactly the same way, but allows the user to specify {XV, YV}, a holdout sample used to estimate the expected loss. The new function trains using the training data exactly as before, but also returns the iteration by iteration validation loss.</p>
+<p>The new code also changes the way that the activation functions are specified to give the potential for a different activation function for each layer.</p>
+<p>C code with these changes can be found on my GitHub pages as <code>cnnUpdate01.cpp</code>.</p>
+</div>

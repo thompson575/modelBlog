@@ -1,0 +1,1067 @@
+---
+title: "Neural Networks: Search Paths"
+author: "John Thompson"
+date: "2023-09-21"
+layout: post
+categories:
+- neural networks
+- convergence
+- early stopping
+- expected loss
+- training loss
+- search paths  
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = 'center', warning = FALSE, message = FALSE,
+                      fig.height=7, fig.width=9)
+```
+
+```{r echo = FALSE}
+library(tidyverse)
+library(fs)
+library(gt)
+library(gtsummary)
+data_archive <- "C:/Projects/Sliced/methods/methods_neural_nets/data/archive/StartingValues/data"
+archive <- "C:/Projects/Sliced/methods/methods_neural_nets/data/archive/diagrams"
+```
+
+
+# Introduction
+
+In my last post, I described C code for fitting neural networks by gradient descent and explained how that code can be incorporated into R using the Rcpp package. Now, I want to consider how that gradient descent algorithm works.
+
+I find it easier to understand concepts if I can represent them in a diagram, so I base this discussion on my preferred visualisation of the search paths of gradient descent. I believe that this diagram is helpful in understanding many of the ideas behind machine learning and I will use it again when I cover topics such as over-fitting, cross-validation and regularization.
+
+# Current and Future Performance
+
+Think of a model as a machine $f_\theta(X)$ for making predictions of a response Y. Here X represents the measured features, f() is the general form of the model and $\theta$ is the set of model parameters. 
+
+The performance of the model on training data {$X_T, Y_T$} is measured by the value of some chosen loss function.  
+
+\[
+\text{Training loss} = Loss(Y_T, f_\theta(X_T))
+\]
+
+The loss measures the distance between the true response and its prediction.
+
+The plan is to use the model to predict response Y for as yet unknown data, X, which is independent of the training data but from the same source. The best measure of the performance of the model on new data is the average or expected loss over all possible sets {X, Y}.  
+
+\[
+\text{Expected Loss} = E_{X,Y} \left\{ Loss(Y, f_\theta(X)) \right\}
+\]
+
+The new data {X, Y} may not have the same number of observations as {$X_T, Y_T$} so to make the training loss and the expected loss comparable, the loss is scaled as loss per observation. This means that we can create a very good approximation to the expected loss by taking a single large test dataset {X, Y} and calculating  
+
+\[
+\text{Test Loss} =  Loss(Y, f_\theta(X)) \approx \text{Expected Loss}
+\]
+
+The training loss measures performance of the model on one specific dataset and is of limited interest, while the expected loss measures the average performance across all new data and is the best indicator of the worth of the model. It is the expected loss that needs to be minimised.
+
+In practice, the training loss can be calculated directly, but it is unlikely that data will exist to enable calculation of the expected loss, since it is rare to have large amounts of test data from the same source as the training data. One situation in which the expected loss can be calculated is in a simulation study. As we will see later in this post, any amount of test data can be simulated using the same model as was used to create the training data.
+
+# Picturing the Model Fitting
+
+Figure 1 shows the diagram that I use to understand model fitting. It takes the form of a plot of the training loss per observation (x-axis) against the expected loss per observation (y-axis). 
+
+Think of the expectation of the loss for a given model and given data source as fixed but unknown, while the training loss depends on the particular training sample that is used and can be calculated exactly. In practice, the expected and training loss of a specified model should be similar, because they are defined on data from the same source. We can think of the training loss as an estimate of the expected loss. 
+
+Every possible model with known parameter values has both a training loss and an expected loss, so every model can be plotted as a point on the diagram. It is possible that two models with different parameter values will have the same training loss and the same expected loss, so **a single point on the plot might equate to multiple models**.
+
+```{r echo=FALSE}
+plot(c(0, 10), c(0, 10), type="n", xaxt="n", yaxt="n", xlab=list("Training Loss", cex=1.5), ylab=list("Expected Loss", cex=1.5),
+     main="Figure 1: A plot for understanding model fitting")
+abline(a=0, b=1)
+text(8, 8, label="Line of Equality", cex=1.5)
+points(4, 7, cex=2, col="blue", pch=16)
+segments(-0.5, 7, 4, 7, col="blue", lty=2)
+segments(4, -0.5, 4, 7, col="blue", lty=2)
+text(4.2, 7.4, col="blue", label="Fully Specified Model(s)", cex=2)
+```
+
+## The Ladder of Models
+
+Figures 2 and 3 show what I call the ladder of prediction models. Let's consider the four steps in this ladder.
+
+### Level 0: The Perfect Model
+
+Suppose that you wanted to predict my height, y. All you know about me is $x$={male, biostatistician, lives in UK}, so I doubt that your prediction will be very accurate. However, we can imagine having complete information, $x^c$, which would include my genome, the history of every meal that I have ever eaten, every illness etc. You would also need to know how to use this complete information, which is to say, a function $G(x^c)$ that predicts y with total accuracy.
+
+A loss function, $L()$, is chosen to measure the average difference between the real response, $y$, and the prediction, $G(x^c)$, over a set of subjects i=1,...,n.
+\[
+\frac{1}{n} \sum_{i-1}^n L(y_i, G(x^c_i)) = 0
+\]
+Since the predictions are always perfect this loss will be zero regards of the selection of subjects, so both the expected and the training loss will be zero. 
+
+### Level 1: The Ideal Model
+
+Unfortunately, you have $x$ and not $x^c$, but there will be a model, $g()$, that makes the best possible use of x, that is to say, it minimises the expected loss. Predictions are no longer perfect, so the value of the loss over a sample of subjects will vary from sample to sample. None the less, the expected loss, which is averaged over all possible samples, will be fixed and as small as it can be without more features.
+
+### Level 2: The Best Model
+
+Unfortunately, you do not know the functional form of $g()$, so you are forced to pick a flexible function $f_\theta()$ that changes its shape depending on parameters $\theta$. The hope is that by choosing the parameters carefully, you will be able to make $f_\theta(x)$ close to $g(x)$. Let's call the optimal choice of parameters $\Theta$.
+
+The loss in a sample of size n will be, 
+\[
+\frac{1}{n} \sum_{i-1}^n L(y_i, f_\Theta(x_i)) 
+\]
+For very large n, this approximates the expected loss, but the training set will usually have much smaller size and its loss will vary randomly about the expected value. The Best Model (for this family) should lie reasonably close to the line of equality on the diagram.
+
+### Level 3: The Fitted Model
+
+Unfortunately, you do not know the optimal values of the parameters $\Theta$, so you are forced to make a reasonable guess $\hat{\theta}$, which you do based on the training data and your favourite algorithm. The fitted model is $f_\hat{\theta}(x)$. 
+
+You want the expected loss based on $\hat{\theta}$ to be as close as possible to the expected loss based on $\Theta$. Most algorithms select $\hat{\theta}$, because those parameters gives a low training loss, so usually the fitted model lies above the line of equality where the training loss is less than the expected loss.
+
+## Representing the ladder of models
+
+Figure 2 represents the four steps in the ladder of models. The perfect model (purple) has zero training loss and zero expected loss, but it requires complete data, which we do not have. The ideal model (green) uses the available predictors is the optimal way, but we do not know what model is optimal, so we select a flexible family of models as represented by the red parabolic shape. The best model (red) is the member of this family with the minimum expected loss. Sadly, we do not even know the combination of parameters needed to define the best model, so we have to fall back on a fitted model (dark blue).
+
+In this figure, the possible combinations of training and expected loss for the chosen family of models with different parameters define a regular parabolic shape. This is purely diagrammatic, for complex models the shape could be highly irregular,
+```{r echo=FALSE}
+plot(c(0, 10), c(0, 10), type="n", xaxt="n", yaxt="n", xlab=list("Training Loss", cex=1.5), ylab=list("Expected Loss", cex=1.5),
+     main="Figure 2: The ladder of models")
+abline(a=0, b=1)
+abline(h=2, lty=2, col="darkgreen", lwd=2)
+text(7.5, 2.2, col="darkgreen", label="Minimum Expected Loss over all families", cex=1.25)
+x <- seq(-10, 10, 0.1)
+y <- 1 + x*x/2
+a <- -c(pi)/5
+xp <- 3 + x * cos(a) - y * sin(a)
+yp <- 3 + x * sin(a) + y * cos(a)
+x <- xp[xp<11 & yp<11]
+y <- yp[xp<11 & yp<11]
+for(i in 2:length(x)) {
+  segments(x[i-1], y[i-1], x[i], y[i], col="red", lwd=2)
+}
+text(7, 8, col="red", label="model space of the family", cex=2)
+abline(h=min(y), lty=2, col="red", lwd=2)
+text(7.5, min(y)+.2, col="red", label="Minimum Expected Loss for this family", cex=1.25)
+j <- which(y == min(y))
+points(x[j], y[j], cex=2, col="red", pch=16)
+text(x[j], y[j]-0.4, label="Best Model", col="red", cex=1.25)
+points(2.3, 2, cex=2, col="darkgreen", pch=16)
+text(2.3, 1.6, label="Ideal Model", col="darkgreen", cex=1.25)
+points(x[j]-0.5, y[j] + 1, cex=2, col="darkblue", pch=16)
+text(x[j]-0.5, y[j] + 0.6, label="Fitted Model", col="darkblue", cex=1.25)
+points(-.28, -0.25, cex=2, col="purple", pch=16)
+text(0.5, 0.1, label="Perfect Model", col="purple", cex=1.25)
+```
+
+Why is the best model in figure 2 to the right of the line of equality? This is just the luck of the draw. We have a single random set of training data and as figure 2 is drawn, it so happens that the training sample has a relatively high loss. 
+
+Draw a different set of training data and the area defined by the family might move to the left. All models have the same expected loss regardless of the training data, so models move to the left or right when the training data change, but they stay parallel to the x-axis. Not every model moves to the same extent; a model that does relatively well on one training set may do less well on others. It is **not** a rigid movement of the area to the left with all models keeping their relative position.
+
+Of course, the best model has exactly the same parameters, because it is defined by the expected loss and does not depend on the training data. Figure 3 shows the same diagram as figure 2, but for different training data.
+
+```{r echo=FALSE}
+plot(c(0, 10), c(0, 10), type="n", xaxt="n", yaxt="n", xlab=list("Training Loss", cex=1.5), ylab=list("Expected Loss", cex=1.5),
+     main="Figure 3: The ladder of models for a different set of training data")
+abline(a=0, b=1)
+abline(h=2, lty=2, col="darkgreen", lwd=2)
+text(7.5, 2.2, col="darkgreen", label="Minimum Expected Loss over all families", cex=1.25)
+x <- seq(-10, 10, 0.1)
+y <- 1 + x*x/2
+a <- -c(pi)/5
+xp <- 3 + x * cos(a) - y * sin(a)
+yp <- 3 + x * sin(a) + y * cos(a)
+xp <- xp - 1.5
+x <- xp[xp<11 & yp<11]
+y <- yp[xp<11 & yp<11]
+for(i in 2:length(x)) {
+  segments(x[i-1], y[i-1], x[i], y[i], col="red", lwd=2)
+}
+text(6, 8, col="red", label="Model space of the Family", cex=2)
+abline(h=min(y), lty=2, col="red", lwd=2)
+text(7.5, min(y)+.2, col="red", label="Minimum Expected Loss for this family", cex=1.25)
+j <- which(y == min(y))
+points(x[j], y[j], cex=2, col="red", pch=16)
+text(x[j], y[j]-0.4, label="Best Model", col="red", cex=1.25)
+points(1.8, 2, cex=2, col="darkgreen", pch=16)
+text(1.8, 1.6, label="Ideal Model", col="darkgreen", cex=1.25)
+points(x[j]-0.5, y[j] + 1, cex=2, col="darkblue", pch=16)
+text(x[j]-0.5, y[j] + 0.6, label="Fitted Model", col="darkblue", cex=1.25)
+points(-.28, -0.25, cex=2, col="purple", pch=16)
+text(0.5, 0.1, label="Perfect Model", col="purple", cex=1.25)
+
+```
+
+
+## Search Paths
+
+Fitting a neural network involves choosing random starting values for the parameters and then adjusting them in small steps based on the gradient of the training loss. These small improvements correspond to a series of steps to the left in figure 4. The algorithm will stop when it reaches a local minimum in the training loss, or when it finds the global minimum, or when the user tells the algorithm to stop early.
+
+In figure 4, the path taken by the algorithm is shown as a brown dashed line and the point along the path with the minimum expected loss is shown as a dark green point. This is the fitted model and represents the best of the models visited by the algorithm. 
+
+We live in the hope that the search path will pass through, or close to, the Best Model with its minimum expected loss, but this is just a hope. 
+
+```{r echo=FALSE}
+plot(c(0, 10), c(0, 10), type="n", xaxt="n", yaxt="n", xlab=list("Training Loss", cex=1.5), ylab=list("Expected Loss", cex=1.5),
+     main="Figure 4: Search path taken by Gradient Descent")
+abline(a=0, b=1)
+x <- seq(-10, 10, 0.1)
+y <- 1 + x*x/2
+a <- -c(pi)/5
+xp <- 3 + x * cos(a) - y * sin(a)
+yp <- 3 + x * sin(a) + y * cos(a)
+x <- xp[xp<11 & yp<11]
+y <- yp[xp<11 & yp<11]
+for(i in 2:length(x)) {
+  segments(x[i-1], y[i-1], x[i], y[i], col="red", lwd=2)
+}
+abline(h=min(y), lty=2, col="red", lwd=2)
+j <- which(y == min(y))
+#abline(v=x[j], lty=2, col="blue", lwd=2)
+points(x[j], y[j], cex=2, col="red", pch=16)
+text(x[j], y[j]-0.4, label="Best Model", col="red", cex=1.25)
+
+x1 <- y[j]-0.2
+y1 <- y[j]+3.5
+x3 <- 8.5
+y3 <- 9.5
+x2 <- y[j]+2
+y2 <- (x2+y1)/2
+points(x3, y3, cex=2, col="blue", pch=16)
+points(x1, y1, cex=2, col="blue", pch=16)
+xp <- seq(x1, x3, 0.1)
+yp <- y1*((xp-x2)/(x1-x2))*(xp-x3)/(x1-x3)+y2*((xp-x1)/(x2-x1))*(xp-x3)/(x2-x3)+y3*((xp-x1)/(x3-x1))*(xp-x2)/(x3-x2)
+for(i in 2:length(xp)) {
+  segments(xp[i-1], yp[i-1], xp[i], yp[i], col="darkred", lwd=2, lty=3)
+}
+text(x3, y3+0.4, label="Starting Model", col="darkred", cex=1.5)
+text(x1-1, y1+0.4, label="Local Minimum", col="darkred", cex=1.5)
+j <- which(yp==min(yp))[1]
+points(xp[j], yp[j], col="darkgreen", cex=2, pch=16)
+text(x2, y2-0.4, label="Fitted Model", col="darkgreen", cex=1.5)
+
+k <- which(x == min(x))
+points(x[k], y[k], cex=2, col="blue", pch=16)
+text(x[k]-1, y[k]+0.4, label="Global Minimum", col="darkred", cex=1.5)
+
+```
+
+
+Figure 5 shows a second search path with different starting values that ends with the global minimum. Converging to the global minimum of the training loss does not guarantee that the path will pass close to the best model.
+
+Remember that this is just a diagram, the search paths might not be as smooth and regular as the ones shown in figures 4 and 5.
+
+```{r echo=FALSE}
+plot(c(0, 10), c(0, 10), type="n", xaxt="n", yaxt="n", xlab=list("Training Loss", cex=1.5), ylab=list("Expected Loss", cex=1.5),
+     main="Figure 5: Search path for different starting values")
+abline(a=0, b=1)
+x <- seq(-10, 10, 0.1)
+y <- 1 + x*x/2
+a <- -c(pi)/5
+xp <- 3 + x * cos(a) - y * sin(a)
+yp <- 3 + x * sin(a) + y * cos(a)
+x <- xp[xp<11 & yp<11]
+y <- yp[xp<11 & yp<11]
+for(i in 2:length(x)) {
+  segments(x[i-1], y[i-1], x[i], y[i], col="red", lwd=2)
+}
+abline(h=min(y), lty=2, col="red", lwd=2)
+j <- which(y == min(y))
+#abline(v=x[j], lty=2, col="blue", lwd=2)
+points(x[j], y[j], cex=2, col="red", pch=16)
+text(x[j], y[j]-0.4, label="Best Model", col="red", cex=1.25)
+
+k <- which(x == min(x))
+x1 <- x[k]
+y1 <- y[k]
+x3 <- 6.5
+y3 <- 9.5
+x2 <- (x1+x3)/2
+y2 <- y1 - (y3-y1)/8
+points(x3, y3, cex=2, col="blue", pch=16)
+points(x1, y1, cex=2, col="blue", pch=16)
+xp <- seq(x1, x3, 0.1)
+yp <- y1*((xp-x2)/(x1-x2))*(xp-x3)/(x1-x3)+y2*((xp-x1)/(x2-x1))*(xp-x3)/(x2-x3)+y3*((xp-x1)/(x3-x1))*(xp-x2)/(x3-x2)
+for(i in 2:length(xp)) {
+  segments(xp[i-1], yp[i-1], xp[i], yp[i], col="darkred", lwd=2, lty=3)
+}
+text(x3, y3+0.4, label="Starting Model", col="darkred", cex=1.5)
+text(x1-1, y1+0.4, label="Global Minimum", col="darkred", cex=1.5)
+j <- which(yp==min(yp))[1]
+points(xp[j], yp[j], col="darkgreen", cex=2, pch=16)
+text(x2, y2-0.7, label="Fitted Model", col="darkgreen", cex=1.5)
+```
+
+
+It is common practice to draw two separate curves to show the progress of the algorithm from iteration to iteration, one curve for the training loss and one for the expected loss (or some approximation to it). Figure 6 shows such a plot using exactly the same values as those used to generate figure 5. 
+
+For this example, the fitted model is found at iteration 320 of the algorithm.
+
+```{r echo=FALSE}
+xpr <- rev(xp)
+ypr <- rev(yp)
+t <- cumsum(1:length(xpr))
+plot(t, xpr, col="blue", type="l", ylab=list("Loss", cex=1.5), 
+     xlab=list("Iteration", cex=1.5), lwd=2,
+     main="Figure 6: Plot of the loss vs iteration corresponding to fig 6")
+lines(t, ypr, col="red", lwd=2)
+k <- length(xpr)*0.85
+text(t[k], xpr[k] - .2, "Training Loss", cex=2, col="blue")
+text(t[k], ypr[k] + .5, "Expected Loss", cex=2, col="red")
+j <- which(ypr==min(ypr))
+points(t[j], ypr[j], col="darkgreen", cex=2, pch=16)
+points(t[j], xpr[j], col="darkgreen", cex=2, pch=16)
+abline(v=t[j], col="darkgreen", lty=2)
+text(t[j], min(xpr), label="Fitted Model", col="darkgreen", cex=1.5)
+
+```
+
+Whichever plot is drawn, when the fitted model is chosen based on the minimum of the expected loss estimated from a second (validation) dataset, that estimate of the expected loss will tend to exaggerate the true future performance. A third (test) sample would be needed to give a more reliable estimate. When the validation sample is very large, this bias should be small.
+
+## Increasing the size of the training set
+
+We can increase the chance that the global minimum of the training loss will have a low expected loss by making the training data more representative and the way to do this is to **increase the size of the training set**. As figure 7 shows, this would make the area defined by the family narrower and closer to the line of equality. The chance that the training loss is very different from the expected loss is reduced.
+
+```{r echo=FALSE}
+plot(c(0, 10), c(0, 10), type="n", xaxt="n", yaxt="n", xlab=list("Training Loss", cex=1.5), ylab=list("Expected Loss", cex=1.5),
+     main="Figure 7: Model space when the training set is larger")
+abline(a=0, b=1)
+x <- seq(-10, 10, 0.1)
+y <- 1 + 6*x*x
+a <- -c(pi)/4
+xp <- 3 + x * cos(a) - y * sin(a)
+yp <- 3 + x * sin(a) + y * cos(a)
+x <- xp[xp<11 & yp<11]
+y <- yp[xp<11 & yp<11]
+for(i in 2:length(x)) {
+  segments(x[i-1], y[i-1], x[i], y[i], col="red", lwd=2)
+}
+abline(h=min(y), lty=2, col="red", lwd=2)
+j <- which(y == min(y))
+#abline(v=x[j], lty=2, col="blue", lwd=2)
+points(x[j], y[j], cex=2, col="red", pch=16)
+text(x[j], y[j]-0.4, label="Best Model", col="red", cex=1.5)
+k <- which(x == min(x))
+x1 <- x[k]
+y1 <- y[k]
+points(x1, y1, cex=2, col="blue", pch=16)
+text(x1-1, y1+0.4, label="Global Minimum", col="blue", cex=1.5)
+
+```
+
+# A simulated example
+
+Figure 8 shows a training set of 100 observations that vary randomly about a bell-shaped Gaussian curve. The random noise in the simulation has a standard deviation of one, so we would expect a well-fitting model to have a RMSE that is close to one.
+
+This example requires a new C function that monitors the loss in the test data as well as the loss in the training loss. The additions to my C code are described in an appendix at the end of this post. 
+
+```{r}
+set.seed(9293)
+X <- matrix( runif(100), ncol=1)
+Y <- matrix( 5 * exp( -20*(X[, 1]-0.6)^2) + rnorm(100, 0, 1))
+xp <- seq(0, 1, 0.01)
+yp <- 5 * exp( -20*(xp-0.6)^2)
+plot(X[, 1], Y[, 1], pch=16,
+     xlab="X", ylab="Y", main="Figure 8: Training data n=100")
+lines(xp, yp, lwd=2, col="blue")
+```
+
+A large test dataset with n=10,000 will be used to estimate the expected loss.
+```{r}
+XV <- matrix( runif(10000), ncol=1)
+YV <- matrix( 5 * exp( -20*(XV[, 1]-0.6)^2) + rnorm(10000, 0, 1))
+xp <- seq(0, 1, 0.01)
+yp <- 5 * exp( -20*(xp-0.6)^2)
+plot(XV[, 1], YV[, 1], pch=16,
+     xlab="X", ylab="Y", main="Figure 9: Test data n=10,000")
+lines(xp, yp, lwd=2, col="blue")
+```
+
+## Analysis 1: A (1, 4, 1) Neural Network
+
+My first analysis models the training data using the family of neural networks that have one input, 4 hidden nodes and 1 output. The gradient descent algorithm is run five times on the same training data with different randomly chosen starting values. The algorithm uses a sigmoid activation function for the hidden layer, a learning rate (step length) of 0.1 and is run for 10,000 iterations. Performance is assessed using the RMSE loss function.
+
+Figure 10 shows the five search paths. The paths start well to the right of then area shown and progress leftwards to the fitted models, which are shown as coloured dots. After reaching the fitted models the search paths continue to reduce the training loss, but the expected loss increases.  
+
+```{r echo=FALSE}
+archive <- "C:/Projects/Sliced/methods/methods_neural_nets/data/archive/diagrams"
+f <- readRDS( path(archive, "dataset1_02.rds"))
+plot(sqrt(f[[1]]$lossHistory), sqrt(f[[1]]$validHistory), type="l", lwd=2,
+     xlab="Training Loss (RMSE)", ylab="Expected Loss (RMSE)", 
+     main="Figure 10: NN(1,4,1) five search paths with different starting values",
+     xlim=c(0.88, 0.95), ylim=c(1.05, 1.08), col="purple")
+lines(sqrt(f[[2]]$lossHistory), sqrt(f[[2]]$validHistory),  lwd=2, col="blue")
+lines(sqrt(f[[3]]$lossHistory), sqrt(f[[3]]$validHistory),  lwd=2, col="red")
+lines(sqrt(f[[4]]$lossHistory), sqrt(f[[4]]$validHistory),  lwd=2, col="darkgreen")
+lines(sqrt(f[[5]]$lossHistory), sqrt(f[[5]]$validHistory),  lwd=2, col="orange")
+k <- which(f[[5]]$validHistory == min(f[[5]]$validHistory))
+points(sqrt(f[[5]]$lossHistory[k]), sqrt(f[[5]]$validHistory[k]), pch=16, cex=2, col="orange")
+k <- which(f[[4]]$validHistory == min(f[[4]]$validHistory))
+points(sqrt(f[[4]]$lossHistory[k]), sqrt(f[[4]]$validHistory[k]), pch=16, cex=2, col="darkgreen")
+k <- which(f[[3]]$validHistory == min(f[[3]]$validHistory))
+points(sqrt(f[[3]]$lossHistory[k]), sqrt(f[[3]]$validHistory[k]), pch=16, cex=2, col="red")
+k <- which(f[[2]]$validHistory == min(f[[2]]$validHistory))
+points(sqrt(f[[2]]$lossHistory[k]), sqrt(f[[2]]$validHistory[k]), pch=16, cex=2, col="blue")
+k <- which(f[[1]]$validHistory == min(f[[1]]$validHistory))
+points(sqrt(f[[1]]$lossHistory[k]), sqrt(f[[1]]$validHistory[k]), pch=16, cex=2, col="purple")
+```
+
+Table 1 gives summary information about the five fitted models. It shows the iteration when the fitted model is reached and the values of the training loss and expected loss at that point. The other statistics show the means and standard deviations of the 8 weights and 5 biases of the fitted models.
+```{r echo=FALSE, results='asis'}
+S <- matrix(0, nrow=6, ncol=9,
+            dimnames=list(NULL, c("eta", "par", "Iter", "TrLoss", "VaLoss", "mW", "sdW","mB", "sdB")))
+R <- matrix(0, nrow=6, ncol=7,
+            dimnames=list(NULL, c("Iter", "TrLoss", "VaLoss", "mW", "sdW","mB", "sdB")))
+
+f <- readRDS( path(archive, "dataset1_02.rds"))
+  for(rep in 1:5) {
+      mIter <- which(f[[rep]]$validHistory == min(f[[rep]]$validHistory))
+      R[rep, 1] <- mIter
+      R[rep, 2] <- sqrt(f[[rep]]$lossHistory[mIter])
+      R[rep, 3] <- sqrt(f[[rep]]$validHistory[mIter])
+      R[rep, 4] <- mean(f[[rep]]$fittedweight)
+      R[rep, 5] <- sd(f[[rep]]$fittedweight)
+      R[rep, 6] <- mean(f[[rep]]$fittedbias[-1])
+      R[rep, 7] <- sd(f[[rep]]$fittedbias[-1])
+  }
+for(i in 1:7) {
+  R[6, i] = S[2, i+2] = mean(R[1:5, i])
+}
+S[2, 1] = 0.1
+S[2, 2] = 13
+R |>
+  as_tibble() |>
+  mutate( colour = c("Purple", "Blue", "Red", "Dark Green", "Orange", "Average")) |>
+  gt(rowname_col = "colour") |> 
+  tab_stubhead(label = "Colour") |>
+  tab_header( title = "Table 1: Neural Network (1, 4, 1)",
+              subtitle = "Details of the Fitted Models") |> 
+  cols_label(
+    Iter = "Iteration",
+    TrLoss = "Training",
+    VaLoss = "Expected",
+    mW = "mean",
+    sdW = "std",
+    mB = "mean",
+    sdB = "std",
+  ) |>
+  tab_spanner(
+    label="Loss (RMSE)",
+    columns=c(TrLoss, VaLoss)
+  ) |> 
+    tab_spanner(
+    label="Weights",
+    columns=c(mW, sdW)
+  )   |> 
+    tab_spanner(
+    label="Biases",
+    columns=c(mB, sdB)
+  )   |> 
+  fmt_number(
+    columns=Iter,
+    decimals = 0,
+    use_seps = FALSE
+  ) |> 
+  fmt_number(
+    columns=c(mW, sdW, mB, sdB),
+    decimals = 2,
+    use_seps = FALSE
+  ) |> 
+    fmt_number(
+    columns=c(TrLoss, VaLoss),
+    decimals = 3,
+    use_seps = FALSE
+  )  |> print()
+
+```
+
+### Points to notice
+
+- The fitted models all have Expected losses (RMSEs) slightly above 1. The RMSE of the Ideal model (a Gaussian) is 1.0, so the Best Model must be close to Ideal.  
+- The expected losses of the fitted models are similar. They differ by a maximum of 0.007, which is 6.6% of their average  
+- The Expected loss of the Best Model must be less than 1.053 (purple path), the consistency of the five paths gives us hope that the best expected loss will not be far from 1.053, but it is just hope.  
+- No two sets of starting values lead to the same fitted model.   
+- The training loss at convergence (in this case after 10,000 iterations) has no relation to the actual performance of the model.  
+- It is important to re-run any gradient descent analysis with different starting values.  
+
+In figure 11 the orange path crosses the other paths. When search paths cross, it might be supposed that the two paths have reached the same model, that is to say, neural networks with the same weights and biases, but **this is not so**. The paths cross when a model on one path has the same training and expected loss as a model on the other path, but having the same losses does not imply that the weights and biases are the same. Two quite different models can have the same losses, especially when the model is over-parameterised. Had the models been identical, they would have had the same gradients and after coming together they would have continued along the same path. This clearly does not happen.
+
+## Analysis 2: A (1, 8, 1) Neural Network
+
+Next, a (1, 8, 1) neural network is fitted to the same training data. The form of the gradient descent algorithm is kept the same. The resulting search paths are shown in figure 11 with the fitted models summarised in table 2. The fitted models have very similar performance to those found in the (1, 4, 1) analysis, but perhaps the training losses of the fitted models are slightly larger. 
+
+```{r echo=FALSE}
+archive <- "C:/Projects/Sliced/methods/methods_neural_nets/data/archive/diagrams"
+f <- readRDS( path(archive, "dataset1_01.rds"))
+plot(sqrt(f[[1]]$lossHistory), sqrt(f[[1]]$validHistory), type="l", lwd=2,
+     xlab="Training Loss (RMSE)", ylab="Expected Loss (RMSE)", 
+     main="Figure 11: N(1,8,1) search paths for five sets of random starting values",
+     xlim=c(0.88, 0.95), ylim=c(1.05, 1.08), col="purple")
+lines(sqrt(f[[2]]$lossHistory), sqrt(f[[2]]$validHistory),  lwd=2, col="blue")
+lines(sqrt(f[[3]]$lossHistory), sqrt(f[[3]]$validHistory),  lwd=2, col="red")
+lines(sqrt(f[[4]]$lossHistory), sqrt(f[[4]]$validHistory),  lwd=2, col="darkgreen")
+lines(sqrt(f[[5]]$lossHistory), sqrt(f[[5]]$validHistory),  lwd=2, col="orange")
+k <- which(f[[5]]$validHistory == min(f[[5]]$validHistory))
+points(sqrt(f[[5]]$lossHistory[k]), sqrt(f[[5]]$validHistory[k]), pch=16, cex=2, col="orange")
+k <- which(f[[4]]$validHistory == min(f[[4]]$validHistory))
+points(sqrt(f[[4]]$lossHistory[k]), sqrt(f[[4]]$validHistory[k]), pch=16, cex=2, col="darkgreen")
+k <- which(f[[3]]$validHistory == min(f[[3]]$validHistory))
+points(sqrt(f[[3]]$lossHistory[k]), sqrt(f[[3]]$validHistory[k]), pch=16, cex=2, col="red")
+k <- which(f[[2]]$validHistory == min(f[[2]]$validHistory))
+points(sqrt(f[[2]]$lossHistory[k]), sqrt(f[[2]]$validHistory[k]), pch=16, cex=2, col="blue")
+k <- which(f[[1]]$validHistory == min(f[[1]]$validHistory))
+points(sqrt(f[[1]]$lossHistory[k]), sqrt(f[[1]]$validHistory[k]), pch=16, cex=2, col="purple")
+```
+
+```{r echo=FALSE, results='asis'}
+R <- matrix(0, nrow=6, ncol=7,
+            dimnames=list(NULL, c("Iter", "TrLoss", "VaLoss", "mW", "sdW","mB", "sdB")))
+
+f <- readRDS( path(archive, "dataset1_01.rds"))
+  for(rep in 1:5) {
+      mIter <- which(f[[rep]]$validHistory == min(f[[rep]]$validHistory))
+      R[rep, 1] <- mIter
+      R[rep, 2] <- sqrt(f[[rep]]$lossHistory[mIter])
+      R[rep, 3] <- sqrt(f[[rep]]$validHistory[mIter])
+      R[rep, 4] <- mean(f[[rep]]$fittedweight)
+      R[rep, 5] <- sd(f[[rep]]$fittedweight)
+      R[rep, 6] <- mean(f[[rep]]$fittedbias[-1])
+      R[rep, 7] <- sd(f[[rep]]$fittedbias[-1])
+  }
+for(i in 1:7) {
+  R[6, i] = S[3, i+2] = mean(R[1:5, i])
+}
+S[3, 1] = 0.1
+S[3, 2] = 25
+R |>
+  as_tibble() |>
+  mutate( colour = c("Purple", "Blue", "Red", "Dark Green", "Orange", "Average")) |>
+  gt(rowname_col = "colour") |> 
+  tab_stubhead(label = "Colour") |>
+  tab_header( title = "Table 2: Neural Network (1, 8, 1)",
+              subtitle = "Details of the Fitted Models") |> 
+  cols_label(
+    Iter = "Iteration",
+    TrLoss = "Training",
+    VaLoss = "Expected",
+    mW = "mean",
+    sdW = "std",
+    mB = "mean",
+    sdB = "std",
+  ) |>
+  tab_spanner(
+    label="Loss (RMSE)",
+    columns=c(TrLoss, VaLoss)
+  ) |> 
+    tab_spanner(
+    label="Weights",
+    columns=c(mW, sdW)
+  )   |> 
+    tab_spanner(
+    label="Biases",
+    columns=c(mB, sdB)
+  )   |> 
+  fmt_number(
+    columns=Iter,
+    decimals = 0,
+    use_seps = FALSE
+  ) |> 
+  fmt_number(
+    columns=c(mW, sdW, mB, sdB),
+    decimals = 2,
+    use_seps = FALSE
+  ) |> 
+    fmt_number(
+    columns=c(TrLoss, VaLoss),
+    decimals = 3,
+    use_seps = FALSE
+  )  |> print()
+```
+
+## Analysis 3: A (1, 16, 1) Neural Network
+
+Next, the data are analysed using a (1, 16, 1) neural network. Everything else is kept the same. The resulting search paths are shown in figure 12. The search paths show wide oscillations in the losses along the search path leading to the blocked out appearance. 
+
+```{r echo=FALSE}
+archive <- "C:/Projects/Sliced/methods/methods_neural_nets/data/archive/diagrams"
+f <- readRDS( path(archive, "dataset1_03.rds"))
+plot(sqrt(f[[1]]$lossHistory), sqrt(f[[1]]$validHistory), type="l", lwd=2,
+     xlab="Training Loss (RMSE)", ylab="Expected Loss (RMSE)", 
+     main="Figure 12: N(1,16,1) search paths for five sets of random starting values",
+     xlim=c(0.88, 0.95), ylim=c(1.05, 1.08), col="purple")
+lines(sqrt(f[[2]]$lossHistory), sqrt(f[[2]]$validHistory),  lwd=2, col="blue")
+lines(sqrt(f[[3]]$lossHistory), sqrt(f[[3]]$validHistory),  lwd=2, col="red")
+lines(sqrt(f[[4]]$lossHistory), sqrt(f[[4]]$validHistory),  lwd=2, col="darkgreen")
+lines(sqrt(f[[5]]$lossHistory), sqrt(f[[5]]$validHistory),  lwd=2, col="orange")
+k <- which(f[[5]]$validHistory == min(f[[5]]$validHistory))
+points(sqrt(f[[5]]$lossHistory[k]), sqrt(f[[5]]$validHistory[k]), pch=16, cex=2, col="orange")
+k <- which(f[[4]]$validHistory == min(f[[4]]$validHistory))
+points(sqrt(f[[4]]$lossHistory[k]), sqrt(f[[4]]$validHistory[k]), pch=16, cex=2, col="darkgreen")
+k <- which(f[[3]]$validHistory == min(f[[3]]$validHistory))
+points(sqrt(f[[3]]$lossHistory[k]), sqrt(f[[3]]$validHistory[k]), pch=16, cex=2, col="red")
+k <- which(f[[2]]$validHistory == min(f[[2]]$validHistory))
+points(sqrt(f[[2]]$lossHistory[k]), sqrt(f[[2]]$validHistory[k]), pch=16, cex=2, col="blue")
+k <- which(f[[1]]$validHistory == min(f[[1]]$validHistory))
+points(sqrt(f[[1]]$lossHistory[k]), sqrt(f[[1]]$validHistory[k]), pch=16, cex=2, col="purple")
+```
+
+Since so much of the detail in figure 12 is obscured by the oscillation in the green path, I have replotted it showing only alternate iterations of the algorithm so that figure 12 shows the lower boundary of the green region. The oscillation in the orange and purple paths is now evident. 
+
+It is clear that the orange path produces a fitted model that is very different to the others, even though the training loss of the orange fitted model is similar. This difference is also clear from the values in table 3.
+```{r echo=FALSE}
+archive <- "C:/Projects/Sliced/methods/methods_neural_nets/data/archive/diagrams"
+f <- readRDS( path(archive, "dataset1_03.rds"))
+plot(sqrt(f[[1]]$lossHistory), sqrt(f[[1]]$validHistory), type="l", lwd=2,
+     xlab="Training Loss (RMSE)", ylab="Expected Loss (RMSE)", 
+     main="Figure 13: as fig 12 plotting every other value from the green chain",
+     xlim=c(0.88, 0.95), ylim=c(1.05, 1.08), col="purple")
+lines(sqrt(f[[2]]$lossHistory), sqrt(f[[2]]$validHistory),  lwd=2, col="blue")
+lines(sqrt(f[[3]]$lossHistory), sqrt(f[[3]]$validHistory),  lwd=2, col="red")
+lines(sqrt(f[[4]]$lossHistory[seq(1,10000,2)]), sqrt(f[[4]]$validHistory[seq(1,10000,2)]),  lwd=2, col="darkgreen")
+lines(sqrt(f[[5]]$lossHistory), sqrt(f[[5]]$validHistory),  lwd=2, col="orange")
+k <- which(f[[5]]$validHistory == min(f[[5]]$validHistory))
+points(sqrt(f[[5]]$lossHistory[k]), sqrt(f[[5]]$validHistory[k]), pch=16, cex=2, col="orange")
+k <- which(f[[4]]$validHistory == min(f[[4]]$validHistory))
+points(sqrt(f[[4]]$lossHistory[k]), sqrt(f[[4]]$validHistory[k]), pch=16, cex=2, col="darkgreen")
+k <- which(f[[3]]$validHistory == min(f[[3]]$validHistory))
+points(sqrt(f[[3]]$lossHistory[k]), sqrt(f[[3]]$validHistory[k]), pch=16, cex=2, col="red")
+k <- which(f[[2]]$validHistory == min(f[[2]]$validHistory))
+points(sqrt(f[[2]]$lossHistory[k]), sqrt(f[[2]]$validHistory[k]), pch=16, cex=2, col="blue")
+k <- which(f[[1]]$validHistory == min(f[[1]]$validHistory))
+points(sqrt(f[[1]]$lossHistory[k]), sqrt(f[[1]]$validHistory[k]), pch=16, cex=2, col="purple")
+```
+
+```{r echo=FALSE, results='asis'}
+R <- matrix(0, nrow=6, ncol=7,
+            dimnames=list(NULL, c("Iter", "TrLoss", "VaLoss", "mW", "sdW","mB", "sdB")))
+
+f <- readRDS( path(archive, "dataset1_03.rds"))
+  for(rep in 1:5) {
+      mIter <- which(f[[rep]]$validHistory == min(f[[rep]]$validHistory))
+      R[rep, 1] <- mIter
+      R[rep, 2] <- sqrt(f[[rep]]$lossHistory[mIter])
+      R[rep, 3] <- sqrt(f[[rep]]$validHistory[mIter])
+      R[rep, 4] <- mean(f[[rep]]$fittedweight)
+      R[rep, 5] <- sd(f[[rep]]$fittedweight)
+      R[rep, 6] <- mean(f[[rep]]$fittedbias[-1])
+      R[rep, 7] <- sd(f[[rep]]$fittedbias[-1])
+  }
+for(i in 1:7) {
+  R[6, i] = S[4, i+2] = mean(R[1:5, i])
+}
+S[4, 1] = 0.1
+S[4, 2] = 49
+R |>
+  as_tibble() |>
+  mutate( colour = c("Purple", "Blue", "Red", "Dark Green", "Orange", "Average")) |>
+  gt(rowname_col = "colour") |> 
+  tab_stubhead(label = "Colour") |>
+  tab_header( title = "Table 3: Neural Network (1, 16, 1)",
+              subtitle = "Details of the Fitted Models") |> 
+  cols_label(
+    Iter = "Iteration",
+    TrLoss = "Training",
+    VaLoss = "Expected",
+    mW = "mean",
+    sdW = "std",
+    mB = "mean",
+    sdB = "std",
+  ) |>
+  tab_spanner(
+    label="Loss (RMSE)",
+    columns=c(TrLoss, VaLoss)
+  ) |> 
+    tab_spanner(
+    label="Weights",
+    columns=c(mW, sdW)
+  )   |> 
+    tab_spanner(
+    label="Biases",
+    columns=c(mB, sdB)
+  )   |> 
+  fmt_number(
+    columns=Iter,
+    decimals = 0,
+    use_seps = FALSE
+  ) |> 
+  fmt_number(
+    columns=c(mW, sdW, mB, sdB),
+    decimals = 2,
+    use_seps = FALSE
+  ) |> 
+    fmt_number(
+    columns=c(TrLoss, VaLoss),
+    decimals = 3,
+    use_seps = FALSE
+  )  |> print()
+```
+
+To show that the oscillation is a result of step length, I re-fit the (1, 16, 1) network using a step length, eta, of 0.05. The new results are shown in figure 14 and table 4. The orange search path still performs much worse than the others, but there is no longer any oscillation.
+
+```{r echo=FALSE}
+archive <- "C:/Projects/Sliced/methods/methods_neural_nets/data/archive/diagrams"
+f <- readRDS( path(archive, "dataset1_04.rds"))
+plot(sqrt(f[[1]]$lossHistory), sqrt(f[[1]]$validHistory), type="l", lwd=2,
+     xlab="Training Loss (RMSE)", ylab="Expected Loss (RMSE)", 
+     main="Figure 14: as fig 12 but with eta=0.05",
+     xlim=c(0.88, 0.95), ylim=c(1.05, 1.08), col="purple")
+lines(sqrt(f[[2]]$lossHistory), sqrt(f[[2]]$validHistory),  lwd=2, col="blue")
+lines(sqrt(f[[3]]$lossHistory), sqrt(f[[3]]$validHistory),  lwd=2, col="red")
+lines(sqrt(f[[4]]$lossHistory[seq(1,10000,2)]), sqrt(f[[4]]$validHistory[seq(1,10000,2)]),  lwd=2, col="darkgreen")
+lines(sqrt(f[[5]]$lossHistory), sqrt(f[[5]]$validHistory),  lwd=2, col="orange")
+k <- which(f[[5]]$validHistory == min(f[[5]]$validHistory))
+points(sqrt(f[[5]]$lossHistory[k]), sqrt(f[[5]]$validHistory[k]), pch=16, cex=2, col="orange")
+k <- which(f[[4]]$validHistory == min(f[[4]]$validHistory))
+points(sqrt(f[[4]]$lossHistory[k]), sqrt(f[[4]]$validHistory[k]), pch=16, cex=2, col="darkgreen")
+k <- which(f[[3]]$validHistory == min(f[[3]]$validHistory))
+points(sqrt(f[[3]]$lossHistory[k]), sqrt(f[[3]]$validHistory[k]), pch=16, cex=2, col="red")
+k <- which(f[[2]]$validHistory == min(f[[2]]$validHistory))
+points(sqrt(f[[2]]$lossHistory[k]), sqrt(f[[2]]$validHistory[k]), pch=16, cex=2, col="blue")
+k <- which(f[[1]]$validHistory == min(f[[1]]$validHistory))
+points(sqrt(f[[1]]$lossHistory[k]), sqrt(f[[1]]$validHistory[k]), pch=16, cex=2, col="purple")
+```
+
+```{r echo=FALSE, results='asis'}
+R <- matrix(0, nrow=6, ncol=7,
+            dimnames=list(NULL, c("Iter", "TrLoss", "VaLoss", "mW", "sdW","mB", "sdB")))
+
+f <- readRDS( path(archive, "dataset1_04.rds"))
+  for(rep in 1:5) {
+      mIter <- which(f[[rep]]$validHistory == min(f[[rep]]$validHistory))
+      R[rep, 1] <- mIter
+      R[rep, 2] <- sqrt(f[[rep]]$lossHistory[mIter])
+      R[rep, 3] <- sqrt(f[[rep]]$validHistory[mIter])
+      R[rep, 4] <- mean(f[[rep]]$fittedweight)
+      R[rep, 5] <- sd(f[[rep]]$fittedweight)
+      R[rep, 6] <- mean(f[[rep]]$fittedbias[-1])
+      R[rep, 7] <- sd(f[[rep]]$fittedbias[-1])
+  }
+for(i in 1:7) {
+  R[6, i] = S[5, i+2] = mean(R[1:5, i])
+}
+S[5, 1] = 0.05
+S[5, 2] = 49
+R |>
+  as_tibble() |>
+  mutate( colour = c("Purple", "Blue", "Red", "Dark Green", "Orange", "Average")) |>
+  gt(rowname_col = "colour") |> 
+  tab_stubhead(label = "Colour") |>
+  tab_header( title = "Table 4: Neural Network (1, 16, 1) eta=0.05",
+              subtitle = "Details of the Fitted Models") |> 
+  cols_label(
+    Iter = "Iteration",
+    TrLoss = "Training",
+    VaLoss = "Expected",
+    mW = "mean",
+    sdW = "std",
+    mB = "mean",
+    sdB = "std",
+  ) |>
+  tab_spanner(
+    label="Loss (RMSE)",
+    columns=c(TrLoss, VaLoss)
+  ) |> 
+    tab_spanner(
+    label="Weights",
+    columns=c(mW, sdW)
+  )   |> 
+    tab_spanner(
+    label="Biases",
+    columns=c(mB, sdB)
+  )   |> 
+  fmt_number(
+    columns=Iter,
+    decimals = 0,
+    use_seps = FALSE
+  ) |> 
+  fmt_number(
+    columns=c(mW, sdW, mB, sdB),
+    decimals = 2,
+    use_seps = FALSE
+  ) |> 
+    fmt_number(
+    columns=c(TrLoss, VaLoss),
+    decimals = 3,
+    use_seps = FALSE
+  )  |> print()
+```
+
+## Analysis 4: A (1, 32, 1) Neural Network
+
+Next, the data are analysed using a (1, 32, 1) neural network. This model has 97 parameters, far more that are needed for the simple Gausaain curve. I use a step length of 0.05 to avoid oscillation. The results are shown in figure 15 and table 5.
+
+The green and red paths almost overlap and the weights and biases of their fitted models are similar. The performance of this over-parameterised model is remarkably similar to that of the 13 parameter model used in the first analysis. 
+
+```{r echo=FALSE}
+archive <- "C:/Projects/Sliced/methods/methods_neural_nets/data/archive/diagrams"
+f <- readRDS( path(archive, "dataset1_06.rds"))
+plot(sqrt(f[[1]]$lossHistory), sqrt(f[[1]]$validHistory), type="l", lwd=2,
+     xlab="Training Loss (RMSE)", ylab="Expected Loss (RMSE)", 
+     main="Figure 15: NN (1,32,1)",
+     xlim=c(0.88, 0.95), ylim=c(1.05, 1.08), col="purple")
+lines(sqrt(f[[2]]$lossHistory), sqrt(f[[2]]$validHistory),  lwd=2, col="blue")
+lines(sqrt(f[[3]]$lossHistory), sqrt(f[[3]]$validHistory),  lwd=2, col="red")
+lines(sqrt(f[[4]]$lossHistory[seq(1,10000,2)]), sqrt(f[[4]]$validHistory[seq(1,10000,2)]),  lwd=2, col="darkgreen")
+lines(sqrt(f[[5]]$lossHistory), sqrt(f[[5]]$validHistory),  lwd=2, col="orange")
+k <- which(f[[5]]$validHistory == min(f[[5]]$validHistory))
+points(sqrt(f[[5]]$lossHistory[k]), sqrt(f[[5]]$validHistory[k]), pch=16, cex=2, col="orange")
+k <- which(f[[4]]$validHistory == min(f[[4]]$validHistory))
+points(sqrt(f[[4]]$lossHistory[k]), sqrt(f[[4]]$validHistory[k]), pch=16, cex=2, col="darkgreen")
+k <- which(f[[3]]$validHistory == min(f[[3]]$validHistory))
+points(sqrt(f[[3]]$lossHistory[k]), sqrt(f[[3]]$validHistory[k]), pch=16, cex=2, col="red")
+k <- which(f[[2]]$validHistory == min(f[[2]]$validHistory))
+points(sqrt(f[[2]]$lossHistory[k]), sqrt(f[[2]]$validHistory[k]), pch=16, cex=2, col="blue")
+k <- which(f[[1]]$validHistory == min(f[[1]]$validHistory))
+points(sqrt(f[[1]]$lossHistory[k]), sqrt(f[[1]]$validHistory[k]), pch=16, cex=2, col="purple")
+```
+
+```{r echo=FALSE, results='asis'}
+R <- matrix(0, nrow=6, ncol=7,
+            dimnames=list(NULL, c("Iter", "TrLoss", "VaLoss", "mW", "sdW","mB", "sdB")))
+
+f <- readRDS( path(archive, "dataset1_06.rds"))
+  for(rep in 1:5) {
+      mIter <- which(f[[rep]]$validHistory == min(f[[rep]]$validHistory))
+      R[rep, 1] <- mIter
+      R[rep, 2] <- sqrt(f[[rep]]$lossHistory[mIter])
+      R[rep, 3] <- sqrt(f[[rep]]$validHistory[mIter])
+      R[rep, 4] <- mean(f[[rep]]$fittedweight)
+      R[rep, 5] <- sd(f[[rep]]$fittedweight)
+      R[rep, 6] <- mean(f[[rep]]$fittedbias[-1])
+      R[rep, 7] <- sd(f[[rep]]$fittedbias[-1])
+  }
+for(i in 1:7) {
+  R[6, i] = S[6, i+2] = mean(R[1:5, i])
+}
+S[6, 1] = 0.05
+S[6, 2] = 97
+
+R |>
+  as_tibble() |>
+  mutate( colour = c("Purple", "Blue", "Red", "Dark Green", "Orange", "Average")) |>
+  gt(rowname_col = "colour") |> 
+  tab_stubhead(label = "Colour") |>
+  tab_header( title = "Table 5: Neural Network (1, 32, 1) eta=0.05",
+              subtitle = "Details of the Fitted Model") |> 
+  cols_label(
+    Iter = "Iteration",
+    TrLoss = "Training",
+    VaLoss = "Expected",
+    mW = "mean",
+    sdW = "std",
+    mB = "mean",
+    sdB = "std",
+  ) |>
+  tab_spanner(
+    label="Loss (RMSE)",
+    columns=c(TrLoss, VaLoss)
+  ) |> 
+    tab_spanner(
+    label="Weights",
+    columns=c(mW, sdW)
+  )   |> 
+    tab_spanner(
+    label="Biases",
+    columns=c(mB, sdB)
+  )   |> 
+  fmt_number(
+    columns=Iter,
+    decimals = 0,
+    use_seps = FALSE
+  ) |> 
+  fmt_number(
+    columns=c(mW, sdW, mB, sdB),
+    decimals = 2,
+    use_seps = FALSE
+  ) |> 
+    fmt_number(
+    columns=c(TrLoss, VaLoss),
+    decimals = 3,
+    use_seps = FALSE
+  )  |> print()
+```
+
+## Analysis 5: A (1, 2, 1) Neural Network
+
+Finally, the data are analysed using a model with only 7 parameters; a (1, 2, 1) neural network that is probably a little under-parameterised for a Gaussian curve. For this analysis, I revert to a step length of 0.1. The results are shown in figure 16 and table 6.
+
+Figure 16 only shows four search paths because the fifth (orange) did not have any training or expected RMSE below 1.65.  
+
+```{r echo=FALSE}
+f <- readRDS( path(archive, "dataset1_05.rds"))
+plot(sqrt(f[[1]]$lossHistory), sqrt(f[[1]]$validHistory), type="l", lwd=2,
+     xlab="Training Loss (RMSE)", ylab="Expected Loss (RMSE)", 
+     main="Figure 16: NN (1,2,1)",
+     xlim=c(0.88, 0.95), ylim=c(1.05, 1.08), col="purple")
+lines(sqrt(f[[2]]$lossHistory), sqrt(f[[2]]$validHistory),  lwd=2, col="blue")
+lines(sqrt(f[[3]]$lossHistory), sqrt(f[[3]]$validHistory),  lwd=2, col="red")
+lines(sqrt(f[[4]]$lossHistory[seq(1,10000,2)]), sqrt(f[[4]]$validHistory[seq(1,10000,2)]),  lwd=2, col="darkgreen")
+lines(sqrt(f[[5]]$lossHistory), sqrt(f[[5]]$validHistory),  lwd=2, col="orange")
+k <- which(f[[5]]$validHistory == min(f[[5]]$validHistory))
+points(sqrt(f[[5]]$lossHistory[k]), sqrt(f[[5]]$validHistory[k]), pch=16, cex=2, col="orange")
+k <- which(f[[4]]$validHistory == min(f[[4]]$validHistory))
+points(sqrt(f[[4]]$lossHistory[k]), sqrt(f[[4]]$validHistory[k]), pch=16, cex=2, col="darkgreen")
+k <- which(f[[3]]$validHistory == min(f[[3]]$validHistory))
+points(sqrt(f[[3]]$lossHistory[k]), sqrt(f[[3]]$validHistory[k]), pch=16, cex=2, col="red")
+k <- which(f[[2]]$validHistory == min(f[[2]]$validHistory))
+points(sqrt(f[[2]]$lossHistory[k]), sqrt(f[[2]]$validHistory[k]), pch=16, cex=2, col="blue")
+k <- which(f[[1]]$validHistory == min(f[[1]]$validHistory))
+points(sqrt(f[[1]]$lossHistory[k]), sqrt(f[[1]]$validHistory[k]), pch=16, cex=2, col="purple")
+```
+
+```{r echo=FALSE, results='asis'}
+R <- matrix(0, nrow=6, ncol=7,
+            dimnames=list(NULL, c("Iter", "TrLoss", "VaLoss", "mW", "sdW","mB", "sdB")))
+
+f <- readRDS( path(archive, "dataset1_05.rds"))
+  for(rep in 1:5) {
+      mIter <- which(f[[rep]]$validHistory == min(f[[rep]]$validHistory))
+      R[rep, 1] <- mIter
+      R[rep, 2] <- sqrt(f[[rep]]$lossHistory[mIter])
+      R[rep, 3] <- sqrt(f[[rep]]$validHistory[mIter])
+      R[rep, 4] <- mean(f[[rep]]$fittedweight)
+      R[rep, 5] <- sd(f[[rep]]$fittedweight)
+      R[rep, 6] <- mean(f[[rep]]$fittedbias[-1])
+      R[rep, 7] <- sd(f[[rep]]$fittedbias[-1])
+  }
+for(i in 1:7) {
+  R[6, i] = S[1, i+2] = mean(R[1:5, i])
+}
+S[1, 1] = 0.1
+S[1, 2] = 7
+
+R |>
+  as_tibble() |>
+  mutate( colour = c("Purple", "Blue", "Red", "Dark Green", "Orange", "Average")) |>
+  gt(rowname_col = "colour") |> 
+  tab_stubhead(label = "Colour") |>
+  tab_header( title = "Table 5: Neural Network (1, 2, 1)",
+              subtitle = "Details of the Fitted Models") |> 
+  cols_label(
+    Iter = "Iteration",
+    TrLoss = "Training",
+    VaLoss = "Expected",
+    mW = "mean",
+    sdW = "std",
+    mB = "mean",
+    sdB = "std",
+  ) |>
+  tab_spanner(
+    label="Loss (RMSE)",
+    columns=c(TrLoss, VaLoss)
+  ) |> 
+    tab_spanner(
+    label="Weights",
+    columns=c(mW, sdW)
+  )   |> 
+    tab_spanner(
+    label="Biases",
+    columns=c(mB, sdB)
+  )   |> 
+  fmt_number(
+    columns=Iter,
+    decimals = 0,
+    use_seps = FALSE
+  ) |> 
+  fmt_number(
+    columns=c(mW, sdW, mB, sdB),
+    decimals = 2,
+    use_seps = FALSE
+  ) |> 
+    fmt_number(
+    columns=c(TrLoss, VaLoss),
+    decimals = 3,
+    use_seps = FALSE
+  )  |> print()
+```
+
+The progress of training loss of the five searches is shown in figure 17. The shape of the unsuccessful search is not dissimilar to the others except that it does not drop as far. Just like the others, it consists of periods of rapid loss reduction followed by long plateaus. It is unclear whether the orange curve would dip again were the algorithm run for long enough, or whether it has converged to a local minimum that is a long way from the Best model.
+```{R echo=FALSE}
+plot(sqrt(f[[5]]$lossHistory), type="l", xlab="Iteration",
+          ylab="Training loss (RMSE)", main="Figure 17: Progress of the five searches", ylim=c(0.9, 2.0), lwd=2, col="orange")
+lines(sqrt(f[[4]]$lossHistory), lwd=2, col="darkgreen")
+lines(sqrt(f[[3]]$lossHistory), lwd=2, col="red")
+lines(sqrt(f[[2]]$lossHistory), lwd=2, col="blue")
+lines(sqrt(f[[1]]$lossHistory), lwd=2, col="purple")
+
+```
+
+## Comparing these Models
+
+Table 6 collects together the averages from the tables of fitted model statistics. It is remarkable how neural networks of different size produce models with such similar training and expected loss.
+
+```{R echo=FALSE, results='asis'}
+S |>
+  as_tibble() |>
+  mutate( model = c("1, 2, 1", "1, 4, 1", "1, 8, 1", "1, 16, 1", "1, 16, 1", "1, 32, 1")) |>
+  gt(rowname_col = "model") |> 
+  tab_stubhead(label = "Model") |>
+  tab_header( title = "Table 6: Average performance",
+              subtitle = "Details of the Fitted Models") |> 
+  cols_label(
+    Iter = "Iteration",
+    par = "p",
+    TrLoss = "Training",
+    VaLoss = "Expected",
+    mW = "mean",
+    sdW = "std",
+    mB = "mean",
+    sdB = "std",
+  ) |>
+  tab_spanner(
+    label="Loss (RMSE)",
+    columns=c(TrLoss, VaLoss)
+  ) |> 
+    tab_spanner(
+    label="Weights",
+    columns=c(mW, sdW)
+  )   |> 
+    tab_spanner(
+    label="Biases",
+    columns=c(mB, sdB)
+  )   |> 
+  fmt_number(
+    columns=Iter,
+    decimals = 0,
+    use_seps = FALSE
+  ) |> 
+  fmt_number(
+    columns=c(mW, sdW, mB, sdB),
+    decimals = 2,
+    use_seps = FALSE
+  ) |> 
+    fmt_number(
+    columns=c(TrLoss, VaLoss),
+    decimals = 3,
+    use_seps = FALSE
+  )  |> 
+    tab_footnote(
+    footnote = "p = Number of parameters",
+    locations = cells_column_labels(columns = par)
+  ) |> print()
+```
+
+# Conclusions
+
+Flexible regression is a particularly simple use of neural networks, none the less, it highlights many of the features of gradient descent. In the next post, I will consider ways of simulating multi-dimensional data for analysis by larger neural networks, meanwhile here are some of the important messages from this post.
+
+- Neural networks with very different looking parameters can have the same expected loss and/or the same training loss.    
+- Unless the training set is very large, a low training loss does not imply a low expected loss, so the training loss is a poor indicator of future performance.   
+- Running gradient descent until the training loss converges to a minimum is not a good strategy.  
+- When a model is selected based on having a low training loss, that final loss will exaggerate the performance of the model on future data.  
+- Model selection should be based on the loss in a large dataset that is independent of the training data. Such datasets rarely exist in practice.  
+- It is impossible to tell from a single run of gradient descent whether or not the algorithm is close to the best model, so always run gradient descent from a range of starting values.  
+- Oscillation or increasing training loss indicate that a smaller step size should be used.  
+- Over-parameterised neural networks perform remarkably well. The main disadvantage of having too many parameters is the increased computation time.   
+- It is better to use a neural network with too many parameters than one with too few.  
+
+Losses calculated by resampling are often used as a practical alternative to the expected loss. I will write a separate post on cross-validated and bootstrap losses and investigate whether they are good substitutes for the expected loss.  
+
+# Appendix: Code Changes
+
+I added a function `cfit_valid_nn()` that is a modification of `cfit_nn()`. It runs gradient descent in exactly the same way, but allows the user to specify {XV, YV}, a holdout sample used to estimate the expected loss. The new function trains using the training data exactly as before, but also returns the iteration by iteration validation loss.  
+
+The new code also changes the way that the activation functions are specified to give the potential for a different activation function for each layer.
+
+C code with these changes can be found on my GitHub pages as `cnnUpdate01.cpp`.
+
