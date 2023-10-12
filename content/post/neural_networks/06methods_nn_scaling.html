@@ -1,0 +1,1405 @@
+---
+title: "Neural Networks: First steps towards a workflow"
+author: "John Thompson"
+date: "2023-10-12"
+layout: post
+categories:
+- neural networks
+- gradient descent
+- scaling
+- starting values
+- learning rate
+- step length
+- stopping rules
+- Rcpp
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>In this series of posts, I am trying to develop a workflow for using neural networks in data analysis. So far, I have developed R code for fitting a neural network (NN) by gradient descent, used Rcpp to convert that code to C for increased speed, pictured the search paths and used NNs to simulate datasets for comparing algorithms. Now I want to start defining the workflow.</p>
+<p>Neural networks are flexible models that are usually over-parameterised and as a consequence the surfaces created by their loss functions have many symmetries and multiple local minima. Searching these complex surfaces by gradient descent is slow and computationally intensive making it important that the algorithm is tuned to give it the best chance of finding a good solution within a reasonable time-frame.</p>
+<p>Six aspects of the algorithm that must be specified by the data analyst at the outset are,</p>
+<ul>
+<li>the architecture<br />
+</li>
+<li>the type of activation function<br />
+</li>
+<li>the scaling of the predictors and responses<br />
+</li>
+<li>the starting values for the weights and biases<br />
+</li>
+<li>the step length (learning rate)</li>
+<li>the stopping rule</li>
+</ul>
+<p>The first two choices define the model rather than the algorithm and I will leave those choices for another post. The one aspect of the model choice that I will discuss is the centring of the activation function as this affects the efficiency of the algorithm, but leaves the model essentially unchanged.</p>
+<p>The other four choices in the list affect the fitting algorithm rather than the model and are inter-related. Rescaling the data affects both the choice of starting values and the choice of the learning rate. When making these choices, we need to balance the desire to find a good model with the computational burden. Running the gradient descent algorithm from 20 different sets of starting values would obviously be better than starting it from 3 different sets, but the gain is unlikely to be worth the effort.</p>
+<p>In this post, I will discuss the algorithmic choices in the context of using a NN as a flexible regression model. The post is presented as an investigation; not everything that I tried worked as well as I had hoped, but I think that the failures are themselves quite informative, so I have left them in.</p>
+<p>In this post, I cover a lot of ground in a rather superficial way, but at least it is a first step towards developing a general workflow. There is much, much more that can be said about each of these choices, but you have to start somewhere.</p>
+</div>
+<div id="are-we-talking-hyperparameters" class="section level1">
+<h1>Are we talking hyperparameters?</h1>
+<p>I came to machine learning after a long career in academic statistics, so I bring with me a lot of baggage. In particular, I draw a distinction between a model, such as logistic regression and a fitting algorithm, such as iteratively reweighted least squares. For me, when the model is hierarchical, the higher level model parameters are referred to as hyperparameters. In machine learning, hyperparameters are (usually) tunable features of the algorithm.</p>
+<p>There is, in my opinion, a degree of vagueness in machine learning whereby people talk of improvements to the algorithm as if they were improvements to the model. Complaining about this blurring might seem like nit-picking, but it has consequences. For instance, in my next post, I will ask whether cross-validation (CV) measures the performance of the algorithm or the performance of the model? If you use CV, you need to know which it is.</p>
+</div>
+<div id="centring-the-activation-function" class="section level1">
+<h1>Centring the activation function</h1>
+<p>The question that I address here is not whether to use one activation function or another. That choice relates to the family of models that is allowed. Rather, I ask how the chosen activation function should be parameterised in order to make the algorithm as efficient as possible.</p>
+<p>A NN creates non-linearity and hence its flexibility through its activation function. The popular sigmoid activation function will demonstrate how this works.</p>
+<div id="the-sigmoid" class="section level3">
+<h3>The sigmoid</h3>
+<p>The sigmoid takes the form
+<span class="math display">\[
+y = \frac{1}{1 + exp(-x)}
+\]</span>
+and its shape is shown in figure 1. The output rises from 0 to 1 as the input goes from about -5 to +5, outside that range the curve is quite flat and almost horizontal.
+<img src="/post/neural_networks/06methods_nn_scaling_files/figure-html/unnamed-chunk-1-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>Suppose that the input to the activation function depends only on a single predictor, x, that varies in size between -1 and 1 and further that the weight of x is 2 and the bias is 1. The input to the activation function will be, z = 1 + 2x and it will take values between -1 and 3. Figure 2 shows the gentle non-linearity that is created under these circumstances. The size of the output is less important than the shape, because the output will be passed on and modified by its own weights and biases.</p>
+<pre class="r"><code>x &lt;- seq(-1, 1, 0.01)
+bias &lt;- 1
+weight &lt;- 2
+y &lt;- 1 / (1 + exp(-(bias + weight*x)))
+plot(x, y, type=&quot;l&quot;, lwd=3, ylim=c(0,1), 
+     main = &quot;Figure 2: Sigmoid activation when weight=2 and bias=1&quot;,
+     xlab=&quot;x&quot;, ylab=&quot;Output&quot;)</code></pre>
+<p><img src="/post/neural_networks/06methods_nn_scaling_files/figure-html/unnamed-chunk-2-1.png" width="864" style="display: block; margin: auto;" /></p>
+</div>
+<div id="zero-centred-activation" class="section level3">
+<h3>Zero-centred activation</h3>
+<p>One of the reasons that the tanh function is sometimes preferred to the sigmoid function is that its output range is (-1,1) with a centre at zero, while the sigmoid range is (0,1) with a centre at 0.5. The lack of a zero centre can, of course, be compensated for by adjusting the bias, but doing so creates a correlation between the change that the algorithm makes to the weights and the change needed by the corresponding bias. Gradient descent by back-propagation treats the parameters separately and so does not allow for such a correlation. A large correlation between parameters would cause the gradient descent algorithm to converge more slowly. There is a direct analogy here with the benefits of centring in Bayesian algorithms based on Gibbs sampling.</p>
+<p>An alternative to switching to tanh is to keep the sigmoid but to subtract 0.5 from the output so that it is zero-centred and its range is (-0.5, 0.5). The zero-centred sigmoid takes the form,
+<span class="math display">\[
+y = \frac{1}{1+exp(-z)} - 0.5
+\]</span>
+and has a derivative given by
+<span class="math display">\[
+(0.5 - y)(0.5 + y)
+\]</span></p>
+</div>
+</div>
+<div id="scaling-the-training-data" class="section level1">
+<h1>Scaling the training data</h1>
+<p>Were we to use inappropriate weights and biases, it would be easy to force all inputs to the sigmoid activation function to be outside of the range (-5, 5) and hence to make the outputs almost flat and uninformative. The message is that a neural network that uses the sigmoid activation function needs weights and biases that keep most of the inputs in the range (-5, 5). At the same time, the range of values taken by the input must not become too small, or once again the output will not change.</p>
+<p>NNs are easier to fit when the predictors in the input layer are all on similar scales and when that scale matches the outcome of the activation function. That way, weights and biases throughout the network will be applied to quantities of a similar magnitude. What we want to avoid is the situation in a weight in one part of the network is say, 1e-5 and a weight elsewhere is 1e9. This would lead to derivatives of greatly varying size and a numerically unstable algorithm. It would also make it difficult to select a step length/learning rate that is suitable for the whole network.</p>
+<p>Since the zero-centred sigmoid has an output range of (-0.5, 0.5), it would make sense to scale the predictors in the same way. The exact range is not critical; anything close to (-0.5, 0.5) would do. A simple transformation that would work for well-behaved data is</p>
+<p><span class="math display">\[
+\frac{x - \text{mid-point}(x)}{ \text{range}(x)}
+\]</span></p>
+<p>Unfortunately, this transformation would not be very robust. Remember that we are creating an automatic algorithm, so we do not want to inspect each predictor to ensure that there are no outliers distorting the range. Instead, we might use</p>
+<p><span class="math display">\[
+\frac{x - (\text{Q}_{95}(x) + \text{Q}_{05}(x)) / 2}{ \text{Q}_{95}(x) - \text{Q}_{05}(x)}
+\]</span></p>
+<p>where <span class="math inline">\(Q_{05}\)</span> is the 5% quantile. The range of the transformed predictor will be slightly greater than (-0.5, 0.5), but the vast majority of values will be within the target range.</p>
+<p>It is common, at least in regression problems, not to apply an activation function to the final output of the network, that way the output can take whatever value is appropriate to the response of the particular problem. To help make all weights and biases have a similar order of magnitude, the final outputs to the network will need to be scaled so that they too have a value in the range (-5, 5). A possible robust transformation is,</p>
+<p><span class="math display">\[
+\frac{10 \ (y - (\text{Q}_{95}(x) + \text{Q}_{05}(x)) / 2)}{\text{Q}_{95}(y) - \text{Q}_{05}(y) }
+\]</span></p>
+</div>
+<div id="starting-values" class="section level1">
+<h1>Starting Values</h1>
+<p>The requirement that inputs to a zero-centred sigmoid activation function are in (-5, 5) while the outputs are in (-0.5, 0.5), suggests the use of weights in the range (-10, 10). However, when there are many inputs to a node, the weight given to each one needs to be reduced. Suppose that a particular node has L inputs, we might expect the weights to be in the range (10/L, 10/L). In fact, this is a little conservative because there may be some cancellation with some of the inputs being positive when others are negative. A sensible compromise is,
+<span class="math display">\[
+\left( \frac{-10}{\sqrt{L}} , \frac{10}{\sqrt{L}}\right)
+\]</span></p>
+<p>This type of weight adjustment has been suggested many times based on more mathematical derivations, for example, He et al ( arXiv:1502.01852) suggested that the weights should be reduced by the square root of L for the ReLU activation function and Glorot and Bengio (“Understanding the difficulty of training deep feedforward neural networks.” International conference on artificial intelligence and statistics. 2010) suggested reducing by the root of the number of inputs plus the number of outputs.</p>
+<p>The biases are added to the weighted combination of the inputs and the final result needs to be in (-5, 5), so certainly most biases will need to be within this range.</p>
+<p>Neural networks are full of symmetries, for instance we could swap any two nodes in a layer provided that we also swap their input and output parameters. By having a good variety of starting weights and biases, you increase the chance of hitting on something close to one of the symmetrical minima. The general rule is that convergence will be quicker when the starting values are not all similar.</p>
+</div>
+<div id="step-length-learning-rate" class="section level1">
+<h1>Step length (Learning rate)</h1>
+<p>I am torn between referring to the step length, as one would in statistics, and the learning rate, as one would in machine learning. In the context of gradient descent they mean the same thing, but step length is a little more descriptive, so I will go with that.</p>
+<p>Choosing the step length is not trivial, but there are some intuitions that might help guide us</p>
+<ul>
+<li>too small a step length and progress towards the minimum will be slow<br />
+</li>
+<li>too large a step length and the algorithm might jump over the minimum leading to oscillation or even divergence<br />
+</li>
+<li>it makes sense to start with a large step length and to decrease it as we approach the minimum<br />
+</li>
+<li>a good step length for one parameter might not be ideal for other parameters, although scaling the data will greatly reduce this problem<br />
+</li>
+<li>the more parameters in the model the smaller the step length, because each iteration changes all of the parameters simultaneously<br />
+</li>
+<li>a small step length will enable the exploration of small features in the surface of the training loss. However, such narrow features are likely to be specific to the particular training dataset and so might not generalise. Broad minima are more important because they reflect trend rather than noise.</li>
+</ul>
+<p>Common-sense intuitions are useful, but they are not evidence, and we need to keep in mind that there will be times when even the best intuitions fail us.</p>
+<div id="constant-step-length" class="section level3">
+<h3>Constant step length</h3>
+<p>Finding a good step length is often a matter of trial and error. Typical values lie between 0.0001 and 1.0, so a sensible strategy would be to try a range of values, perhaps 0.0001, 0.001, 0.01, 0.1 and 1.0 and run each for a small number of iterations to see what happens. Select the largest step length that does not cause oscillation or divergence.</p>
+</div>
+<div id="scheduled-step-length-reduction" class="section level3">
+<h3>Scheduled step length reduction</h3>
+<p>Instead of picking a value, the step length could be allowed to start high and decrease slowly. A schedule that I like is to divide the iterations into 20 equal sized blocks, then each time the algorithm moves to a new block, the size of the step length is reduced by 10%. 0.9^19=0.13 so the size of the step length in the final block will be about 13% of the size of the original; start with 0.1 and you will end with something close to 0.01.</p>
+</div>
+<div id="automatically-adjusted-step-length" class="section level3">
+<h3>Automatically adjusted step length</h3>
+<p>Instead of deciding in advance on the schedule of step lengths, adjustment could be made to depend on the progress of the algorithm. As the algorithm approaches the minimum, it will occasionally over-shoot, causing the loss to oscillate or diverge. At that point, the step length should be reduced.</p>
+<p>A simple rule is; if the training loss increases, reduce the step length and use parameter values somewhere between the previous values and the new values.</p>
+<p>Should you decide not to use automatic adjustment, it is still important to monitor for oscillation and/or divergence, either by visual inspection of the output of the algorithm, or by detecting an increase in the loss and flagging it. This information might make you re-run the analysis, or at the very least, it will inform future analyses.</p>
+</div>
+</div>
+<div id="stopping-rules" class="section level1">
+<h1>Stopping Rules</h1>
+<p>With neural networks, the gradient descent algorithm tends to progress through cycles with periods of rapid improvement followed by longer periods when progress almost plateaus. You do not want to stop the algorithm during a plateau, if a period of rapid improvement is still to be reached. At the same time, the algorithm cannot be allowed to go on forever in the vain hope of improvement.</p>
+<p>The stopping rule could be based on changes to the training loss, or to changes to the parameters, or to the sizes of the derivatives. When automatic step length adjustment is used, it is important that a minimum step length is specified, so that the algorithm does not make countless negligible changes.</p>
+<p>So far the discussion has assumed that the goal is to stop when the algorithm reaches a minimum in the training loss. As I explained in my post on search paths, the real aim is to minimise the expected loss and not the training loss. I will consider early stopping based on expected loss in my next post, which is on cross-validation.</p>
+<p>Another limit of this investigation is that I assume that the neural network is not so over-parameterised that the loss can be reduced to zero. Such models can exhibit strange behaviour, such as a test loss that increases and then comes down again. Another topic for a future post.</p>
+</div>
+<div id="possible-strategies" class="section level1">
+<h1>Possible strategies</h1>
+<p>In my investigation, I planned to use simulated data to compare two strategies</p>
+<div id="option-a" class="section level3">
+<h3>Option A</h3>
+<ul>
+<li>unscaled data<br />
+</li>
+<li>standard sigmoid activation<br />
+</li>
+<li>starting weights and biases that are random Uniform(-1, 1)<br />
+</li>
+<li>fixed step length of 0.1<br />
+</li>
+<li>10,000 iterations</li>
+</ul>
+</div>
+<div id="option-b-my-preference" class="section level3">
+<h3>Option B (my preference)</h3>
+<ul>
+<li>robust scaling of predictors to approximately (-0.5, 0.5)</li>
+<li>robust scaling of responses to approximately (-5, 5)</li>
+<li>zero-centred sigmoid activation</li>
+<li>starting biases random Uniform(-5, 5)</li>
+<li>starting weights random Uniform(-10/sqrt(L), 10/sqrt(L))</li>
+<li>automatically adjusted step lengths starting with 0.1<br />
+</li>
+<li>stop when percentage change in the training loss drops below 1e-3, or at 10,000 iterations whichever comes sooner</li>
+</ul>
+<p>Option A was a straw man set up to fail, but unfortunately I overdid it. Without scaling, gradient descent gets stuck and, even in my very simple examples, one million iterations still got nowhere near the solution. To make a practical comparison, I need to introduce some scaling of X and Y.</p>
+<p>The eventual comparison that I ran was between option B and a modified version of option A.</p>
+</div>
+<div id="option-a-1" class="section level3">
+<h3>Option A</h3>
+<ul>
+<li>scale the predictors and responses by subtracting their mean and dividing by their standard deviation<br />
+</li>
+<li>standard sigmoid activation<br />
+</li>
+<li>starting weights and biases random Uniform(-1, 1)<br />
+</li>
+<li>fixed step length of 0.1<br />
+</li>
+<li>10,000 iterations</li>
+</ul>
+</div>
+</div>
+<div id="comparison-1-the-wave" class="section level1">
+<h1>Comparison 1: The Wave</h1>
+<p>My first comparison is based on a simple regression. Using the method described in my previous post, I used a (1, 4, 8, 4, 1) NN with different randomly generated weights and biases and a standard sigmoid activation function to create a simulated dataset. Figure 3 shows the relationship between the input and the output and a single set of 100 training values. I call it a wave to make it easier to refer to.</p>
+<p><img src="/post/neural_networks/06methods_nn_scaling_files/figure-html/unnamed-chunk-3-1.png" width="864" style="display: block; margin: auto;" /></p>
+<div id="the-model" class="section level3">
+<h3>The model</h3>
+<p>The simulated data are analysed using a (1, 8, 1) NN. The model is fitted to 20 randomly generated sets of training data from the wave. Each dataset is analysed three times from different starting values. All of the analyses are performed once with Options A and once with B. A test set of 10,000 observations was used to estimate the expected loss. The training and test RMSE were recorded over 10,000 iterations (sometimes called Epochs). The randomness in the simulation was such that true curve has an expected RMSE of 8.</p>
+<p>All calculations were run using the Rcpp code for gradient descent as described in previous posts. The code is available on my GitHub pages at <a href="https://github.com/thompson575/NeuralNetworks" class="uri">https://github.com/thompson575/NeuralNetworks</a>. I make a few adjustments to the code to accommodate the stopping rules and step length adjustments. These changes are described in an appendix at the end of this post.</p>
+</div>
+<div id="an-example-of-fitting-the-model" class="section level3">
+<h3>An example of fitting the model</h3>
+<p>Figure 4 illustrates the performance of Option A. The blue curve is the wave used in the data generation. The other lines show progress of the NN fit after 1,000 iterations (dashed orange), 2,000 iterations (dashed pink), 5,000 iterations (dashed light green) and 10,000 iterations (solid dark green).</p>
+<p><img src="/post/neural_networks/06methods_nn_scaling_files/figure-html/unnamed-chunk-4-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>This example shows that quite early on Option A fits a straightish line and then makes little progress over the 10,000 iterations.</p>
+<p>Figure 5 shows the corresponding plot to figure 4 for Option B. The algorithm makes progress, but has not yet matched the wave.</p>
+<p><img src="/post/neural_networks/06methods_nn_scaling_files/figure-html/unnamed-chunk-5-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>The full set of results for each of the 20 datasets is shown in table 1. For each curve the tabulated value refers to the replicate (from the three sets of starting values) that achieved the final lowest test loss.</p>
+<p>The benefit from using Option B is clear.</p>
+<div id="ngajkktlwy" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#ngajkktlwy table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#ngajkktlwy thead, #ngajkktlwy tbody, #ngajkktlwy tfoot, #ngajkktlwy tr, #ngajkktlwy td, #ngajkktlwy th {
+  border-style: none;
+}
+
+#ngajkktlwy p {
+  margin: 0;
+  padding: 0;
+}
+
+#ngajkktlwy .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#ngajkktlwy .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#ngajkktlwy .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#ngajkktlwy .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#ngajkktlwy .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#ngajkktlwy .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#ngajkktlwy .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#ngajkktlwy .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#ngajkktlwy .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#ngajkktlwy .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#ngajkktlwy .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#ngajkktlwy .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#ngajkktlwy .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#ngajkktlwy .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#ngajkktlwy .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#ngajkktlwy .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#ngajkktlwy .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#ngajkktlwy .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#ngajkktlwy .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#ngajkktlwy .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#ngajkktlwy .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#ngajkktlwy .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#ngajkktlwy .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#ngajkktlwy .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#ngajkktlwy .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#ngajkktlwy .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#ngajkktlwy .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#ngajkktlwy .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#ngajkktlwy .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#ngajkktlwy .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#ngajkktlwy .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#ngajkktlwy .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#ngajkktlwy .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#ngajkktlwy .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#ngajkktlwy .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#ngajkktlwy .gt_left {
+  text-align: left;
+}
+
+#ngajkktlwy .gt_center {
+  text-align: center;
+}
+
+#ngajkktlwy .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#ngajkktlwy .gt_font_normal {
+  font-weight: normal;
+}
+
+#ngajkktlwy .gt_font_bold {
+  font-weight: bold;
+}
+
+#ngajkktlwy .gt_font_italic {
+  font-style: italic;
+}
+
+#ngajkktlwy .gt_super {
+  font-size: 65%;
+}
+
+#ngajkktlwy .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#ngajkktlwy .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#ngajkktlwy .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#ngajkktlwy .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#ngajkktlwy .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#ngajkktlwy .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#ngajkktlwy .gt_indent_5 {
+  text-indent: 25px;
+}
+</style>
+<table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+<thead>
+<tr class="gt_heading">
+<td colspan="9" class="gt_heading gt_title gt_font_normal" style>
+Table 3: Wave Datasets
+</td>
+</tr>
+<tr class="gt_heading">
+<td colspan="9" class="gt_heading gt_subtitle gt_font_normal gt_bottom_border" style>
+Best Test RMSE per dataset by Iterations
+</td>
+</tr>
+<tr class="gt_col_headings gt_spanner_row">
+<th rowspan="1" colspan="1" scope="col">
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="8" scope="colgroup" id="iterations">
+<span class="gt_column_spanner">iterations</span>
+</th>
+</tr>
+<tr class="gt_col_headings gt_spanner_row">
+<th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="2" colspan="1" scope="col" id="dataset">
+dataset
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="4" scope="colgroup" id="Option A">
+<span class="gt_column_spanner">Option A</span>
+</th>
+<th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="4" scope="colgroup" id="Option B">
+<span class="gt_column_spanner">Option B</span>
+</th>
+</tr>
+<tr class="gt_col_headings">
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="padding-right:20px" scope="col" id="  1,000">
+1,000
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="padding-right:20px" scope="col" id="  2,000">
+2,000
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="padding-right:20px" scope="col" id="  5,000">
+5,000
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="padding-right:20px" scope="col" id=" 10,000">
+10,000
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="padding-right:20px" scope="col" id="  1,000">
+1,000
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="padding-right:20px" scope="col" id="  2,000">
+2,000
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="padding-right:20px" scope="col" id="  5,000">
+5,000
+</th>
+<th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" style="padding-right:20px" scope="col" id="   stop">
+stop
+</th>
+</tr>
+</thead>
+<tbody class="gt_table_body">
+<tr>
+<th id="stub_1_1" scope="row" class="gt_row gt_right gt_stub">
+1
+</th>
+<td headers="stub_1_1 LA1" class="gt_row gt_right">
+10.70
+</td>
+<td headers="stub_1_1 LA2" class="gt_row gt_right">
+10.80
+</td>
+<td headers="stub_1_1 LA3" class="gt_row gt_right">
+10.80
+</td>
+<td headers="stub_1_1 LA4" class="gt_row gt_right">
+10.80
+</td>
+<td headers="stub_1_1 LB1" class="gt_row gt_right">
+10.50
+</td>
+<td headers="stub_1_1 LB2" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_1 LB3" class="gt_row gt_right">
+9.58
+</td>
+<td headers="stub_1_1 LB4" class="gt_row gt_right">
+8.72
+</td>
+</tr>
+<tr>
+<th id="stub_1_2" scope="row" class="gt_row gt_right gt_stub">
+2
+</th>
+<td headers="stub_1_2 LA1" class="gt_row gt_right">
+10.60
+</td>
+<td headers="stub_1_2 LA2" class="gt_row gt_right">
+10.50
+</td>
+<td headers="stub_1_2 LA3" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_2 LA4" class="gt_row gt_right">
+9.94
+</td>
+<td headers="stub_1_2 LB1" class="gt_row gt_right">
+9.89
+</td>
+<td headers="stub_1_2 LB2" class="gt_row gt_right">
+9.28
+</td>
+<td headers="stub_1_2 LB3" class="gt_row gt_right">
+8.30
+</td>
+<td headers="stub_1_2 LB4" class="gt_row gt_right">
+8.26
+</td>
+</tr>
+<tr>
+<th id="stub_1_3" scope="row" class="gt_row gt_right gt_stub">
+3
+</th>
+<td headers="stub_1_3 LA1" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_3 LA2" class="gt_row gt_right">
+10.10
+</td>
+<td headers="stub_1_3 LA3" class="gt_row gt_right">
+9.71
+</td>
+<td headers="stub_1_3 LA4" class="gt_row gt_right">
+8.43
+</td>
+<td headers="stub_1_3 LB1" class="gt_row gt_right">
+9.89
+</td>
+<td headers="stub_1_3 LB2" class="gt_row gt_right">
+9.29
+</td>
+<td headers="stub_1_3 LB3" class="gt_row gt_right">
+8.26
+</td>
+<td headers="stub_1_3 LB4" class="gt_row gt_right">
+8.20
+</td>
+</tr>
+<tr>
+<th id="stub_1_4" scope="row" class="gt_row gt_right gt_stub">
+4
+</th>
+<td headers="stub_1_4 LA1" class="gt_row gt_right">
+10.40
+</td>
+<td headers="stub_1_4 LA2" class="gt_row gt_right">
+10.40
+</td>
+<td headers="stub_1_4 LA3" class="gt_row gt_right">
+9.61
+</td>
+<td headers="stub_1_4 LA4" class="gt_row gt_right">
+8.41
+</td>
+<td headers="stub_1_4 LB1" class="gt_row gt_right">
+10.40
+</td>
+<td headers="stub_1_4 LB2" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_4 LB3" class="gt_row gt_right">
+8.85
+</td>
+<td headers="stub_1_4 LB4" class="gt_row gt_right">
+8.29
+</td>
+</tr>
+<tr>
+<th id="stub_1_5" scope="row" class="gt_row gt_right gt_stub">
+5
+</th>
+<td headers="stub_1_5 LA1" class="gt_row gt_right">
+10.40
+</td>
+<td headers="stub_1_5 LA2" class="gt_row gt_right">
+10.40
+</td>
+<td headers="stub_1_5 LA3" class="gt_row gt_right">
+10.20
+</td>
+<td headers="stub_1_5 LA4" class="gt_row gt_right">
+9.62
+</td>
+<td headers="stub_1_5 LB1" class="gt_row gt_right">
+9.97
+</td>
+<td headers="stub_1_5 LB2" class="gt_row gt_right">
+9.70
+</td>
+<td headers="stub_1_5 LB3" class="gt_row gt_right">
+8.61
+</td>
+<td headers="stub_1_5 LB4" class="gt_row gt_right">
+8.18
+</td>
+</tr>
+<tr>
+<th id="stub_1_6" scope="row" class="gt_row gt_right gt_stub">
+6
+</th>
+<td headers="stub_1_6 LA1" class="gt_row gt_right">
+10.70
+</td>
+<td headers="stub_1_6 LA2" class="gt_row gt_right">
+10.70
+</td>
+<td headers="stub_1_6 LA3" class="gt_row gt_right">
+10.70
+</td>
+<td headers="stub_1_6 LA4" class="gt_row gt_right">
+10.80
+</td>
+<td headers="stub_1_6 LB1" class="gt_row gt_right">
+10.50
+</td>
+<td headers="stub_1_6 LB2" class="gt_row gt_right">
+10.20
+</td>
+<td headers="stub_1_6 LB3" class="gt_row gt_right">
+9.72
+</td>
+<td headers="stub_1_6 LB4" class="gt_row gt_right">
+8.40
+</td>
+</tr>
+<tr>
+<th id="stub_1_7" scope="row" class="gt_row gt_right gt_stub">
+7
+</th>
+<td headers="stub_1_7 LA1" class="gt_row gt_right">
+10.60
+</td>
+<td headers="stub_1_7 LA2" class="gt_row gt_right">
+10.70
+</td>
+<td headers="stub_1_7 LA3" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_7 LA4" class="gt_row gt_right">
+9.21
+</td>
+<td headers="stub_1_7 LB1" class="gt_row gt_right">
+10.50
+</td>
+<td headers="stub_1_7 LB2" class="gt_row gt_right">
+10.40
+</td>
+<td headers="stub_1_7 LB3" class="gt_row gt_right">
+9.65
+</td>
+<td headers="stub_1_7 LB4" class="gt_row gt_right">
+8.60
+</td>
+</tr>
+<tr>
+<th id="stub_1_8" scope="row" class="gt_row gt_right gt_stub">
+8
+</th>
+<td headers="stub_1_8 LA1" class="gt_row gt_right">
+10.40
+</td>
+<td headers="stub_1_8 LA2" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_8 LA3" class="gt_row gt_right">
+10.00
+</td>
+<td headers="stub_1_8 LA4" class="gt_row gt_right">
+9.05
+</td>
+<td headers="stub_1_8 LB1" class="gt_row gt_right">
+10.00
+</td>
+<td headers="stub_1_8 LB2" class="gt_row gt_right">
+9.82
+</td>
+<td headers="stub_1_8 LB3" class="gt_row gt_right">
+8.87
+</td>
+<td headers="stub_1_8 LB4" class="gt_row gt_right">
+8.15
+</td>
+</tr>
+<tr>
+<th id="stub_1_9" scope="row" class="gt_row gt_right gt_stub">
+9
+</th>
+<td headers="stub_1_9 LA1" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_9 LA2" class="gt_row gt_right">
+10.20
+</td>
+<td headers="stub_1_9 LA3" class="gt_row gt_right">
+10.10
+</td>
+<td headers="stub_1_9 LA4" class="gt_row gt_right">
+9.85
+</td>
+<td headers="stub_1_9 LB1" class="gt_row gt_right">
+10.10
+</td>
+<td headers="stub_1_9 LB2" class="gt_row gt_right">
+9.89
+</td>
+<td headers="stub_1_9 LB3" class="gt_row gt_right">
+9.03
+</td>
+<td headers="stub_1_9 LB4" class="gt_row gt_right">
+8.40
+</td>
+</tr>
+<tr>
+<th id="stub_1_10" scope="row" class="gt_row gt_right gt_stub">
+10
+</th>
+<td headers="stub_1_10 LA1" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_10 LA2" class="gt_row gt_right">
+10.20
+</td>
+<td headers="stub_1_10 LA3" class="gt_row gt_right">
+9.90
+</td>
+<td headers="stub_1_10 LA4" class="gt_row gt_right">
+8.31
+</td>
+<td headers="stub_1_10 LB1" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_10 LB2" class="gt_row gt_right">
+10.10
+</td>
+<td headers="stub_1_10 LB3" class="gt_row gt_right">
+9.77
+</td>
+<td headers="stub_1_10 LB4" class="gt_row gt_right">
+8.28
+</td>
+</tr>
+<tr>
+<th id="stub_1_11" scope="row" class="gt_row gt_right gt_stub">
+11
+</th>
+<td headers="stub_1_11 LA1" class="gt_row gt_right">
+10.40
+</td>
+<td headers="stub_1_11 LA2" class="gt_row gt_right">
+10.40
+</td>
+<td headers="stub_1_11 LA3" class="gt_row gt_right">
+10.20
+</td>
+<td headers="stub_1_11 LA4" class="gt_row gt_right">
+9.88
+</td>
+<td headers="stub_1_11 LB1" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_11 LB2" class="gt_row gt_right">
+10.20
+</td>
+<td headers="stub_1_11 LB3" class="gt_row gt_right">
+9.55
+</td>
+<td headers="stub_1_11 LB4" class="gt_row gt_right">
+8.72
+</td>
+</tr>
+<tr>
+<th id="stub_1_12" scope="row" class="gt_row gt_right gt_stub">
+12
+</th>
+<td headers="stub_1_12 LA1" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_12 LA2" class="gt_row gt_right">
+10.20
+</td>
+<td headers="stub_1_12 LA3" class="gt_row gt_right">
+9.95
+</td>
+<td headers="stub_1_12 LA4" class="gt_row gt_right">
+9.75
+</td>
+<td headers="stub_1_12 LB1" class="gt_row gt_right">
+10.20
+</td>
+<td headers="stub_1_12 LB2" class="gt_row gt_right">
+10.10
+</td>
+<td headers="stub_1_12 LB3" class="gt_row gt_right">
+9.25
+</td>
+<td headers="stub_1_12 LB4" class="gt_row gt_right">
+8.12
+</td>
+</tr>
+<tr>
+<th id="stub_1_13" scope="row" class="gt_row gt_right gt_stub">
+13
+</th>
+<td headers="stub_1_13 LA1" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_13 LA2" class="gt_row gt_right">
+10.20
+</td>
+<td headers="stub_1_13 LA3" class="gt_row gt_right">
+9.94
+</td>
+<td headers="stub_1_13 LA4" class="gt_row gt_right">
+9.72
+</td>
+<td headers="stub_1_13 LB1" class="gt_row gt_right">
+9.64
+</td>
+<td headers="stub_1_13 LB2" class="gt_row gt_right">
+8.84
+</td>
+<td headers="stub_1_13 LB3" class="gt_row gt_right">
+8.23
+</td>
+<td headers="stub_1_13 LB4" class="gt_row gt_right">
+8.19
+</td>
+</tr>
+<tr>
+<th id="stub_1_14" scope="row" class="gt_row gt_right gt_stub">
+14
+</th>
+<td headers="stub_1_14 LA1" class="gt_row gt_right">
+10.40
+</td>
+<td headers="stub_1_14 LA2" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_14 LA3" class="gt_row gt_right">
+9.98
+</td>
+<td headers="stub_1_14 LA4" class="gt_row gt_right">
+8.48
+</td>
+<td headers="stub_1_14 LB1" class="gt_row gt_right">
+10.10
+</td>
+<td headers="stub_1_14 LB2" class="gt_row gt_right">
+9.76
+</td>
+<td headers="stub_1_14 LB3" class="gt_row gt_right">
+8.40
+</td>
+<td headers="stub_1_14 LB4" class="gt_row gt_right">
+8.26
+</td>
+</tr>
+<tr>
+<th id="stub_1_15" scope="row" class="gt_row gt_right gt_stub">
+15
+</th>
+<td headers="stub_1_15 LA1" class="gt_row gt_right">
+10.70
+</td>
+<td headers="stub_1_15 LA2" class="gt_row gt_right">
+10.60
+</td>
+<td headers="stub_1_15 LA3" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_15 LA4" class="gt_row gt_right">
+9.55
+</td>
+<td headers="stub_1_15 LB1" class="gt_row gt_right">
+10.50
+</td>
+<td headers="stub_1_15 LB2" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_15 LB3" class="gt_row gt_right">
+9.61
+</td>
+<td headers="stub_1_15 LB4" class="gt_row gt_right">
+8.64
+</td>
+</tr>
+<tr>
+<th id="stub_1_16" scope="row" class="gt_row gt_right gt_stub">
+16
+</th>
+<td headers="stub_1_16 LA1" class="gt_row gt_right">
+10.40
+</td>
+<td headers="stub_1_16 LA2" class="gt_row gt_right">
+10.40
+</td>
+<td headers="stub_1_16 LA3" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_16 LA4" class="gt_row gt_right">
+10.10
+</td>
+<td headers="stub_1_16 LB1" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_16 LB2" class="gt_row gt_right">
+10.20
+</td>
+<td headers="stub_1_16 LB3" class="gt_row gt_right">
+9.00
+</td>
+<td headers="stub_1_16 LB4" class="gt_row gt_right">
+8.26
+</td>
+</tr>
+<tr>
+<th id="stub_1_17" scope="row" class="gt_row gt_right gt_stub">
+17
+</th>
+<td headers="stub_1_17 LA1" class="gt_row gt_right">
+10.40
+</td>
+<td headers="stub_1_17 LA2" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_17 LA3" class="gt_row gt_right">
+10.10
+</td>
+<td headers="stub_1_17 LA4" class="gt_row gt_right">
+9.34
+</td>
+<td headers="stub_1_17 LB1" class="gt_row gt_right">
+10.10
+</td>
+<td headers="stub_1_17 LB2" class="gt_row gt_right">
+9.97
+</td>
+<td headers="stub_1_17 LB3" class="gt_row gt_right">
+8.35
+</td>
+<td headers="stub_1_17 LB4" class="gt_row gt_right">
+8.08
+</td>
+</tr>
+<tr>
+<th id="stub_1_18" scope="row" class="gt_row gt_right gt_stub">
+18
+</th>
+<td headers="stub_1_18 LA1" class="gt_row gt_right">
+10.60
+</td>
+<td headers="stub_1_18 LA2" class="gt_row gt_right">
+10.50
+</td>
+<td headers="stub_1_18 LA3" class="gt_row gt_right">
+9.47
+</td>
+<td headers="stub_1_18 LA4" class="gt_row gt_right">
+8.33
+</td>
+<td headers="stub_1_18 LB1" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_18 LB2" class="gt_row gt_right">
+9.47
+</td>
+<td headers="stub_1_18 LB3" class="gt_row gt_right">
+8.34
+</td>
+<td headers="stub_1_18 LB4" class="gt_row gt_right">
+8.33
+</td>
+</tr>
+<tr>
+<th id="stub_1_19" scope="row" class="gt_row gt_right gt_stub">
+19
+</th>
+<td headers="stub_1_19 LA1" class="gt_row gt_right">
+10.60
+</td>
+<td headers="stub_1_19 LA2" class="gt_row gt_right">
+10.60
+</td>
+<td headers="stub_1_19 LA3" class="gt_row gt_right">
+10.60
+</td>
+<td headers="stub_1_19 LA4" class="gt_row gt_right">
+10.40
+</td>
+<td headers="stub_1_19 LB1" class="gt_row gt_right">
+10.20
+</td>
+<td headers="stub_1_19 LB2" class="gt_row gt_right">
+9.95
+</td>
+<td headers="stub_1_19 LB3" class="gt_row gt_right">
+8.90
+</td>
+<td headers="stub_1_19 LB4" class="gt_row gt_right">
+8.60
+</td>
+</tr>
+<tr>
+<th id="stub_1_20" scope="row" class="gt_row gt_right gt_stub">
+20
+</th>
+<td headers="stub_1_20 LA1" class="gt_row gt_right">
+10.60
+</td>
+<td headers="stub_1_20 LA2" class="gt_row gt_right">
+10.60
+</td>
+<td headers="stub_1_20 LA3" class="gt_row gt_right">
+10.60
+</td>
+<td headers="stub_1_20 LA4" class="gt_row gt_right">
+10.50
+</td>
+<td headers="stub_1_20 LB1" class="gt_row gt_right">
+10.30
+</td>
+<td headers="stub_1_20 LB2" class="gt_row gt_right">
+10.10
+</td>
+<td headers="stub_1_20 LB3" class="gt_row gt_right">
+8.71
+</td>
+<td headers="stub_1_20 LB4" class="gt_row gt_right">
+8.39
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Option A only obtained a test loss below 9 by iteration 10,000 in 5 of the 20 datasets. Option B finished close to 8 in every case and never ended with a higher test loss than option A.</p>
+<p>To see if Option A would eventually find a good solution, the analysis for dataset 1 was run for 100,000 iterations. As I am interested in computational efficiency, figure 6 plots the training and test losses against iteration number. The analysis was repeated three times with different starting values, shown in blue, red and green. The blue and red curves happen to be very similar.
+<img src="/post/neural_networks/06methods_nn_scaling_files/figure-html/unnamed-chunk-7-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>10,000 iterations was clearly far too few. Each of the sets of starting values found their fitted model after around 50,000 iterations. The minimum test RMSE was 8.66, slightly lower that the solution obtained by Option B, but Option B stopped at 9,014 iterations due to my stopping rule.</p>
+<p>Figure 7 shows the search paths. The curves appear as steps because, to save time, the test loss was only calculated every 50 iterations. The three sets of starting values produce very similar search paths.
+<img src="/post/neural_networks/06methods_nn_scaling_files/figure-html/unnamed-chunk-8-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>My conclusions from this example are</p>
+<ul>
+<li>Option B is preferable to Option A<br />
+</li>
+<li>Option A gets there in the end, but is inefficient<br />
+</li>
+<li>My choice of stopping rule stopped Option B too soon<br />
+</li>
+<li>It is not clear what aspect of Option A caused it to converge so slowly</li>
+</ul>
+</div>
+<div id="reasons-the-for-poor-performance-of-option-a" class="section level2">
+<h2>Reasons the for poor performance of Option A</h2>
+<p>To investigate where Option A goes wrong, I tried four changes (keeping everything else the same).</p>
+<ul>
+<li>switch to the zero-centred sigmoid<br />
+</li>
+<li>draw starting values from U(-3, 3) instead of U(-1, 1)<br />
+</li>
+<li>increase the step length from 0.1 to 0.2<br />
+</li>
+<li>use robust scaling</li>
+</ul>
+<div id="zero-centred-sigmoid" class="section level3">
+<h3>Zero-centred sigmoid</h3>
+<p>Figure 8 shows that performance is similar to vanilla Option A with the optimum model obtained after 40,000 to 50,000 iterations.
+<img src="/post/neural_networks/06methods_nn_scaling_files/figure-html/unnamed-chunk-9-1.png" width="864" style="display: block; margin: auto;" /></p>
+</div>
+<div id="larger-starting-values" class="section level3">
+<h3>Larger starting values</h3>
+<p>Figure 9 shows that increasing the range of starting values creates a faster initial improvement but it makes the final performance worse. There is more variation between the replicates and only the red replicate finds a minimum for the test loss. The blue and green test losses are still decreasing after 100,000 iterations.
+<img src="/post/neural_networks/06methods_nn_scaling_files/figure-html/unnamed-chunk-10-1.png" width="864" style="display: block; margin: auto;" /></p>
+</div>
+<div id="larger-step-length" class="section level3">
+<h3>Larger step length</h3>
+<p>Figure 10 shows the impact of doubling the step length. The fitted model is now found after around 25,000 iterations rather than 50,000. For the blue replicate the convergence is not smooth, the search regularly over-shoots the loss and has to recover.</p>
+<p><img src="/post/neural_networks/06methods_nn_scaling_files/figure-html/unnamed-chunk-11-1.png" width="864" style="display: block; margin: auto;" /></p>
+</div>
+<div id="robust-scaling" class="section level3">
+<h3>Robust Scaling</h3>
+<p>Figure 11 shows the impact of using robust scaling. Progress is smooth and the minimum test loss is found after about 20,000 iterations. This is by far the best version of Option A, but it is still not as good as Option B.
+<img src="/post/neural_networks/06methods_nn_scaling_files/figure-html/unnamed-chunk-12-1.png" width="864" style="display: block; margin: auto;" /></p>
+</div>
+<div id="final-conclusions-about-option-a" class="section level3">
+<h3>Final conclusions about Option A</h3>
+<p>Activation function, scaling, starting values and step length all seem to play a role in determining performance and no doubt they interact, but of the four the scaling of the data seems to be the most important. A larger initial step length speeds convergence, but causes over-shoot, perhaps automatic reduction of step length would help.</p>
+</div>
+</div>
+</div>
+<div id="comparison-2" class="section level1">
+<h1>Comparison 2</h1>
+<p>My second comparison is based on a single dataset of n=1000 observations with 6 inputs (predictors, X) and one output (response, Y). The data were generated in such a way that the correct model would have an expected RMSE loss of 1. The training data are shown in figure 12.</p>
+<p><img src="/post/neural_networks/06methods_nn_scaling_files/figure-html/unnamed-chunk-13-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>These data are analysed with a (6, 10, 1) neural network. Option A and B are run as originally defined except that I ran 50,000 iterations and a stopping rule for Option B based on a 1e-5 percent change in the loss. Figure 13 shows the patterns of loss by iteration. Option B converges sooner, as we might have anticipated from the first comparison.</p>
+<p><img src="/post/neural_networks/06methods_nn_scaling_files/figure-html/unnamed-chunk-14-1.png" width="864" style="display: block; margin: auto;" /></p>
+<p>The test loss of the fitted models is quite a bit lower with Option B suggesting that Option A has converged to a slightly worse solution for all three sets of starting values. This can be seen more clearly from the search paths in figure 14.
+<img src="/post/neural_networks/06methods_nn_scaling_files/figure-html/unnamed-chunk-15-1.png" width="864" style="display: block; margin: auto;" /></p>
+<div id="conclusions-from-comparison-2" class="section level3">
+<h3>Conclusions from comparison 2</h3>
+<p>This comparison also strongly favours Option B. Not only is the fitted model found in about half the time, but the test loss of the solution is lower.</p>
+</div>
+</div>
+<div id="summary" class="section level1">
+<h1>Summary</h1>
+<p>This has been a rather meandering investigation that has raised as many questions as it has answered. Here are the points that I take from it.</p>
+<ul>
+<li>some scaling of the predictors and responses is essential<br />
+</li>
+<li>starting values need to be ball-park sensible so that inputs stay within the active part of the activation function<br />
+</li>
+<li>the exact choice of starting values and step length affects the speed of convergence more than the final solution<br />
+</li>
+<li>models that look very different can actually be equivalent - there are many symmetries in the loss function of a neural network<br />
+</li>
+<li>Option B performed much better than Option A</li>
+</ul>
+<p>I am very aware that these conclusions need to be confirmed in a much greater range of scenarios, but I suspect that Option B would prove to be sensible for a wide range of problems. I will use it in future posts and refine it as necessary.</p>
+<p>In practice, the time taken by the gradient descent algorithm means that it is only suitable for small sets of training data; stochastic gradient descent (SGD) works better for larger datasets and so it is not worth putting too much effort into refining the gradient descent workflow, when the real need is for a workflow for SGD.</p>
+<hr />
+<hr />
+</div>
+<div id="appendix-code-changes" class="section level1">
+<h1>Appendix: Code Changes</h1>
+<p>The C code used in this post can be found on my GitHub pages as <code>cnnUpdate02.cpp</code>.</p>
+<p>I added options to <code>cfit_nn()</code> and <code>cfit_valid_nn()</code> to give the use the possibility to</p>
+<ul>
+<li>use of the zero-centred sigmoid<br />
+</li>
+<li>report the loss to a specified schedule<br />
+</li>
+<li>use scheduled step length reduction<br />
+</li>
+<li>automatically halve the step length if the loss increases<br />
+</li>
+<li>calculate the test loss to a specified schedule<br />
+</li>
+<li>stop early when changes in the training loss are small</li>
+</ul>
+<p>The C function <code>Lin()</code> returns the number of inputs to the node served by each weight.</p>
+</div>
