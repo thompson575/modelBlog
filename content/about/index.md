@@ -1,5 +1,5 @@
 ---
-date: "2021-07-24"
+date: "2023-10-19"
 title: About
 ---
 
@@ -18,3 +18,5 @@ img="john01.png"
 caption="The author on a good day." 
 command="Resize" 
 options="200x" >}}
+
+This blog connects to r-bloggers, which can be found at https://www.r-bloggers.com/
