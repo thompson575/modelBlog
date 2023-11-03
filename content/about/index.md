@@ -19,4 +19,3 @@ caption="The author on a good day."
 command="Resize" 
 options="200x" >}}
 
-This blog connects to r-bloggers, which can be found at https://www.r-bloggers.com/

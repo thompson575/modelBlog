@@ -46,3 +46,6 @@ menu:
     - name: RSS
       url: /index.xml
       weight: 4
+    - name: Links
+      url: /links/
+      weight: 5
