@@ -1,0 +1,309 @@
+---
+title: "Neural Networks: Regularisation and overfitting"
+author: "John Thompson"
+date: "2024-02-14"
+layout: post
+categories:
+- neural networks
+- regularisation
+- overfitting
+- over-parameterisation
+- model complexity
+- priors
+- L2 penalty
+- L1 penalty
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+<script src="/rmarkdown-libs/htmlwidgets/htmlwidgets.js"></script>
+<script src="/rmarkdown-libs/viz/viz.js"></script>
+<link href="/rmarkdown-libs/DiagrammeR-styles/styles.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/grViz-binding/grViz.js"></script>
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>In this series of posts, I am trying to discover how best to use neural networks on tabular data by experimenting with small simulated datasets. So far, I have</p>
+<ul>
+<li><a href="https://modelling-with-r.netlify.app/02methods_nn_rcode/">written R code for fitting a neural network by gradient descent</a><br />
+</li>
+<li><a href="https://modelling-with-r.netlify.app/03methods_nn_ccode/">used Rcpp to convert the R code to C for increased speed</a></li>
+<li><a href="https://modelling-with-r.netlify.app/04methods_nn_pictures/">pictured gradient descent search paths</a><br />
+</li>
+<li><a href="https://modelling-with-r.netlify.app/05methods_nn_test_data/">used neural networks to simulate datasets for use in my experiments</a><br />
+</li>
+<li><a href="https://modelling-with-r.netlify.app/06methods_nn_scaling/">made some tentative first steps towards a workflow</a></li>
+<li><a href="https://modelling-with-r.netlify.app/07methods_nn_crossvalidation/">considered the pros and cons of cross-validation</a><br />
+</li>
+<li><a href="https://modelling-with-r.netlify.app/08methods_classification/">extended the workflow to include classification problems</a></li>
+</ul>
+<p>This time I investigate two related topics that are fundamental to machine learning, but which are usually treated in a hand-wavy way, namely overfitting and regularisation.</p>
+</div>
+<div id="what-exactly-is-regularisation" class="section level1">
+<h1>What exactly is regularisation?</h1>
+<p>When I started to read the literature on machine learning, the concept that caused me the most difficulty was <strong>regularisation</strong>. It is not that the ideas were new to me, they are all well-established in statistics, it is more that in machine learning the term seems to change its meaning to suit the needs of the author. As with so many concepts in machine learning, regularisation is assumed rather than defined.</p>
+<p>I suspect that the root cause of the lack of clarity is that the term regularisation is used to refer to <strong>three distinct issues</strong> relating to the minimisation of the training loss of a flexible model.</p>
+<ol style="list-style-type: decimal">
+<li>a model with a very low training loss, often predicts poorly on new data<br />
+</li>
+<li>the minimisation is often be ill-posed, so that there are many equivalent solutions, i.e. there can be very different models with the same low training loss<br />
+</li>
+<li>standard loss functions depend on the difference between a measured response and a predicted response, they make no adjustment for the complexity of the model that produces the prediction</li>
+</ol>
+<p>The first of these issues is sometimes called <strong>overfitting</strong>. So, for some people, regularisation is anything that reduces overfitting. Of course, this begs the question, what exactly is overfitting?</p>
+<p>The second issue relates to the efficiency of the algorithm. When there are many equivalent solutions, the algorithm may travel between them and find it difficult to settle on any one.</p>
+<p>The third issue is perhaps the most challenging. Occam’s razor, says that when you have two competing explanations, prefer the simpler. I think that most data analysts would be happy to extend this idea and say that, if you have two competing models that predict equally well, prefer the simpler. There is less to go wrong with a simple model and when something does go wrong, it is easier to spot. Unfortunately, this leaves us with an even more difficult question, how do you measure model complexity?</p>
+</div>
+<div id="overfitting" class="section level1">
+<h1>Overfitting</h1>
+<div id="five-challenging-questions" class="section level3">
+<h3>Five Challenging Questions</h3>
+<p>The machine learning literature is just as vague about overfitting as it is about regularisation. Everyone knows what it means (in a hand-wavy way), so why define it?</p>
+<p>You probably already have a general idea of what overfitting is, so let’s test your understanding with these five questions.</p>
+<ol style="list-style-type: decimal">
+<li>Is overfitting a property of an algorithm or a property of a model?<br />
+</li>
+<li>If the training data change, will that affect whether a model/algorithm overfits?</li>
+<li>Is the training loss of an overfitting model/algorithm always lower than its expected (test) loss?<br />
+</li>
+<li>If the test loss along an algorithm’s search path starts to increase, is the model/algorithm overfitting?</li>
+<li>Does a model/algorithm overfit if there is an alternative model/algorithm with fewer parameters that has the same training loss?</li>
+</ol>
+<p>Here are <strong>my answers</strong> to these questions. They summarise an opinion, so you might not agree.</p>
+<ol style="list-style-type: decimal">
+<li>Overfitting is a property of the model and not the algorithm. How you come up with that model is irrelevant to whether or not it overfits</li>
+<li>Yes, changing the data affects overfitting. Overfitting depends on both the model and the training data<br />
+</li>
+<li>Probably, but not in every case, as I will show shortly</li>
+<li>Overfitting is not a property of the algorithm, so the search path is irrelevant.</li>
+<li>No, this question refers to model complexity not overfitting. Incidentally, the number of parameters is a poor measure of model complexity.</li>
+</ol>
+</div>
+<div id="one-challenging-example" class="section level3">
+<h3>One Challenging Example</h3>
+<p>Figure 1 is designed to challenge your concept of overfitting. It shows two models fitted to the same red training data, one model is in blue and the other is in green. The question is, which of the models overfits?</p>
+<p>In the figure, the training data vary randomly about the points where the curves cross. So, as the red line shows, the distance between the training value and the prediction according to the green curve is also the distance between the training value and the prediction of the blue curve. Judged by any reasonable loss function, the two models are equally close to the training data, i.e. they have exactly the same training loss.</p>
+<p><img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-1-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>Not unreasonably, you probably think that the blue curve in figure 1 is overfitting, but perhaps the test data wiggle like the blue curve and the green curve underfits. Belief that it is the blue curve that overfits comes not from these data, but from your experience of data analysis; the green pattern is much more common and of course, it has the advantage of being simpler.</p>
+</div>
+<div id="my-definition-of-overfitting" class="section level2">
+<h2>My definition of overfitting</h2>
+<p>Having criticised the machine learning literature for its vagueness, I have no option but to describe my own understanding of overfitting, regularisation and model complexity. I’ll start with overfitting, knowing that this will not be easy and that any definition that I propose will have its own weaknesses and it will probably irritate some people, but at least I am going to try.</p>
+<div id="a-diagram-showing-overfitting" class="section level3">
+<h3>A Diagram showing overfitting</h3>
+<p>I will base my definition on a plot of expected loss against training loss of the type that I introduced in my earlier <a href="https://modelling-with-r.netlify.app/04methods_nn_pictures/">post on search paths</a>. It is meant to be a diagrammatic representation, not an exact plot.</p>
+<p>Every model with fully specified parameter values has an expected loss and a training loss, so it can be plotted as a point in the diagram. It is possible that two different models, e.g. neural networks with different weights and biases, might have the same losses and so be represented by the same point.</p>
+<p>Figure 2 shows the model space for a particular analysis by the red parabolic shape, perhaps it might include all possible (4, 5, 2) neural networks. The best possible model within the chosen family is the one with the lowest expected loss and it is represented by a red dot.</p>
+<p><img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-2-1.png" width="768" style="display: block; margin: auto;" /></p>
+<p>Here is my definition,</p>
+<p style="margin-left: 50px; margin-right: 50px; center;">
+<strong>a model overfits if it has a training loss that is smaller than the training loss of the best model in the family and it underfits if its training loss is larger than that of the best model</strong>
+</p>
+<p>In the diagram, the blue dot represents an example of an overfitting model and the green dot represents a model that underfits.</p>
+<p>Notice that I have deliberately chosen to define overfitting without reference to the model’s expected loss. If you don’t like my approach, this choice is probably at the heart of our disagreement. The diagonal line shows equality between the expected loss and the training loss, so an overfitting model can have a training loss that is larger than the expected loss (below the line of equality) or it can be smaller (above the line).</p>
+<p>In figure 2, the overfitting model is less than ideal (i.e. its expected loss is above the minimum), because it has started to follow the noise in the training data, while the underfitting model is less than idea because it has not adequately captured the trend common to all data from that source. Importantly, I have chosen my examples of overfitting and underfitting models to have exactly the same expected loss. This means that their predictive performance will be the same. <strong>It is not overfitting that you want to avoid, rather you want to avoid models with a large expected loss</strong>.</p>
+<p>Let me acknowledge a limitation of my definition. In practice, we will not know the form of the best model in the family, so we will not know its training loss and we will not be able to test for overfitting. I’ll return to this issue shortly.</p>
+</div>
+</div>
+<div id="overfitting-and-an-algorithms-search-path" class="section level2">
+<h2>Overfitting and an algorithm’s search path</h2>
+<p>When we fit a neural network to a set of training data by gradient descent, we chose random starting values and then improve the training loss in small steps. These steps correspond to movements to the left in my diagram. Unless you employ an early stopping rule, the algorithm will stop when it either reaches a local minimum of the training loss, or when it finds the global minimum.</p>
+<p>In figure 3, the path taken by the algorithm is shown as a brown dotted line and the point along the path with the minimum expected loss is the model that you would ideally likely to choose and it is shown as a dark green dot. I’ll refer to it as the best fitted model. It so happens that for this algorithm and these starting values, the best fitted model underfits the data.</p>
+<p><img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-3-1.png" width="768" style="display: block; margin: auto;" /></p>
+<p>Having visited the model with the minimum expected loss, the algorithm continues to reduce the training loss, but the expected loss increases. For a while, the models on the search path in figure 3 continue to underfit the data, but by the time that the algorithm converges to a local minimum, the models are overfitting.</p>
+<p>Clearly, you could have a combination of algorithm and starting values for which the algorithm only ever visits underfitting models, or a combination that only ever visits overfitting models.</p>
+<p>Maybe you have run many different algorithms from different starting values and you believe that the best of all of your chosen models is close to the best possible model for that family. In these circumstances, you could use the training loss of the best fitted model as an approximate threshold for judging overfitting.</p>
+</div>
+</div>
+<div id="regularisation" class="section level1">
+<h1>Regularisation</h1>
+<p>Because regularisation relates to overfitting, ill-posed minimisation and model complexity, I am reluctant to define it in terms of overfitting alone. Instead, my definition is,</p>
+<p style="center;">
+<strong>regularisation is the use of external information to restrict the model space</strong>
+</p>
+<p>By external information, I mean anything other than the training data. Examples relevant to a⌈ neural network include,</p>
+<ul>
+<li>you believe that the weights of the fitted model will be under 5 in magnitude<br />
+</li>
+<li>you believe that the fitted curve will not be as wavy as the blue curve in figure 1<br />
+</li>
+<li>you believe that a high proportion of the weights will be zero</li>
+</ul>
+<p>Figure 4 shows a diagrammatic representation of a restriction of the model space. The algorithm is limited to considering models within the brown ellipse. Clearly, it is possible to impose restrictions that concentrate the search close to the Best Model, or to choose the restrictions poorly and pull the search away from the Best model. It all depends on the quality of the external information.</p>
+<p>Unlike overfitting, which is a property of a model, <strong>regularisation is a constraint on the algorithm</strong>.</p>
+<p>Bear in mind that restrictions are rarely as absolute as the one shown in figure 4 where models outside the brown ellipse are ruled out entirely. It is much more common to apply some form of weighting, so that particular models are not ruled out, but instead they become less likely to be visited by the algorithm.</p>
+<p><img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-4-1.png" width="768" style="display: block; margin: auto;" /></p>
+</div>
+<div id="ill-posed-minimisation" class="section level1">
+<h1>Ill-posed minimisation</h1>
+The simplest regression neural network has one input X, one hidden node and one output, <span class="math inline">\(\mu\)</span>, that predicts the response Y. Such a neural network is shown below
+<center>
+<div class="grViz html-widget html-fill-item-overflow-hidden html-fill-item" id="htmlwidget-1" style="width:480px;height:288px;"></div>
+<script type="application/json" data-for="htmlwidget-1">{"x":{"diagram":"\ndigraph dot {\n\ngraph [layout = dot,\n       title = \"A (1, 1, 1) Neural Network\",\n       rankdir = LR]\n\nnode [shape = circle,\n      style = filled,\n      color = black,\n      width = 2,\n      label = \"\"]\n\nnode [fillcolor = mistyrose]\na [label = \"X\"] \nb  [label = \"A = σ(w1*X+b1)\"]\nc  [label = \"μ = w2*A+b2\"]\n\nedge [color = black]\na -> b\nb -> c\n\n}","config":{"engine":"dot","options":null}},"evals":[],"jsHooks":[]}</script>
+</center>
+<p>In this picture the input, X, is multiplied by the weight <span class="math inline">\(w_1\)</span>, the bias <span class="math inline">\(b_1\)</span> is added and then the combination is passed through an activation function <span class="math inline">\(\sigma()\)</span>. The result A is multiplied by weight <span class="math inline">\(w_2\)</span> and bias <span class="math inline">\(b_2\)</span> is added to get the prediction, <span class="math inline">\(\mu\)</span>.</p>
+<p>With a sigmoid activation function, the central part of the sigmoid curve is almost linear with a slope of 1/4, so provided we stay within that region the prediction will take the form
+<span class="math display">\[
+  \mu \approx w_2 \frac{w_1 \ X + b_1}{4} + b_2 = \frac{w_2 \ w_1 \ \ X}{4} + \frac{4 b_2 + w_2 \ b_1}{4}
+\]</span></p>
+<p>If the true relationship is, say, 2X+1 then we just need to make <span class="math inline">\(w_2 w_1 = 8\)</span> and <span class="math inline">\(w_2 b_1 + 4b_2 = 4\)</span>. There are no end of possible solutions; <span class="math inline">\(w_2\)</span>=1, <span class="math inline">\(w_1\)</span>=8, <span class="math inline">\(b_1\)</span>=1, <span class="math inline">\(b_2\)</span>=0 or <span class="math inline">\(w_2\)</span>=2, <span class="math inline">\(w_1\)</span>=4, <span class="math inline">\(b_1\)</span>=1, <span class="math inline">\(b_2\)</span>=-1/4 etc. etc.</p>
+<p>Set an algorithm to estimate the weights and biases and there will be a danger of it flipping forever between equivalent solutions and even if it does settle, there is no knowing which solution the algorithm choose. Of course, there is a sense in which it does not matter which solution you get; they may look different, but their predictions will be the same.</p>
+<p>The real problem is the difficulty that an algorithm has in settling on one solution when there are so many to choose from. To make matters worse, these solutions are not discrete and well separated. If <span class="math inline">\(w_2\)</span>=1, <span class="math inline">\(w_1\)</span>=8 is a solution, then so is <span class="math inline">\(w_2\)</span>=1.001, <span class="math inline">\(w_2\)</span>=7.992; the solutions form long flat bottomed gorges through the loss surface. The algorithm may find it easy to drop into a gorge, but then it will move backwards and forwards along the bottom without ever finding a unique solution.</p>
+<p>Larger neural networks have a second problem, they have many symmetries. Take a (1, 2, 1) algorithm as a simple example and swap the weights and biases between the two hidden nodes; the predictions will be unchanged. Symmetries are usually less of a problem, because the equivalent solutions are likely to be well separated in the space of the parameters and although we cannot tell which solution the algorithm will settle on, at least it is unlikely to flip from one to another.</p>
+<p>To overcome these problems and make the solution unique, we need to supply the algorithm with external information that ranks the many possible solutions. <strong>This information will be external to the training data and it will restrict the model space, i.e. it will regularise the algorithm.</strong></p>
+</div>
+<div id="model-complexity" class="section level1">
+<h1>Model complexity</h1>
+<p>Let’s return to the example shown in figure 1 with its blue and green curves that have exactly the same training loss and suppose that the green curve is close to the truth, that is, it a good approximation to the best model in the family. Figure 5 represents the two models with their equivalent training losses. The assumption here is that we are using a neural network architecture that is complex enough to capture both curves, perhaps we played safe and used the (1, 20, 20, 1) family of neural networks.</p>
+<p><img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-6-1.png" width="768" style="display: block; margin: auto;" /></p>
+<p>Both models have the same training loss, but the blue model would predict poorly with new data and so has a much larger expected loss. As I have drawn it, both models slightly overfit this particular set of training data (by my definition).</p>
+<p>An algorithm that seeks to minimise the training loss would have no reason to prefer the green model over the blue model. Preference for the green model is based on external information. The way to ensure that the algorithm picks the green curve is to restrict the model space perhaps by,</p>
+<ul>
+<li>down-weighting wavy models i.e. models with large second derivatives<br />
+</li>
+<li>down-weighting complex models</li>
+</ul>
+<p>In this context, what is meant by a complex model? Both curves are based on the same neural network architecture, so they have access to the same number of parameters. The difference is that to get the shape of the blue curve you will need to use all available weights and biases, but you could get the green curve or something very close to it, even if you set many of the weights and biases to zero i.e. the green curve does not need such a complex architecture.</p>
+<p>In this case, we could get the algorithm to favour the simpler solution by placing a restriction on the model space that encourages zero weights and biases. The justification for this restriction would be a belief that the truth will be simple, this belief is external to the data, so it would be the basis of a form of regularisation.</p>
+<p>The research literature is full of suggestions of ways to measure complexity, but most of them are themselves complex and they would be difficult to use within a search algorithm. In contrast, encouraging zero weights turns out to be simple to implement, as we will see shortly.</p>
+</div>
+<div id="types-of-regularisation" class="section level1">
+<h1>Types of regularisation</h1>
+<p>The classic way to regularise is to add a penalty term to the loss function that down-weights some models and encourages others. In my opinion, this is the best method, because it is <strong>explicit</strong>, which means that you can see clearly which models are favoured and other people can judge whether your chosen regularisation is sensible. Remember, regularisation uses external information and so, it almost always involves an element of subjectivity.</p>
+<p>Penalty terms that depend explicitly on the parameters are particularly easy to use in gradient descent as the derivative of the penalty with respect to each parameter is simply added to the derivative of the basic loss.</p>
+<p>Some machine learning techniques regularise as a by-product; this is sometimes called <strong>implicit</strong> regularisation. A good example of this is early stopping. You might believe that if you run gradient descent to convergence of the training loss, you will eventually visit models that overfit. Loosely speaking, you imagine the models becoming too wavy as they capture random fluctuations in the training data. Stopping before convergence will shorten the search path and avoid such models.</p>
+<p>The external information in early stopping comes from your knowledge about the way that the gradient descent algorithm works. The weakness of this approach is its indirectness. It is hard to justify one early stopping rule over another and it is difficult to relate a chosen rule to the set of models that are avoided.</p>
+<p>Other methods of implicit regularisation. That is to say, methods that have regularisation as a side-effect include,</p>
+<ul>
+<li>data augmentation, artificially manufacturing more training data<br />
+</li>
+<li>averaging over multiple models<br />
+</li>
+<li>drop-out (randomly dropping nodes from a neural network)<br />
+</li>
+<li>model simplification/pruning/selection</li>
+</ul>
+<p>Implicit regularisation is often easy to implement, but difficult to control. In my opinion, it is far better to impose restrictions in an explicit way.</p>
+</div>
+<div id="explicit-regularisation-with-a-prior" class="section level1">
+<h1>Explicit Regularisation with a Prior</h1>
+<p>Suppose that I want to regularize a neural network by down-weighting very large weights and biases. I’ll refer to the biases in my explanation, but the same argument would apply to the weights.</p>
+<p>Suppose that I take the view that biases are unlikely to be over 5 in magnitude, larger biases would force the linear predictor into the tails of a sigmoid activation function, where all inputs would be converted to more or less the same output. However, I am reluctant to rule out larger biases completely; after all, unexpected things do happen. In a Bayesian analysis, I might quantify this belief by placing a Gaussian prior on each of the biases, <span class="math inline">\(\beta_i\)</span>, say,
+<span class="math display">\[
+\beta_i \sim \text{N}(0, \text{sd}=\sigma_\beta) \ \ \ \ i=1,\dots,m
+\]</span>
+with <span class="math inline">\(\sigma_\beta\)</span> equal to say, 2 or 2.5.</p>
+<p>In a neural network the parameters are estimated my minimising a loss function that is typically chosen to have the form of minus twice a log-likelihood to which minus twice the log of the Gaussian prior would be added to obtain something within an additive constant of the log posterior. Assuming that you have no preference for positive biases over negative biases, the component of minus twice the log of the Gaussian prior that depends on <span class="math inline">\(\beta\)</span> is,
+<span class="math display">\[
+\frac{1}{\sigma_\beta^2}\sum_{i=1}^m \beta_i^2
+\]</span></p>
+<p>If you are uncomfortable with assigning a value to <span class="math inline">\(\sigma_\beta\)</span>, then you might write the penalty as
+<span class="math display">\[
+\lambda\sum_{i=1}^m \beta_i^2
+\]</span>
+and then the value of <span class="math inline">\(\lambda\)</span> could be determined by hyperparameter tuning, perhaps by using cross-validation. This function is often referred to as the L2 penalty.</p>
+<p>In much the same way, a Laplace prior leads to the L1 penalty,
+<span class="math display">\[
+\lambda\sum_{i=1}^m |\beta_i|
+\]</span>
+The Laplace prior has the form
+<span class="math display">\[
+p(\beta) = \frac{1}{\sqrt{2} \sigma_\beta} exp \left\{ -\frac{\sqrt{2}| \beta - \mu_\beta |}{\sigma_\beta} \right\}
+\]</span>
+This distribution has longer tails and is shown in figure 2. A Laplace(0, <span class="math inline">\(\sigma_\beta\)</span>) prior is appropriate if you believe that most of the biases will be close to zero with a few large biases. In figure 2 a standard normal distribution is shown as a dashed line for comparison.</p>
+<p><img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-7-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>A uniform prior, say U(-5, 5), is flat so it treats all biases in this range as equally likely. The penalty is a constant and does not affect the minimisation of the loss. However, biases outside (-5, 5) are deemed impossible, so the loss would be minimised over the restricted range.</p>
+<div id="selecting-lambda" class="section level3">
+<h3>Selecting lambda</h3>
+<p>In the C code available on my GitHub pages, the loss and its derivatives for flexible regression models are based on the sum of squared errors, although the mean square error is returned as the <code>lossHistory</code>. On this scale, the value of lambda is the ratio of the variance of the training data about the model and the variance of the prior on the model parameters, i.e. <span class="math inline">\(\lambda=\sigma_y^2/\sigma_\beta^2\)</span>.</p>
+<p>An approximate value for <span class="math inline">\(\sigma_y\)</span> can be obtained by running the gradient descent algorithm without any penalty and using the root mean square error or even by running linear regression on the features. <span class="math inline">\(\sigma_\beta\)</span> expresses your personal belief about the sizes of the parameters. If you are unsure as to the magnitude of the parameters, then you could make this value very large, in which case <span class="math inline">\(\lambda\)</span> will be close to zero and the penalisation would have very little impact. Making <span class="math inline">\(\sigma_\beta\)</span> large will not force the parameters to be large, the analysis learns about the parameters from the training data, all that large <span class="math inline">\(\sigma_\beta\)</span> says is that you have no external information to make you prefer small parameters over large ones. In contrast, a small value for <span class="math inline">\(\sigma_\beta\)</span> (large <span class="math inline">\(\lambda\)</span>) means that you have reason to expect the parameters to be close to zero, this will have the effect of restricting the algorithm to parameters that are smaller than the data alone would suggest. Reducing the size of the parameters will tend to make the model smoother and less wavy.</p>
+<p>It is my practice to scale the response variable so that most of its values lie in the interval (-5, 5). This corresponds to the interval in which I would probably expect the biases to lie. Consequently, in problems where the features are poor predictors, with my C code <span class="math inline">\(\lambda=1\)</span> is often a good choice for the penalty. If the model explains half of the variance then <span class="math inline">\(\lambda=0.5\)</span> would be a better guess.</p>
+<p>Some data scientists rely heavily on hyperparameter tuning. Essentially, they try many different values of <span class="math inline">\(\lambda\)</span> and select the best according to some criterion, usually based on cross-validation. I am not keen on hyperparameter tuning. The variance in cross-validation and related methods is usually so large that picking the best value for the hyperparameter is akin to buying a lottery ticket, so hyperparameter tuning gives a false sense of security. In my experience, small differences in lambda make very little difference to the final model and meaningful differences in lambda can be judged subjectively.</p>
+</div>
+</div>
+<div id="the-wave" class="section level1">
+<h1>The wave</h1>
+<p>In some of my earlier posts, I have analysed simulated data with a pattern that I call a wave. The generating curve and a set of 100 training values is shown in figure 7.</p>
+<p><img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-8-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>Figure 8 shows the history of the MSE of a gradient descent algorithm with robustly scaled data and no regularisation penalty when it is used to fit a (1, 8, 1) neural network to these training data.
+<img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-9-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>So the MSE of the fitted model is about 2.5.</p>
+<p>Figure 9 shows the fitted model superimposed on the training data</p>
+<p><img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-10-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The fitted biases of the 8 hidden nodes and 1 output node are</p>
+<pre><code>## [1]   6.00 -13.92   2.42  -0.76  -0.80   3.85   8.67   7.37</code></pre>
+<p>The weights are</p>
+<pre><code>##  [1]   2.60  24.07   4.61 -28.82  -9.35  -0.12  20.22   6.11  -4.72 -13.57
+## [11]   5.53  13.43 -11.82  -2.05  -9.18  -2.59</code></pre>
+<p>The first 8 weights connect the input, X, to the hidden nodes and the next 8 weights connect the hidden nodes to the output, Y.</p>
+<p>We might take the view that this model is too wavy and that it probably overfits. Of course, you must reach this conclusion based on external information, because in practice, you will not know the true shape of the wave. Anyway, you might decide to limit the sizes of the weights and biases. The model produced without penalisation has parameters between about -25 and 25, an approximate standard deviation of 10. Let’s assume that you decide that -10, 10 is a more reasonable range, a standard deviation of about 5. So lambda for the L2 penalty should be roughly <span class="math inline">\(2.5/5^2=0.1\)</span>.</p>
+<p>Figure 10 shows the pattern of reduction of the penalised loss (MSE+Penalty) and the MSE component of the loss. The MSE of the unpenalised analysis is shown for comparison.</p>
+<p><img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-13-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The MSE component of the loss now drops to 2.9, while the total penalised loss drops to 4. The training MSE is not as low as before meaning that the curve will less closely follow the training data.</p>
+<p>The new biases are</p>
+<pre><code>## [1]  0.00 -3.71  0.31 -0.50 -1.00  0.00  5.92  0.01</code></pre>
+<p>and the new weights are</p>
+<pre><code>##  [1]   0.00   6.91   5.87 -19.62  -7.24   0.00  12.87   0.03   0.00  -5.85
+## [11]   6.04  11.23  -7.38   0.00 -10.21   0.03</code></pre>
+<p>These values are broadly in line with what I intended. In figure 11, the new fitted curve is shown in purple, with the unpenalised curve is in brown. The penalised algorithm does produce a slightly less wavy curve.
+<img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-16-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The test MSE of the predictions from the unpenalised model is 79.204 while for the penalised model the test MSE is 82.182, which means that penalisation has made the test performance slightly worse.</p>
+<p>For comparison, I will also try L1 penalisation. In an attempt to make the effect dramatic, I opted for a large value of lambda and ran the algorithm with <span class="math inline">\(\lambda=1.45\)</span>.</p>
+<p><img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-17-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The new biases are</p>
+<pre><code>## [1]  0.00  0.00  0.00 -0.29  0.00  0.00  7.82  0.00  1.62</code></pre>
+<p>and the new weights are</p>
+<pre><code>##  [1]   0.00   0.00   0.00 -25.98   0.00   0.00  15.93   0.00   0.00   0.00
+## [11]   0.00   4.41   0.00   0.00  -5.35   0.00</code></pre>
+<p>The Laplace has had the desired effect of making most of the weights and biases zero. In fact only, nodes 4 and 7 are used at all to create the fitted curve and we might just as well have used a neural network with a (1, 2, 1) architecture. Figure 13 shows the L1 fit with the L2 fit and unpenalised fit for comparison.
+<img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-20-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The test MSE for the L1 penalised model is 96.507. In this example, it looks as though L1 penalisation has over-done the damping of the curve, but I did try for a dramatic effect.</p>
+</div>
+<div id="a-massively-over-parameterised-model" class="section level1">
+<h1>A massively over-parameterised model</h1>
+<p>In this section, I fit a (1, 10, 10, 10, 1) neural network to the same set of training data. This model has 251 parameters, more than there are points in the training data (100). I fitted by gradient descent with one million iterations and a step length that started at 0.1 and dropped by 10% every 50,000 iterations. Figure 14 shows a plot of the resulting fit.
+<img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-21-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>At last we have a real candidate for regularisation. I used L2 regularisation with lambda = 0.1. As we saw previously, this is roughly equivalent to a variance of 25 for the parameters, that is to say, a standard deviation of 5, or most weights in the range (-10, 10). The algorithm was again run for one million iterations. Figure 15 shows the resulting fit.
+<img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-22-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The effect is remarkable. Figure 16 shows a histogram of the 220 weights for the models with (dark blue) and without (light blue) L2 penalisation.
+<img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-23-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>Figure 16 shows the reduction in the loss; there is not much changes after about 100,000 iterations. The MSE component flattens out at about 2.6 quite close to the MSE of the unpenalised NN(1, 8, 1). Interestingly, the test MSE is 77.202, which is better than any of the other models tried so far.
+<img src="/post/neural_networks/10methods_nn_regularisation_files/figure-html/unnamed-chunk-24-1.png" width="672" style="display: block; margin: auto;" /></p>
+</div>
+<div id="conclusions" class="section level1">
+<h1>Conclusions</h1>
+<p>Here are the points that I take from this investigation</p>
+<ul>
+<li>the machine learning literature needs to be clearer about its terminology<br />
+</li>
+<li>you might not like my definitions but at least I have tried</li>
+<li>regularisation is not just about overfitting<br />
+</li>
+<li>we should embrace the subjectivity in our data analyses and be proud of using external information<br />
+</li>
+<li>when we use external information or extra assumptions, we need to be explicit<br />
+</li>
+<li>regularisation is essential when a model is ridiculously over-parameterised<br />
+</li>
+<li>it is not good practice to use ridiculously over-parameterised models</li>
+</ul>
+<hr />
+<hr />
+</div>
+<div id="appendix-code-changes" class="section level1">
+<h1>Appendix: Code Changes</h1>
+<p>The C code used in this post can be found on my GitHub pages as <code>cnnUpdate03.cpp</code>.</p>
+<p>I added options to <code>cfit_nn()</code> and <code>cfit_valid_nn()</code> to allow</p>
+<ul>
+<li>L1 and L2 regularisation<br />
+</li>
+<li>separate lambdas for weights and biases<br />
+</li>
+<li>other penalty functions by modifying the <code>cpenalty()</code> &amp; <code>cdpenalty()</code> functions</li>
+</ul>
+<p>I have removed the <code>etaAuto</code> option that reduced the step length when the loss increases. Experience showed that short periods of rising loss are often needed before the algorithm makes progress. <code>etaAuto</code> stopped the algorithm too soon. I need to find a way to make the automatic adjustment more intelligent.</p>
+</div>
