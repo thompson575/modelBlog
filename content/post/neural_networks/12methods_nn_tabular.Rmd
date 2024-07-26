@@ -1,0 +1,188 @@
+---
+title: "Neural Networks and Tabular Data"
+author: "John Thompson"
+date: "2024-07-26"
+layout: post
+categories:
+- neural networks
+- tree-based models
+- tabular data
+- preprocessing
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.align = 'center', warning = FALSE, message = FALSE,
+                      fig.height=5, fig.width=7)
+```
+
+```{r echo = FALSE}
+library(tidyverse)
+library(fs)
+library(fileArchive)
+library(gt)
+library(gtsummary)
+
+archive <- "C:/Projects/NeuralNets/Tabular/Data/Archive"
+
+```
+
+# Introduction
+
+In this series of posts, I am investigating how best to use neural networks to model tabular data by experimenting with small simulated datasets. So far, I have developed code for fitting a basic neural network (NN) in the form of a multilayer perceptron (MLP), and I have used that code to explore topics such as cross-validation, regularisation and stochastic gradient descent. The time is now right to test these methods on some real data.
+
+While my experience with simulated data has made me increasingly positive about the use of neural networks in data analysis, I am aware that many people have argued that, on tabular data, tree-based models are preferable to even the most modern neural networks. Although neural networks have had tremendous success at modelling complex data derived from language and images, conventional wisdom is that they struggle with smaller, less uniform datasets. 
+
+I should say at the outset that I have my doubts about the idea that tree-based models are inherently better than neural networks. Both methods create flexible high-dimensional regression models; trees give a histogram-like approximation to the response surface, while MLPs provide a smooth approximation. My personal experience of analysing medical data suggests that reality is usually smooth, so the MLPs ought to have a slight advantage. My expectation is that the analysis of real data will show tree-based models to be quicker to fit and easier to tune, but that used sensibly, MLPs will perform at least as well. 
+
+Before embarking on my own analyses of real data, I thought that I should review the literature on the relative performance of NNs and tree-based models to discover the reasons other people have given to explain the differences in their performance. This post contains that review and a brief introduction to **my own benchmarking of MLPs against XGBoost**. The full design and the results of my benchmarking will be described in future posts.
+
+Be warned, my literature review is not systematic, in fact it is very selective and extremely opinionated. I have cherry picked material that strikes me as important and where I disagree with the authors, I say so.
+
+# The Selected Articles
+
+There is a wealth of literature on the use of neural networks for tabular data, but most of the articles propose new methods based on complex neural network architectures, often involving transformers. This research is not relevant to my investigation of the performance of MLPs on tabular data, so I have decided to ignore it, at least for the time being, and instead to concentrate on four more general papers. Even these selected articles include some discussion of transformer-based models, so I will not try to cover all of their content. For a more comprehensive understanding, you should read the original articles.  
+
+The four papers that I have selected are,
+
+Borisov, V., Leemann, T., Seßler, K., Haug, J., Pawelczyk, M., & Kasneci, G. (2022).  
+**Deep neural networks and tabular data: A survey.**  
+IEEE Transactions on Neural Networks and Learning Systems.
+
+Grinsztajn, L., Oyallon, E., & Varoquaux, G. (2022).  
+**Why do tree-based models still outperform deep learning on typical tabular data?.**  
+Advances in Neural Information Processing Systems, 35, 507-520.
+
+McElfresh, D., Khandagale, S., Valverde, J., Prasad C, V., Ramakrishnan, G., Goldblum, M., & White, C. (2024).  
+**When do neural nets outperform boosted trees on tabular data?.**  
+Advances in Neural Information Processing Systems, 36.
+
+Kadra, A., Lindauer, M., Hutter, F., & Grabocka, J. (2021).  
+**Regularization is all you need: Simple neural nets can excel on tabular data.**   
+arXiv preprint arXiv:2106.11189, 536.
+
+# What is tabular data?
+
+The literal definition of tabular data is any data stored in tables or arrays. The problem with this definition is that with a little ingenuity any dataset can be organised into an array, which makes the definition unhelpful. 
+
+A more useful characteristic of tabular datasets is that they combine different types of measurement. Tabular data are usually presented as tables in which the rows represent units of measurement and the columns represent the different features. Those features are often measured on different scales, some numeric, some textual, some continuous, some ordinal, some categorical. It is the **heterogeneity** of the features that makes tabular data such a challenge.
+
+Although the heterogeneity of the features is the key distinguishing characteristic, there are a couple of other commonly observed qualities that make tabular data special. The first is **size**, tabular datasets tend to be relatively small. Of course, there are examples of massive tables of data, but they are the exception. A method of analysis that is advocated for tabular data needs to work when there are only a few thousand observations. The second common characteristic of tabular data is its **messiness**; pulling together different features often results in data errors. Perhaps, one of the features will contain missing values and another will include erroneously recorded values, then in the process of collation some observations might be duplicated while others are mistakenly omitted. Methods for tabular data need to be robust to such messiness.
+
+In summary, the three defining characteristics of tabular data are  
+
+- heterogeneity of the features  
+- the relatively small size of the training set  
+- messiness, which is to say, poor data quality
+
+# Lessons from the four papers
+
+## Borisov et al
+
+I'll start with the paper by Borisov and colleagues, because it provides a good overview of the problems that arise when using neural networks on tabular data. As I have done, the authors start by stressing heterogeneity as the defining characteristic of tabular data and then they divide their survey into five sections, a historical review of the literature, a description of some of the latest methods, a discussion of data generation, some comments on interpretability and finally a very small experimental study. As I have explained, I am not yet ready to discuss methods that depend on transformers and, in my opinion, Borisov's experimental study is too small to be reliable. So I am going to concentrate on their literature review, which contains more than enough material to get us started.
+
+Borisov and colleagues suggest four possible reasons why tabular data are a problem for neural networks. 
+
+1.  Low-Quality Training Data
+2.  Missing or Complex Irregular Spatial Dependencies
+3.  Dependency on Preprocessing
+4.  Importance of Single Features
+
+Low-quality training data is just a nicer way of saying that tabular data are often messy and this is exactly where I am inclined to look for reasons why XGBoost sometimes outperforms MLPs.  
+
+In contrast, I do not find their argument about the lack of spacial dependency to be convincing. Their point is that with text, there is dependency between one word and the next and in an image there is dependency between neighbouring pixels; tabular data usually lack this type of dependency which limits the type of neural network that can be used. With tabular data, there is no role for convolutional neural networks that average over neighbouring observations or recurrent neural networks that link successive items.
+
+It is true that tabular data are usually constructed from more or less independent observations, but this is not necessarily a weakness. A general rule is that there is more information in an independent sample than in a dependent sample of the same total size. What is true, is that spacial correlations in text and images are often quite strong and they help predictions within a unit of observation, as when we seek to predict the next word within a sentence. Such spacial correlations will be far less helpful when we seek to predict properties of the observational units themselves, as in a model that predicts whether a whole sentence expresses a positive or negative opinion. The authors' point about spacial dependency is obviously true, but I doubt whether it explains why XGBoost outperforms MLPs.
+
+If, as I suspect, MLPs are less robust than XGBoost to messiness in the data, then the authors' third point concerning preprocessing will be critically important. Preprocessing should clean the data to remove errors and then scale the features to make them easier for an MLP to use. I see preprocessing as an integral part of the workflow and I suggest that a great deal of thought should go into the design of an appropriate, preferably automated, form of data processing that can be used prior to MLP fitting.
+
+The "Importance of Single Features" is a poor title for the authors' fourth point, because within the text they conflate two similar, but separate problems. First, they note that NNs can be chaotic in the sense that changing the value of one critical feature can produce a radically different prediction, and second, they note that tree-based models are better at ignoring redundant, or non-informative features. Both points are true, but I suspect that it is the variable selection that is key. Every input fed into an MLP is used in the linear combinations, including those features that are unrelated to the outcome, while a tree-based model is free to select the features that it uses for splitting the training data and so it can ignore those that are redundant. High dependence on a single feature is likely to affect all methods of analysis, but trees benefit from built-in feature selection. 
+
+The next stage in Borisov's well-structured overview looks at published methods for handling the four issues mentioned above. They discuss
+
+1. Data transformation methods  
+2. Specialized architectures  
+3. Regularization models  
+
+Data transformation brings us back to preprocessing and although specialised NN architecture is a fascinating topic that I will return to in the future, it is not relevant at this stage. If you have read my post on regularisation then you will understand that the phrase "Regularization models" irritates me. Regularisation is a process that constrains the algorithm, not the model. That said, Borisov does have a serious point; it is possible that getting the right size of MLP is critical, but tricky, and that it is best to avoid the problem by using an overly large NN along with some form of regularisation. XGBoost is also over-parameterised, but perhaps the boosting provides an implicit regularisation that MLPs lack.
+
+## Grinsztajn et al
+
+Grinsztajn and colleagues' much quoted paper is based on a comprehensive benchmarking exercise in which they apply different machine learning techniques to 45 medium sized tabular datasets to produce either a classification or a regression model. Their tree-based learners include a random forest, a gradient boosted tree and everyone's favourite, XGBoost. The neural networks include a fairly basic MLP and three more complex architectures, FT-transformer, ResNet and Saint. In their benchmarking, each method undergoes extensive hyperparameter optimisation (HPO) taking thousands of hours of compute time.  
+
+Grinsztajn's results show that the tree-based methods consistently outperform the neural networks and not by trivial amounts. For classification problems the average test accuracy of NNs is typically around 75%, while optimised tree-based methods achieve around 90% accuracy. For regression problems the test R2 goes from 70%-80% for NNs to over 90% for tree-based models. XGBoost consistently ranked highly amongst the learners, while MLPs were consistently poor.
+
+Of particular interest to me is Grinsztajn and colleagues' interpretation of their own experiment. They suggest that their experiment provides evidence *against* two popular explanations for the better performance of tree-based models and they put forward three other reasons that might explain the difference in performance.
+
+Their first negative conclusion is that hyperparameter tuning does NOT explain the poor performance of NNs. They found that  whatever the HPO budget (in terms of allowed compute time) tree-based models outperform neural networks. Of course, it is much quicker to fit XGBoost than it is to fit an MLP, so in any given amount of compute time it will be possible to investigate a much wider space of XGBoost's hyperparameters. Despite this reservation, my feeling is that Grinsztajn and colleagues are right to say that hyperparameter optimisation is not an important reason for any difference between boosted trees and MLPs. HPO usually makes a marginal difference to performance.
+
+Grinsztajn's second negative conclusion is that categorical features are NOT responsible for the poor performance of NNs. They found that the difference in performance between tree-based models and NNs was similar whether or not the feature set included categorical variables. Personally I find this surprising as I often find that good encoding of categorical features is critical to performance.
+
+The first positive conclusion from Grinsztajn's benchmarking experiment is that NNs suffer because they are biased towards overly smooth solutions. As I have already said, I struggle to think of reasons why most "true" relationships would not be smooth, so this suggestion concerns me. 
+
+The second positive conclusion is that tree-based models perform better because uninformative features have a greater affect on NNs.  As the authors demonstrate, it is a simple matter to experimentally add uninformative features to a tabular dataset and watch the gap between tree-based models and neural networks grow. This, I find much easier to accept. 
+
+The final positive conclusion is that NNs suffer because they are invariant to data rotation while tree-based algorithms are not. I am not totally convinced, but let me try to describe their point. Imagine that the response depends on a single feature, now add some irrelevant features and rotate the data matrix. The true relationship is simple and it is in there somewhere, but searching for it will not be easy. NNs search over the original data and all of its rotated forms, while tree-based models are not rotationally invariant so only search the data as it is given. If the features as originally measured are meaningful, then NNs are at a disadvantage; they are looking for a needle in a much bigger haystack. 
+
+## McElfresh et al
+
+McElfresh and colleagues change the question slightly from **why** do boosted trees outperform neural nets on tabular data? to **when** do they? The authors run a benchmarking experiment on even more data and more algorithms than Grinsztajn and colleagues; 19 algorithms across 176 datasets. They then relate the differences in performance to characteristics of the datasets. The algorithms include many Gradient Boosted Decision Trees(GBDTs) and many types of NN.
+
+The authors say that **"While NNs are the best approach for a non-negligible fraction of the datasets in this study, we do find that GBDTs outperform NNs on average over all datasets"**. Sometimes NNs do better, but they are usually outperformed by GBDTs, a conclusion that is more or less consistent with the findings of Grinsztajn et al. The authors rank the performance of the algorithms and summarise the results in a series of league tables. Generally CatBoost and XGBoost top the table, NNs with complex architectures, such as ResNet and SAINT are close behind and MLPs do poorly. Let's take one example, Table 1 ranks 18 algorithms by classification accuracy on different datasets. Selecting a few algorithms from Table 1 for illustration, the mean ranks are, CatBoost 5.1, XGBoost 6.4, ResNet 6.9, SAINT 7.2, Linear Model 11.3, MLP 11.4. MLPs below linear models is a bit discouraging and rather puzzling.
+
+Their primary conclusion about the characteristics of datasets on which NNs struggle is that **"GBDTs are much better than NNs at handling skewed or heavy-tailed feature distributions and other forms of dataset irregularities"**, which returns us to the importance of data preprocessing. 
+
+## Kadra et al
+
+Kadra and colleagues start their paper with a widely quoted phrase that neatly sums up the reason for this whole area of research, **"Tabular datasets are the last “unconquered castle” for deep learning"**.
+
+In the paper, the authors describe yet another benchmarking study, this time of 40 tabular datasets. They analyse the data on a range of algorithms with both hyperparameter optimisation and a cocktail of 13 regularisation methods. The main idea of the paper is that if you get the right form of regularisation then a large MLP will perform very well and to demonstrate this they employ an algorithm that explores different combinations of regularisation methods in a way that is analogous to the optimisation of hyperparameters. Their conclusion is very strong, so I will quote it rather than write it in my own words.
+
+**"We empirically assess the impact of these regularization cocktails for MLPs on a large-scale empirical study comprising 40 tabular datasets and demonstrate that (i) well-regularized plain MLPs significantly outperform recent state-of-the-art specialized neural network architectures, and (ii) they even outperform strong traditional ML methods, such as XGBoost."**
+
+This would seem to suggest that basic MLPs are sufficient provided that they are large enough. I sympathise this conclusion, which is in line with my own prejudices, however the way that it is put is too strong even for me.
+
+
+# My Conclusions
+
+The four papers, when taken alongside others articles that I have read and my own experience lead me to two key ideas. Since they are unproven, I will call them my hypotheses.
+
+1. **there always exists an MLP that models data as well as the best XGBoost model, the problem is finding it**.
+
+2. **MLPs are less robust to messy data than is XGBoost, so preprocessing the data will make it easier to find the best MLP**.
+
+If, as I suspect, the best MLPs perform as well as XGBoost but are harder to find, compute time might be critical. Grinsztajn et al spent thousands of hours on hyperparameter optimisation and  Kadra et al's spent a lot of time optimising over a cocktail of regularisation methods; such brute force methods do not appeal to me, not least because I lack the computer power to implement them. My method of searching for a good MLP will need to be automatic, but not as computationally demanding and it will probably depend heavily on preprocessing the data.
+
+# The Plan for my benchmarking experiment
+
+**My plan is to conduct a benchmarking experiment to compare MLPs and XGBoost, running each with and without automatic preprocessing, in a simple 2x2 design.**
+
+I will discuss the form of the data preprocessing in my next post and at that point I will be in position to describe the design of the experiment in greater detail.
+
+___
+
+___
+
+___
+
+
+
+# Appendix: Topics covered in previous blog posts
+
+My earlier posts on neural networks have covered,  
+[R code for fitting a neural network by gradient descent](https://modelling-with-r.netlify.app/02methods_nn_rcode/),  
+[Rcpp to convert the R code to C for increased speed](https://modelling-with-r.netlify.app/03methods_nn_ccode/),  
+[picturing gradient descent search paths](https://modelling-with-r.netlify.app/04methods_nn_pictures/),  
+[using neural networks to simulate datasets for use in my experiments](https://modelling-with-r.netlify.app/05methods_nn_test_data/),  
+[first steps towards a workflow](https://modelling-with-r.netlify.app/06methods_nn_scaling/),  
+[the pros and cons of cross-validation](https://modelling-with-r.netlify.app/07methods_nn_crossvalidation/),  
+[extending the workflow to include classification problems](https://modelling-with-r.netlify.app/08methods_classification/),  
+[class assignment after classification](https://modelling-with-r.netlify.app/09methods_assignment/),  
+[regularisation and overfitting](https://modelling-with-r.netlify.app/10methods_nn_regularisation/),  
+[stochastic gradient descent](https://modelling-with-r.netlify.app/11methods_nn_stochastic/)  
+
+My blog includes posts on a range of other topics relating to statistical or machine learning data analysis in R. There was a series of posts using R to re-analyse data from a machine learning competition called Sliced, a series on Bayesian analysis in R and numerous single posts implementing particular types of analysis. Three R packages that feature repeatedly are targets, mlr3 and nimble.
