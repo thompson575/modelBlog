@@ -1,0 +1,390 @@
+---
+title: "Neural Networks: `TensorFlow` and `PyTorch` in R"
+author: "John Thompson"
+date: "2025-06-24"
+layout: post
+categories:
+- neural networks
+- Keras
+- TensorFlow
+- PyTorch
+- torch
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>Apologies for the long gap between posts.</p>
+<p>In this series, I am investigating how best to use artificial neural networks (ANNs) on tabular data and I am currently preparing a benchmarking experiment to compare multilayer perceptrons (MLPs) and XGBoost. In my last post, I reviewed some of the published literature on the performance of ANNs with tabular data and based on that review, I put forward two hypotheses that will underpin the benchmarking.</p>
+<ol style="list-style-type: decimal">
+<li><p><strong>There always exists an MLP that models data as well as the best XGBoost model, the problem is finding it</strong>.</p></li>
+<li><p><strong>MLPs are less robust to messy data than is XGBoost, so preprocessing the data will make it easier to find the best MLP</strong>.</p></li>
+</ol>
+<p>Admittedly these hypotheses still need refining to make them testable, but at least they give a sense of my direction of travel.</p>
+<p>At the outset of my investigation of neural networks, I decided to write my own code for the fitting. Not only did this force me to develop a deeper understanding of the algorithms, but it also gave me the flexibility to experiment with whatever modifications seemed important at the time. When using someone else’s software, there is always the danger that you will merely reproduce the coder’s thought processes.</p>
+<p>The downside of this independent approach is that my code is much less efficient than that used by most researchers and as a consequence I am limited to relatively small ANNs and small datasets. For the benchmarking, it would make sense to take advantage of one of the highly efficient R packages for fitting ANNs.</p>
+<p>In this post, I will first compare <code>TenssorFlow</code> with <code>Keras</code> in R with the use of <code>PyTorch</code> in R and, spoiler alert, I will argue that <code>PyTorch</code> is the better option. I’ll then prepare the ground for using <code>PyTorch</code> in my benchmarking experiment, by presenting the code needed to fit a MLP.</p>
+</div>
+<div id="calculation-and-interface" class="section level1">
+<h1>Calculation and Interface</h1>
+<p>Fitting a Neural Network involves alternation between a forward and a backward algorithm. In the forward pass, the input values are passed through the layers of the network to produce predicted outputs and their corresponding loss. In the backward pass, the derivatives of the loss are found with respect to each of the model parameters starting with the derivatives of the loss itself and working back towards the parameters of the input layer. The forward pass reduces to a series of matrix multiplications and the backwards pass repeatedly applies the chain rule for differentiation to obtain the successive derivatives. The heart of any neural network software will be highly efficient code for computing with matrices plus code for applying the chain rule over a complex series of calculations.</p>
+<p>While the forward calculation can be performed on matrices, it is sometimes more convenient to work with data in a three or higher dimensional array. In the jargon, an array with an arbitrary number of dimensions is known as a tensor, so the core code of an ANN library should be capable of tensor processing.</p>
+<p>The key to improving the speed of the code will be parallel computation, both passes rely on the repeated application of the same pattern of calculations over multiple layers, either working forwards or backwards. There is much to be gained by parallel processing using the cores of the CPU, but even more to gain by using a GPU (Graphical Processing Unit). While a CPU will have, at best, a few tens of cores, a GPU has thousands of much simpler processing units.</p>
+<p>On top of a tensor processing library, we will also need an interface in the form of software that is able to take the description of a neural network and turn it into a series of calls to the tensor processing library.</p>
+</div>
+<div id="tensorflow-with-keras-in-r" class="section level1">
+<h1><code>TensorFlow</code> with <code>Keras</code> in R</h1>
+<p>In 2015, Google released a computational library called <code>TensorFlow</code>. As the name suggests, <code>TensorFlow</code> is a program for computing with tensors, i.e. multi-dimensional arrays. The algorithms that it uses are highly efficient and fast. <code>TensorFlow</code> will parallelise calculations and can use a GPU, if one is available. <code>TensorFlow</code> could be used for any array processing problem, but it has found its main applications in Machine Learning (ML), particularly deep learning and the fitting of ANNs. Indeed, it is now marketed as a tool for ML, even though it is more general.</p>
+<p><code>TensorFlow</code> works by organising the required array computations into a graph and then repeatedly computing over that graph. One big advantage of this structure is that it simplifies backpropagation of the derivatives of the loss; the chain rule is applied working backwards through the graph from loss to inputs.</p>
+<p>Google provides several Application Programming Interfaces (APIs) that enable the user to specify their particular problem to <code>TensorFlow</code>. <code>Keras</code> is the high level API for specifying ANNs. <code>Keras</code> was first released at the same time as <code>TensorFlow</code> and has been under continual development ever since, of particular note is the release of <code>Keras 3.0.0</code> in November 2023. <code>Keras3</code> was a full rewrite of <code>Keras</code> which included the ability to to farm out the computation to packages other than <code>TensorFlow</code>. The current release (June 2025) is <code>Keras</code> 3.10</p>
+<p>There is no R package for working directly with <code>Keras</code> or <code>TensorFlow</code>, but there are <code>python</code> packages that will do the job. R users have the <code>reticulate</code> package for communicating between R and python and thus they can indirectly use <code>Keras</code> and <code>TensorFlow</code>.</p>
+</div>
+<div id="pytorch-in-r" class="section level1">
+<h1><code>PyTorch</code> in R</h1>
+<p><strong>Torch</strong> is an open source library for computing with multi-dimensional arrays (tensors), it is fast and includes GPU acceleration. The original code was written in C with an interface written in the scripting language, <code>Lua</code>. <code>Facebook</code>, now <code>Meta</code>, adopted Torch and in 2016 released <code>PyTorch</code>, a <code>Python</code> interface for Torch, together with a version of Torch’s C code rewritten as a C++ library called <code>libtorch</code>. <code>PyTorch</code>/<code>libtorch</code>, quickly, became the method of choice for accessing the Torch library and from 2017 onwards, development of Torch stopped and effort was redirected into <code>libtorch</code> and its interface <code>PyTorch</code>.</p>
+<p>Most computer languages are able to make use of libraries written in C or C++ and so interfaces to <code>libtorch</code> have been written for many languages including, Java, Rust, Julia, Haskell and R. Since the core of each of these is the same, it is possible to fit a model with torch in one language and then port the results for use in another language.</p>
+<p>The R package <strong>torch</strong> is R’s equivalent of <code>PyTorch</code>, it provides an R interface to the <code>libtorch</code> C++ library and is capable of both direct tensor arithmetic and automatic differentiation. Sometimes people refer to torch for R as a version of <code>PyTorch</code>, but that is slightly misleading because <strong>torch for R does not use Python at all</strong>. This means that you can use torch in R without installing or knowing anything about Python.</p>
+</div>
+<div id="why-i-prefer-pytorch" class="section level1">
+<h1>Why I Prefer <code>PyTorch</code></h1>
+<p>To use <code>TensorFlow</code> in R, you need to install <code>TensorFlow</code>, <code>Keras</code>, <code>Python</code> and <code>R</code>, plus the relevant <code>Python</code> and <code>R</code> packages. The <code>CUDA</code> software will also be needed for GPU acceleration. Installing <code>Python</code> and its packages will require you to first install the software management program <code>Anaconda</code>, or its smaller brother <code>Miniconda</code>. All of this would be a minor inconvenience were it not for the fact that the version numbers of every step in this software chain need to be compatible. Update one link in a working chain and you risk breaking your code.</p>
+<p>The need to install <code>Anaconda</code> and <code>Python</code> is hard to justify unless you already use Python as well as R, in which case why not use Python for ypur deep learning. I have found that setting up <code>TensorFlow</code> from <code>R</code> is fiddly and that any working combination of the software is fragile.</p>
+<p>In contrast, Torch just requires downloading the <code>torch</code> R package from CRAN and the running a single <code>install_torch()</code> function to set up the C++ library. You do still need to install a supported version of the <code>CUDA</code> software for GPU acceleration, but that is a minor problem.</p>
+<p>I happen to like the <code>mlr3</code> ecosystem for machine learning and use it in preference to <code>tidymodels</code>, which does much the same job. <code>mlr3</code> has a project called <code>mlr3keras</code> that was developing a package for using <code>Keras</code> within its ecosystem. Development of this package stopped about three years ago, roughly the time when <code>Keras3</code> was released. However, the <code>mlr3torch</code>, project which started much later is still under active development. Another reason for me to prefer <code>PyTorch</code>.</p>
+<p>All that said, I do think that <code>Keras</code> has a better syntax with a clearer way of specifying the neural network and <code>torch</code> uses R6 which makes the syntax different from standard R. I have not run my own comparisons, but everything that I have read suggests that there is not much difference in speed between <code>TensorFlow</code> and <code>PyTorch</code>. The consensus opinion seems to be that <code>TensorFlow</code> is better for deployment and <code>PyTorch</code> is better for research; I do not have the experience to allow me to comment on that claim. Weighing up all of these considerations, <code>PyTorch</code> gets my vote, with my main consideration being that despite the name, <code>PyTorch</code> does not require <code>Python</code>.</p>
+</div>
+<div id="an-introduction-to-pytorch-in-r" class="section level1">
+<h1>An Introduction to <code>PyTorch</code> in R</h1>
+<p>The <strong>torch for R</strong> website (<a href="https://torch.mlverse.org/" class="uri">https://torch.mlverse.org/</a>) is the main source of information on running <code>PyTorch</code> in R. The website has a very good companion book called <strong>Deep learning and Scientific Computing with R</strong>, which can be bought in paper form, or read on-line for free at <a href="https://skeydan.github.io/Deep-Learning-and-Scientific-Computing-with-R-torch/" class="uri">https://skeydan.github.io/Deep-Learning-and-Scientific-Computing-with-R-torch/</a>.</p>
+<p>There are already a number of packages in the developing <code>torch for R</code> ecosystem</p>
+<table>
+<thead>
+<tr class="header">
+<th>R Package</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>torch</td>
+<td>core interface to the <code>libtorch</code> C++ library</td>
+</tr>
+<tr class="even">
+<td>luz</td>
+<td>An API that simplifies the specification of ANNs</td>
+</tr>
+<tr class="odd">
+<td>torchvision</td>
+<td>Functions for computer vision applications of ANNs</td>
+</tr>
+<tr class="even">
+<td>torchaudio</td>
+<td>Functions for audio signal processing with ANNs</td>
+</tr>
+<tr class="odd">
+<td>torchdatasets</td>
+<td>Datasets for testing torch</td>
+</tr>
+<tr class="even">
+<td>ETM</td>
+<td>word embeddings for language models</td>
+</tr>
+<tr class="odd">
+<td>insight</td>
+<td>functions for exploring deep learning models</td>
+</tr>
+</tbody>
+</table>
+<p>This is clearly a big topic, but in this post I’ll concentrate of the essentials for defining, fitting and predicting with a simple multilayer perceptron.</p>
+<p>First, download the <code>torch</code> package from CRAN, run the package’s <code>install_torch()</code> function in the console and you are ready to go.</p>
+<div id="working-with-r6-classes" class="section level2">
+<h2>Working with R6 Classes</h2>
+<p>The <code>torch</code> R package is written using <code>R6</code> classes. <code>R6</code> is an R package that is used by many large R coding projects; for example, <code>dplyr</code> and <code>mlr3</code> are both written using <code>R6</code>. Classes of Objects created with <code>R6</code> have the properties needed for Object Orientated Programming (OOP). R6 objects have <code>fields</code> for storing data and <code>methods</code>, which are built-in R functions for manipulating the data in the fields.</p>
+<p>Here is a hypothetical example of how an <code>R6</code> object is created and used. Suppose that <code>meta_analysis</code> is an R6 class that I have written for processing meta-analyses. It has three fields <code>n</code>, <code>mean</code> and <code>sd</code> and four functions <code>new()</code>, <code>fixed()</code>, <code>random()</code> and <code>addStudy()</code>. Typical code might be</p>
+<pre class="r"><code># data for a meta-analysis of two studies
+df   &lt;- data.frame((n=100,75), m=c(4.5, 4.3), s=c(6.3, 3.5))
+# create a object of class meta_analysis with fields filled from df
+BrCa &lt;- meta_analysis$new(df)
+# extract the contents of a field
+BrCa$mean
+# add an extra study to the meta-analysis
+BrCa$addStudy(40, 4.2, 8.1)
+# run a fixed effects meta-analysis
+fma  &lt;- BrCa$fixed()</code></pre>
+<p>In the jargon, <code>BrCa</code> is an <strong>instance</strong> of class <code>meta_analysis</code> and
+changes to its fields happen <strong>in place</strong>, i.e. you do not need to make a copy of <code>BrCa</code> when you change the data, the fields themselves are changed.<br />
+As a user, you need to understand the <code>$</code> notation. In the code above <code>BrCa$mean</code> is the name of a field, so the data in that field would have been printed, i.e. the vector 4.5, 4.3. However, <code>BrCa$fixed()</code>, with brackets at the end, refers to a method, i.e. an internal R function specific to that class. In the example, this function performs a fixed effects meta-analysis on the data in the fields and returns the result as a list of calculated values. All <code>R6</code> objects are created by a method, conventionally called, <code>new()</code>.</p>
+</div>
+<div id="preparing-the-data-for-torch" class="section level2">
+<h2>Preparing the Data for Torch</h2>
+<p>We are going to use the torch software for processing the tensors that contain the data and parameters of our ANN. Torch’s code is optimised for speed, part of which comes from the way that the tensors are stored in memory. The arrays are typically large and the <code>libtorch</code> code needs to be able to retrieve batches of data from the arrays so that they can be processed in parallel.</p>
+<p>A typical pattern is to start with data in an R data frame and to convert it into torch tensors, but there are two limitations on the data that can be placed in a tensor that do not apply to data frames.<br />
+- Torch tensors can only contain numeric data (no character strings, booleans or factors)<br />
+- Torch tensors cannot contain missing values</p>
+<p>When necessary, you will need to write R code that manipulates your data into numeric form without missing values by encoding strings, booleans and factors and imputing missing data. This requires standard R code, so I’ll park these problems until we come to look at an example.</p>
+<p>The <code>torch</code> package provides an R6 class called <code>dataset</code> that stores your data as a tensor and makes it available to the tensor processing functions. Although, <code>torch</code> does much of the work, there are things about your data that the package cannot anticipate, so you will need to supply extra information to complete the class definition. In particular, you need to supply three methods with the names <code>initialize()</code>, <code>.getitem()</code> and <code>.length()</code>. The first is used by <code>new()</code> when an instance is created, the second returns a single row of data given its row number and the third returns the number of observations in the dataset. The code that you need to write will look something like this,</p>
+<pre class="r"><code>ds_class &lt;- dataset(
+  initialize = function(...) {
+    ...
+  },
+  .getitem = function(index) {
+    ...
+  },
+  .length = function() {
+    ...
+  }
+)</code></pre>
+<p>This code creates a completed R6 class called <code>ds_class</code> that inherits the fields and methods of <code>dataset</code>, but adds the methods that you provide.</p>
+<p>To make the example more concrete, suppose that the data are in an R data frame and that the first column is the response and the other columns are numeric predictors.</p>
+<pre class="r"><code>ds_class = dataset(
+  name = &quot;my_dataset_class&quot;,
+  initialize = function(df) {
+    self$x &lt;- torch_tensor(as.matrix(df[, -1]))
+    self$y &lt;- torch_tensor(df[, 1])
+  },
+  .getitem = function(index) {
+    list(x = self$x[index, ], y = self$y[index])
+  },
+  .length = function() {
+    dim(self$x)[1]
+  }
+)</code></pre>
+<p>To the standard class <code>dataset</code> provided by <code>torch</code>, I have added a field called <code>name</code> and the three required methods. <code>Initialize()</code> takes a data frame as its input and converts the numeric R values into arrays of torch tensors with the field names <code>self$x</code> and <code>self$y</code>. The same data as in the data frame, but stored as torch tensors. <code>df</code> is the name of an argument to the function, it is not an actual R data frame.</p>
+<p><code>.getitem()</code> takes an index (row number) and returns a list containing the predictors and response for that row. <code>.length()</code> returns the number of rows.</p>
+<p><code>ds_class</code> is a class derived from the more general class <code>dataset</code> , it is not an instance of that class. When we create the instance (actual object) we will put some data into it. To create an instance called, <code>ds</code>, I call <code>ds_class</code> with the name of an actual R data frame, represented here by <code>real_df</code>.</p>
+<pre class="r"><code>ds &lt;- ds_class(real_df)</code></pre>
+</div>
+<div id="dataloader" class="section level2">
+<h2>Dataloader</h2>
+<p>Once you have defined the dataset, you must create a <code>dataloader</code>, which torch will use to access batches of data. In the code below, the rows of data in <code>ds</code> will be shuffled before batches of size 10 are taken. This means that each iteration will split the dataset in a different way, so avoiding any patterns associated with a meaningful ordering of the data.</p>
+<pre class="r"><code>dl &lt;- dataloader(ds, batch_size = 10, shuffle = TRUE)</code></pre>
+<p>The dataloader will extract batches of the required size, using the <code>.getitem()</code> method that you defined. Class <code>dataloader</code> has many predefined methods such as <code>dataloader_next()</code> which extracts the next batch of data and keeps track of your current position in the dataset by updating a field that contains a pointer into the data. All of this is done for you using highly efficient code.</p>
+</div>
+<div id="defining-the-model" class="section level2">
+<h2>Defining the Model</h2>
+<p>So far we have only used the <code>torch</code> package, for the next step we will need the companion package <code>luz</code> that enables you to turn a neural network architecture into a form that torch can process.</p>
+<p><code>luz</code> is also written using <code>R6</code>, so you will not be surprised to find that you must create an instance of a model class, which <code>luz</code> gives the name <code>nn_module</code>. <code>luz</code> does most of the work for you, but there are some things that the package cannot anticipate, such as the specific model architecture that you want to use, so you will have to add to the definition, just as you did with the dataset. This time you need to supply two methods <code>initialize()</code> that defines the components of the network and <code>forward()</code> that describes how the model takes input values and produces an output. This is far easier than it sounds because <code>luz</code> provides a wide range of functions for defining layers and activation functions, all that the user needs to do is combine them like the pieces of a jigsaw.</p>
+<p>Here is a simple example that defines a neural network with an input layer, a single hidden layer with 10 nodes and an output layer. The hidden layer incorporates a sigmoid activation function. All of the functions beginning <code>nn_</code> or <code>nnf_</code> are provided by <code>luz</code> and <code>self</code> refers to one of the field within the class.</p>
+<pre class="r"><code>net &lt;- nn_module(
+  initialize = function(nInput, nOutput) {
+    self$fc1 = nn_linear(nInput, 10),
+    self$fc2 = nn_linear(10, nOutput)
+    )
+  },
+  forward = function(x) {
+    x |&gt;
+      self$fc1() |&gt;
+      nnf_sigmoid() |&gt;
+      self$fc2()
+  }
+)</code></pre>
+<p><code>initialize()</code> defines two sets of parameters, one for connecting the input layer to the hidden layer and one for connecting the hidden layer to the output layer. Layers defined by nn_linear() are fully connected (dense), hence the conventional use of <code>fc</code> in their name; you could call them anything you like, but they have to be defined as being within <code>self</code>. <code>forward()</code> puts the layers together in the required order and adds any activation functions. The use of the pipe <code>|&gt;</code> makes the structure clearer.</p>
+<p>In the example, <code>net</code> is an R6 class with two hyperparameters which need to be specified when we create an instance, these hyperparameters are <code>nInput</code>, the number of nodes in the input layer and <code>nOutput</code>, the number of nodes in the output layer. The number of nodes in the single hidden layer is hard-coded into the design.</p>
+</div>
+<div id="training" class="section level2">
+<h2>Training</h2>
+<p>Training is easier than the definition of the model, because the specification is less problem specific and <code>luz</code> does most of the work for you.</p>
+<pre class="r"><code>fitted &lt;- net |&gt;
+  setup(loss = nn_mse_loss(), optimizer = optim_sgd) |&gt;
+  set_hparams(nInput = 5, nOutput = 1) |&gt;
+  set_opt_hparams(lr = 0.05) |&gt;
+  fit(dl, epochs = 50)</code></pre>
+<p><code>net</code> is the R6 class derived from <code>nn_module</code>, this is piped into the <code>luz</code> function <code>setup()</code> that adds the loss function and optimizer. There are many options provided by <code>luz</code>, I’ve chosen the mean square error loss and the Stochastic Gradient Descent (SGD) optimizer. Both the architecture of the network and that of the optimizer rely on hyperparameters, so these are specified in <code>set_hparams()</code> and <code>set_opt_hparams()</code> respectively. <code>lr</code> is the learning rate for the SGD algorithm.</p>
+<p>The network is initialised with random weights and biases and refined over 50 epochs, or iterations, of the SGD algorithm.</p>
+<p>Enough, this is the basic pattern, we are now ready for an example.</p>
+</div>
+</div>
+<div id="seoul-bike-sharing-demand" class="section level1">
+<h1>Seoul Bike Sharing Demand</h1>
+<p>For this example, I took the bike sharing data from the UCI Machine Learning Repository
+<a href="https://archive.ics.uci.edu/dataset/560/seoul+bike+sharing+demand" class="uri">https://archive.ics.uci.edu/dataset/560/seoul+bike+sharing+demand</a>. These data can also be found as a kaggle dataset. Our task is to predict the number of bikes hired during each hour of each day during 2020, using data on the weather conditions at the time.</p>
+<p>Reading these data is not totally straightforward because the header in the csv file includes non-ASCII characters and unquoted spaces.</p>
+<pre class="r"><code>library(torch)
+library(luz)
+
+home = &quot;C:/Projects/Neuralnets/Torch&quot;
+
+# --------------------------------------------------------------
+# Read data file as character strings
+#
+txt = readLines(file.path(home, &quot;data/rawData/SeoulBikeData.csv&quot;))
+# --------------------------------------------------------------
+# Remove non-ascii characters
+#
+txt = iconv(txt, from = &quot;UTF-8&quot;, to = &quot;ASCII&quot;, sub = &quot;&quot;)
+# --------------------------------------------------------------
+# Strings are not quoted. Replace space with underscore
+#
+txt = gsub(&quot; &quot;, &quot;_&quot;, txt)
+# --------------------------------------------------------------
+# Read the strings as a csv file &amp; save in a data frame 
+#
+bdf = read.csv(textConnection(txt), header=TRUE)</code></pre>
+<p>The column names are long and irregular, so I rename them with shorter versions. <code>count</code> is the column that I want to predict.</p>
+<pre class="r"><code># --------------------------------------------------------------
+# Short column names
+#
+names(bdf) = c(&quot;date&quot;, &quot;count&quot;, &quot;hour&quot;, &quot;temp&quot;, &quot;humid&quot;, &quot;wind&quot;, &quot;visib&quot;,
+              &quot;dew&quot;, &quot;solar&quot;, &quot;rain&quot;, &quot;snow&quot;, &quot;season&quot;, &quot;holiday&quot;, &quot;func&quot;)</code></pre>
+<p>From the date column, which is currently a string variable, I decided to extract the month, and the day of the week.</p>
+<pre class="r"><code># --------------------------------------------------------------
+# Convert date &amp; replace by day of week and month number
+#
+bdf$date   = as.Date(bdf$date, &quot;%d/%m/%y&quot;)
+bdf$day    = weekdays(bdf$date)
+bdf$month  = as.numeric(format(bdf$date, &quot;%m&quot;))</code></pre>
+<p>After plotting the total counts for each day, the date itself is dropped from the data frame.</p>
+<pre class="r"><code>totals     = aggregate(bdf$count, by=list(bdf$date), sum)
+plot(totals$`Group.1`, totals$x, type=&quot;l&quot;, ylab=&quot;Daily Total&quot;, xlab=&quot;Day&quot;,
+     main=&quot;Bikes hired each day&quot;)</code></pre>
+<p><img src="/post/neural_networks/13R_Neural_Netwirk_Packages_files/figure-html/unnamed-chunk-12-1.png" width="672" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>bdf$date   = NULL</code></pre>
+<p>The plot shows that bike sharing is low in the winter, drops to zero on days when the scheme is not functioning, drops slightly in August presumably due to annual holidays. It also shows a weekly pattern with dips at the weekend.</p>
+<p>Next, I convert all of the factors to integers, preserving any meaningful ordering. I decided that changes in bike usage are likely to be proportional rather than additive, so I log transformed the count (proof, if proof were needed, that I’m a statistician at heart and not a data scientist).</p>
+<pre class="r"><code># --------------------------------------------------------------
+# Replace strings by integers
+#
+bdf$season = as.numeric(
+  factor(bdf$season, levels=c(&quot;Spring&quot;, &quot;Summer&quot;, &quot;Autumn&quot;, &quot;Winter&quot;)))
+bdf$holiday = as.numeric(
+  factor(bdf$holiday, levels=c(&quot;No_Holiday&quot;, &quot;Holiday&quot;)))
+bdf$func = as.numeric(
+  factor(bdf$func, levels=c(&quot;No&quot;, &quot;Yes&quot;)))
+bdf$day = as.numeric(
+  factor(bdf$day, levels=c(&quot;Monday&quot;, &quot;Tuesday&quot;, &quot;Wednesday&quot;, &quot;Thursday&quot;,
+                          &quot;Friday&quot;, &quot;Saturday&quot;, &quot;Sunday&quot;)))
+# --------------------------------------------------------------
+# Log transform the response
+#
+bdf$count = log10(1 + as.numeric(bdf$count))</code></pre>
+<p>Now that all data are numeric, I can scale the entire dataset. This makes no difference to the neural network, other than ensuring that the weights and biases are all of the same order of magnitude, which makes model fitting easier.</p>
+<pre class="r"><code># --------------------------------------------------------------
+# Scale features
+#
+bdf[, 2:15]   = scale(bdf[, 2:15])</code></pre>
+<p>Now we start the neural network analysis by defining the <code>bike_dataset</code> class and an instance of the class called <code>bds</code>.</p>
+<pre class="r"><code># --------------------------------------------------------------
+# Make a torch dataset from a dataframe
+#
+bike_dataset = dataset(
+  name = &quot;bike_dataset&quot;,
+  initialize = function(df) {
+    self$x &lt;- torch_tensor(as.matrix(df[, -1]))
+    self$y &lt;- torch_tensor(as.matrix(df[,  1]))
+  },
+  .getitem = function(index) {
+    list(x = self$x[index, ], y = self$y[index])
+  },
+  .length = function() {
+    dim(self$x)[1]
+  }
+)
+
+# --------------------------------------------------------------
+# Create an instance of class from data frame bdf
+#
+bds = bike_dataset(bdf)</code></pre>
+<p>I’ll randomly divide the data into a training set (60%), a validation set (20%) and a test set (20%). I have been slightly lazy, because the scaling should have been performed using the mean and standard deviation of the training data. The effect of not doing this will be to improve performance of the validation and test samples, but only very slightly and doing it properly would make the code more messy. It is just the sort of thing that <code>mlr3</code> is intended for.</p>
+<pre class="r"><code># --------------------------------------------------------------
+# Split between training, validation and test
+#
+set.seed(4682)
+train_ids = sample(1:length(bds), size = 0.6 * length(bds))
+valid_ids = sample(setdiff(1:length(bds), train_ids), size = 0.2 * length(bds))
+test_ids  = setdiff(1:length(bds), union(train_ids, valid_ids))
+
+train_ds  = dataset_subset(bds, indices = train_ids)
+valid_ds  = dataset_subset(bds, indices = valid_ids)
+test_ds   = dataset_subset(bds, indices = test_ids)</code></pre>
+<p>Next we need dataloaders for the three datasets. Shuffling the training data protects against any patterns in the batches that are drawn. This is important because most training algorithms calculate gradients on a sample of the data and it would be dangerous to rely on consecutive rows. Shuffling is not needed for the validation and test data, because we only make predictions and those predictions are for the entire sample, even if it is calculated in batches.</p>
+<pre class="r"><code># --------------------------------------------------------------
+# Create dataloaders
+#
+train_dl = dataloader(train_ds, batch_size = 200, shuffle = TRUE)
+valid_dl = dataloader(valid_ds, batch_size = 200, shuffle = FALSE)
+test_dl  = dataloader(test_ds,  batch_size = 200, shuffle = FALSE)</code></pre>
+<p>The neural network that I will use is defined by class NN5. As well as the input and output layers there are three hidden layers with 20, 10 and 5 nodes respectively. Five layers means four sets of parameters connecting the layers.</p>
+<pre class="r"><code># --------------------------------------------------------------
+# NN5 a Class of NN model with 5 layers
+#
+NN5 = nn_module(
+  name = &quot;five_layer_model&quot;,
+
+  initialize = function(nInputs, nOutputs) {
+
+    self$fc1 = nn_linear(nInputs, 20)
+    self$fc2 = nn_linear(20, 10)
+    self$fc3 = nn_linear(10, 5)
+    self$fc4 = nn_linear(5, nOutputs)
+  },
+  forward = function(x) {
+    x |&gt;
+      self$fc1() |&gt;
+      nnf_sigmoid() |&gt;
+      self$fc2() |&gt;
+      nnf_sigmoid() |&gt;
+      self$fc3() |&gt;
+      nnf_sigmoid() |&gt;
+      self$fc4() 
+  }
+)</code></pre>
+<p>Fitting will be by stochastic gradient descent over 100 epochs with a learning rate of 0.05. The mse loss is monitored in both the training and the validation data.</p>
+<pre class="r"><code>nEpoch = 100
+torch_manual_seed(4751)
+
+NN5_fit = NN5                             |&gt;
+  setup(loss      = nn_mse_loss(), 
+        optimizer = optim_sgd )           |&gt;
+  set_hparams(nInputs = 14, nOutputs = 1) |&gt;
+  set_opt_hparams(lr = 0.05)              |&gt;
+  fit(train_dl, epochs = nEpoch, valid_data = valid_dl)</code></pre>
+<p>Extracting and plotting the history of the MSE loss shows that it drops to just below 0.1.
+<img src="/post/neural_networks/13R_Neural_Netwirk_Packages_files/figure-html/unnamed-chunk-21-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>We can compute the predictions in the validation data and plot residuals against fitted values. The predictions are returned as a tensor and then converted to an R numeric variable.</p>
+<pre class="r"><code>preds &lt;- as.numeric(predict(NN5_fit, valid_dl))</code></pre>
+<p><img src="/post/neural_networks/13R_Neural_Netwirk_Packages_files/figure-html/unnamed-chunk-23-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>Where we to use the validation sample to select the hyperparameters, network architecture or the number of epochs, then we could estimate the performance of the chosen model using the test sample.</p>
+<div id="linear-regression" class="section level2">
+<h2>Linear Regression</h2>
+<p>For comparison, here are the results of a standard linear regression. The residual plot shows evidence of patterns that the model has not captured, however the ANOVA has a residual mean square error that is just over 0.1; only slightly worse than the neural network.</p>
+<pre class="r"><code>m = lm(count ~ ., data = bdf)
+yhat = predict(m)
+plot(yhat, bdf$count - yhat, pch=16, ylab=&quot;Residual&quot;, xlab=&quot;Fitted value&quot;,
+     main = &quot;Linear Regression&quot;)
+abline(h=0)</code></pre>
+<p><img src="/post/neural_networks/13R_Neural_Netwirk_Packages_files/figure-html/unnamed-chunk-24-1.png" width="672" style="display: block; margin: auto;" /></p>
+<pre><code>## Analysis of Variance Table
+## 
+## Response: count
+##             Df  Sum Sq Mean Sq    F value    Pr(&gt;F)    
+## hour         1  297.92  297.92  2919.6690 &lt; 2.2e-16 ***
+## temp         1  465.77  465.77  4564.6523 &lt; 2.2e-16 ***
+## humid        1  205.11  205.11  2010.0909 &lt; 2.2e-16 ***
+## wind         1    6.00    6.00    58.8034 1.929e-14 ***
+## visib        1    0.04    0.04     0.3797   0.53778    
+## dew          1   14.67   14.67   143.7990 &lt; 2.2e-16 ***
+## solar        1    0.28    0.28     2.6976   0.10054    
+## rain         1   85.44   85.44   837.3290 &lt; 2.2e-16 ***
+## snow         1    0.03    0.03     0.2739   0.60072    
+## season       1   28.52   28.52   279.4555 &lt; 2.2e-16 ***
+## holiday      1   19.96   19.96   195.6249 &lt; 2.2e-16 ***
+## func         1 2059.13 2059.13 20179.7205 &lt; 2.2e-16 ***
+## day          1    0.40    0.40     3.8784   0.04894 *  
+## month        1   45.24   45.24   443.3831 &lt; 2.2e-16 ***
+## Residuals 8745  892.33    0.10                         
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1</code></pre>
+<p>Given that the neural network is not much of an improvement on linear regression, we might be tempted to increase the size of the network, try other activation functions or different optimisation algorithms. I will not show the details, but it is easy to get the validation MSE below 0.07.</p>
+</div>
+</div>
+<div id="appendix-earlier-posts" class="section level1">
+<h1>Appendix: Earlier posts</h1>
+<p>My earlier posts in this series have covered, <a href="https://modelling-with-r.netlify.app/02methods_nn_rcode/">R code for fitting a neural network by gradient descent</a>, <a href="https://modelling-with-r.netlify.app/03methods_nn_ccode/">Rcpp to convert the R code to C for increased speed</a>, <a href="https://modelling-with-r.netlify.app/04methods_nn_pictures/">picturing gradient descent search paths</a>, <a href="https://modelling-with-r.netlify.app/05methods_nn_test_data/">using neural networks to simulate datasets for use in my experiments</a>, <a href="https://modelling-with-r.netlify.app/06methods_nn_scaling/">first steps towards a workflow</a>, <a href="https://modelling-with-r.netlify.app/07methods_nn_crossvalidation/">the pros and cons of cross-validation</a>, <a href="https://modelling-with-r.netlify.app/08methods_classification/">extending the workflow to include classification problems</a>, <a href="https://modelling-with-r.netlify.app/09methods_assignment/">class assignment after classification</a>, <a href="https://modelling-with-r.netlify.app/10methods_nn_regularisation/">regularisation and overfitting</a>, <a href="">stochastic gradient descent</a></p>
+<p>There are numerous other posts relating to statistics and its relationship with machine learning.</p>
+</div>
