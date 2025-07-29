@@ -1,0 +1,541 @@
+---
+title: "Neural Networks: Torch in mlr3"
+author: "John Thompson"
+date: "2025-07-28"
+layout: post
+categories:
+- neural networks
+- PyTorch
+- torch
+- mlr3
+- mlr3torch
+- R6
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>In this series, I am investigating how best to use artificial neural networks (ANNs) on tabular data and I am currently working towards a benchmarking experiment that will compare multi-layer perceptrons (MLPs) with XGBoost. In my <a href="https://modelling-with-r.netlify.app/13r_neural_netwirk_packages/">last post</a>, I introduced the <code>torch</code> R package, which provides an interface to the <code>libtorch</code> C++ library of functions for fitting ANNs. R’s <code>torch</code> closely mirrors <code>PyTorch</code>, Python’s popular interface to the same C++ library. In this post, I will show how to use <code>torch</code> within <code>mlr3</code>, an ecosystem of packages that facilitate complex machine learning experiments, such as benchmarking. This combination of packages relies heavily on a sub-project of <code>mlr3</code> called <code>mlr3torch</code> that can be <a href="https://github.com/mlr-org/mlr3torch">found on GitHub</a>.</p>
+<p>Both <code>mlr3</code>, <code>torch</code> and <code>mlr3torch</code> are all written using <code>R6</code>, a package that provides other package developers with the main features of Object Orientated Programming (OOP). R6 is used to define complex classes of R objects, so to use <code>torch</code> and <code>mlr3</code> effectively it helps to understand how <code>R6</code> objects are structured. A superficial knowledge of <code>R6</code> will get you started, but my experience of using <code>torch</code> with <code>mlr3</code> was that I needed a to know a little more.</p>
+<p><code>R6</code> makes use of R <code>environments</code>. Before I started using <code>mlr3torch</code> I was vaguely aware of R’s environments from their use with functions and packages. Unfortunately, ‘vaguely aware’ proved insufficient, so I will start this post with a brief discussion of what more I needed to know about OOP, <code>R6</code> and environments.</p>
+</div>
+<div id="preamble-into-r6" class="section level1">
+<h1>Preamble into R6</h1>
+<div id="object-orientated-programming" class="section level2">
+<h2>Object Orientated Programming</h2>
+<p>A decade or so ago OOP was all the rage, then fashions changed and there was a rise in the popularity of functional programming (FP). So it goes. Undoubtedly, there are problems that are well-suited to OOP and others that suit FP, so let’s start with a consideration of why OOP appeals to the developers of large, complex R packages.</p>
+<p>OOP places the object at its centre and makes the OOP object into more than just a data structure. An OOP object does contain data stored in what are referred to as <code>fields</code>, but it also contains functions for accessing and manipulating those fields, in the jargon, these built-in functions are called <code>methods</code>. An OOP object’s fields and methods can either be public i.e. accessible to the user, or private, only available for internal use and hidden from the user.</p>
+<p>When a user alters the contents of a field, directly if it is public, or indirectly via a public method if the field is private, those changes are performed <code>in place</code>, that is, the specified field changes and the previous value is lost.</p>
+<p>OOP is a convenient way of organising complex data structures, which makes it a good choice for developing large packages; unfortunately, OOP is not part of the original design of R. The question that the developers of <code>R6</code> had was, how do we get OOP behaviour within R? and their solution was to make use of R environments. Environments are R’s way of isolating collections of R objects from the rest of the workspace. They were originally intended for isolating the objects created within a function, but they can be adapted to provide a mechanism for mimicking OOP.</p>
+<p>As an example of the more common use of the environment of a function, consider this code</p>
+<pre class="r"><code>f &lt;- function(x) {
+  y &lt;- x + 1
+  y * y
+}
+y &lt;- 5
+f(2)</code></pre>
+<p>On the last line, 2 is passed into the function f as argument x. Inside the function, one is added and the result, 3, is stored as y. The square of y is returned, so the result is 9. However, y already exists in the calling workspace with the value 5, so there is a clash of names. To sort out such clashes, R distinguishes between y in the global environment where it has the value 5 and y in the local environment of f where it has the value 3. In a sense, the local environment of f exists within the global environment, so we might refer to the global environment as the parent environment of f’s environment and since functions can call other functions in a long sequence, environments have a nested structure.</p>
+<p>Suppose now that we were to change the code slightly, so that instead of adding 1 to x, we were to add y.</p>
+<pre class="r"><code>f &lt;- function(x) {
+  y &lt;- x + y
+  y * y
+}
+y &lt;- 5
+f(2)</code></pre>
+<p>When R comes to add y to x, there is no y within the function’s environment. A strict language would throw an error at this point and perhaps that would be for the best, but instead R searches in the parent environment to see if it can find y there. It does, so it calculates 2 + 5 and stores that as y local to f before returning 49. However, the y with the value 7 is within the function’s environment, it is not the same as the y in the parent environment, which still has the value 5.</p>
+<p>Rant alert!</p>
+<p>This is madness. the value of f(2) depends on the value of y somewhere in the hierarchy of environments that call f. If y changes in that far off environment, then the value returned by f(2) will change. No serious programmer would use such a language; you would be asking for deep, difficult to trace, bugs. In R’s defence, the language was designed for interactive statistical analysis, not large software projects.</p>
+<p>Package developers could use a different strategy and treat R as an interface to OOP code written in a more appropriate language, such as C++, but that would come at a price, it would be difficult for the R user to dig down into the code. OOP via <code>R6</code> is a compromise. Rant over, back to environments.</p>
+<p>Even though there is rarely a need, it is possible to create an environment manually. The function that does this is <code>env()</code>, which is defined in the <code>rlang</code> package. Code for creating an environment called <code>e</code> might look something like</p>
+<pre class="r"><code>x &lt;- 5
+e &lt;- rlang::env(
+  a = c(1, 2, 3),
+  b = &quot;Fred&quot;,
+  c = x
+)</code></pre>
+<p>The contents of the environment are passed to <code>env()</code> as named arguments.</p>
+<p>Printing an environment only gives its address in memory.</p>
+<pre class="r"><code># print the environment with e, print(e) or str(e)
+e</code></pre>
+<pre><code>## &lt;environment: 0x000001e022392858&gt;</code></pre>
+<p>Individual objects within an environment can be accessed using the same <code>$</code> notation that is more commonly applied to lists.</p>
+<pre class="r"><code># an object within the environment
+e$a</code></pre>
+<pre><code>## [1] 1 2 3</code></pre>
+<p>The names of the items in the environment can be listed with <code>names(e)</code> or <code>ls(e)</code></p>
+<pre class="r"><code># names of items in the environment
+names(e)</code></pre>
+<pre><code>## [1] &quot;a&quot; &quot;b&quot; &quot;c&quot;</code></pre>
+<p>The rlang function <code>env_print()</code> combines information from print() and names()</p>
+<pre class="r"><code># names of items in the environment
+rlang::env_print(e)</code></pre>
+<pre><code>## &lt;environment: 0x000001e022392858&gt;
+## Parent: &lt;environment: global&gt;
+## Bindings:
+## • a: &lt;dbl&gt;
+## • b: &lt;chr&gt;
+## • c: &lt;dbl&gt;</code></pre>
+<p>Perhaps the best way to investigate the contents of an environment is the <code>tree()</code> function from the <code>lobstr</code> package</p>
+<pre class="r"><code># an object with the environment
+lobstr::tree(e)</code></pre>
+<pre><code>## &lt;environment: 0x000001e022392858&gt;
+## ├─a&lt;dbl [3]&gt;: 1, 2, 3
+## ├─b: &quot;Fred&quot;
+## └─c: 5</code></pre>
+<p>Often software written with <code>R6</code> includes environments nested within environments, so the tree can get very deep and complex, in that case, it can be helpful to set the <code>max_depth</code> argument of<code>tree()</code> to limit the print out.</p>
+<p>Environments are very flexible, for example, as well as other environments, they can include functions and can even contain references to themselves. In the example, environment e2 includes a reference to environment e and to a function f. </p>
+<pre class="r"><code># environment that references another environment
+e2 &lt;- rlang::env(
+  e = e,
+  f = function(x) x * x
+)
+lobstr::tree(e2)</code></pre>
+<pre><code>## &lt;environment: 0x000001e02204f078&gt;
+## ├─e: &lt;environment: 0x000001e022392858&gt;
+## │ ├─a&lt;dbl [3]&gt;: 1, 2, 3
+## │ ├─b: &quot;Fred&quot;
+## │ └─c: 5
+## └─f: function(x)</code></pre>
+<p>The next block of code adds <code>self</code> to e2</p>
+<pre class="r"><code># an environment that references itself
+e2$self = e2
+lobstr::tree(e2)</code></pre>
+<pre><code>## &lt;environment: 0x000001e02204f078&gt;
+## ├─self: &lt;environment: 0x000001e02204f078&gt; (Already seen)
+## ├─e: &lt;environment: 0x000001e022392858&gt;
+## │ ├─a&lt;dbl [3]&gt;: 1, 2, 3
+## │ ├─b: &quot;Fred&quot;
+## │ └─c: 5
+## └─f: function(x)</code></pre>
+<p>So <code>e2$e</code> is the same environment as <code>e</code>, and <code>e2$self</code> is the same environment as <code>e2</code>. Are these copies or merely references to original? Look at the addresses and you will see that the addresses are the same, so they are references. A simple experiment confirms that they are not independent copies. Changing e also changes e2$e.</p>
+<pre class="r"><code># Changing e affects e2
+e$b = &quot;George&quot;
+lobstr::tree(e2)</code></pre>
+<pre><code>## &lt;environment: 0x000001e02204f078&gt;
+## ├─self: &lt;environment: 0x000001e02204f078&gt; (Already seen)
+## ├─e: &lt;environment: 0x000001e022392858&gt;
+## │ ├─a&lt;dbl [3]&gt;: 1, 2, 3
+## │ ├─b: &quot;George&quot;
+## │ └─c: 5
+## └─f: function(x)</code></pre>
+<p>Of course, it works both ways.</p>
+<pre class="r"><code># Changing e2 affects e
+e2$e$c = 18
+lobstr::tree(e)</code></pre>
+<pre><code>## &lt;environment: 0x000001e022392858&gt;
+## ├─a&lt;dbl [3]&gt;: 1, 2, 3
+## ├─b: &quot;George&quot;
+## └─c: 18</code></pre>
+<p>This means that we can add a reference to another environment without the memory cost of making a copy.</p>
+<p>Let’s finish with a summary of a few key facts.<br />
+- any valid R object can be placed in an environment<br />
+- the objects in an environment are unordered and must be named<br />
+- environments can be nested<br />
+- nested environments save references not copies<br />
+- nested environments and their objects are referenced using the $ notation</p>
+</div>
+</div>
+<div id="application-to-torch" class="section level1">
+<h1>Application to torch</h1>
+<p>In my <a href="https://modelling-with-r.netlify.app/13r_neural_netwirk_packages/">last post</a>, I turned a dataframe into a torch object using the code</p>
+<pre class="r"><code>library(torch)
+# --------------------------------------------------------------
+# Make a torch dataset from a dataframe
+#
+bike_dataset = dataset(
+  
+  name = &quot;bike_dataset&quot;,
+  
+  initialize = function(df) {
+    self$x &lt;- torch_tensor(as.matrix(df[, -1]))
+    self$y &lt;- torch_tensor(as.matrix(df[, 1]))
+  },
+  
+  .getitem = function(index) {
+    list(x = self$x[index, ], y = self$y[index])
+  },
+  
+  .length = function() {
+    dim(self$x)[1]
+  }
+)
+# --------------------------------------------------------------
+# Create an instance of class bike_dataset called ds from data frame bdf
+#
+ds = bike_dataset(bdf)</code></pre>
+<p><code>bike_dataset</code> is a class of object and <code>ds</code> is an instance, that is an actual R object with that class. Let’s dig into the object <code>ds</code>.</p>
+<pre class="r"><code>lobstr::tree(ds)</code></pre>
+<pre><code>## &lt;environment: 0x000001e023d938f8&gt;
+## ├─y: S3&lt;torch_tensor/R7&gt;
+## ├─x: S3&lt;torch_tensor/R7&gt;
+## ├─.__enclos_env__: &lt;environment: 0x000001e023d93c40&gt;
+## │ ├─.__active__: &lt;list&gt;
+## │ ├─super: &lt;environment: 0x000001e023dc2468&gt;
+## │ │ ├─clone: function(deep)
+## │ │ ├─load_state_dict: function(x, ..., .refer_to_state_dict)
+## │ │ ├─state_dict: function()
+## │ │ ├─.getitem: function(index)
+## │ │ └─.__enclos_env__: &lt;environment: 0x000001e023dc2040&gt;
+## │ │   ├─.__active__: &lt;list&gt;
+## │ │   └─self: &lt;environment: 0x000001e023d938f8&gt; (Already seen)
+## │ └─self: &lt;environment: 0x000001e023d938f8&gt; (Already seen)
+## ├─clone: function(deep)
+## ├─.length: function()
+## ├─.getitem: function(index)
+## ├─initialize: function(df)
+## ├─load_state_dict: function(x, ..., .refer_to_state_dict)
+## └─state_dict: function()</code></pre>
+<p>Given my preamble you will not be surprised to find that <code>ds</code> is an environment with a complicated structure, most of which was created by torch, but you will also find reference to the methods that my code added, <code>initialize()</code>, <code>.getitem()</code> and <code>.length()</code>.</p>
+<p><code>ds</code> has inherited a function called <code>state_dict()</code>, we can look at it</p>
+<pre class="r"><code>ds$state_dict</code></pre>
+<pre><code>## function () 
+## {
+##     fields &lt;- names(self)
+##     tensors &lt;- list()
+##     for (f in fields) {
+##         value &lt;- .subset2(self, f)
+##         if (inherits(value, &quot;torch_tensor&quot;)) {
+##             tensors[[f]] &lt;- value
+##         }
+##     }
+##     tensors
+## }
+## &lt;environment: 0x000001e023dc2040&gt;</code></pre>
+<p>and we can run it.</p>
+<pre class="r"><code>ds$state_dict()</code></pre>
+<p>I have suppressed the output because this method returns the x and y fields and they are large. You should now also see the sense behind the references to <code>self$x</code> and <code>self$y</code> within <code>initialize()</code>. <code>self</code> is a reference to the environment itself, so it adds tensors called x and y to the main environment. The environment is the OOP object and x and y are its fields.</p>
+</div>
+<div id="do-i-need-to-know-this" class="section level1">
+<h1>Do I need to know this?</h1>
+<p>We have been looking into details that most people would ignore. To use <code>torch</code> you only need to copy the pattern of the code for <code>bike_dataset</code> and adapt it to your particular problem. Perhaps, it is nice to know why you code <code>self$</code>, but after that you can leave the detail to the package developers.</p>
+<p>So what do we need? Well, suppose that you were to run a linear regression with <code>lm()</code>. This function is written using the S3 class system and the results of the fit are returned in a list. An important skill for any R user is to be able to extract particular results from a returned list. With <code>R6</code>, the results are not returned in a list, rather they are added to an environment, so you will need to be able to extract the results from an environment. Often you will find that the developers have provided a method for extracting the data that you want, but other times they will not have, in which case you need to access the contents pf the environment for yourself.</p>
+<p>Handling environments is to R6 what handling lists is to S3. In all other senses, you can leave the structure of R6 classes to the package developers.</p>
+</div>
+<div id="mlr3" class="section level1">
+<h1><code>mlr3</code></h1>
+<p>Enough preliminaries, it is time for <code>mlr3</code>. I have written about this package before in posts called <a href="https://modelling-with-r.netlify.app/mlr3/">Introduction to mlr3</a> and <a href="https://modelling-with-r.netlify.app/mlr3_preprocessing/">PipeOps in mlr3</a>, so a brief recap will have to suffice as a preparation for incorporating <code>torch</code>.</p>
+<p><code>mlr3</code> is an ecosystem of R packages and much like <code>tidymodels</code>, it automates the many stages in a machine learning analysis. Namely, data handling including preprocessing, model fitting, hyperparameter tuning and performance assessment. <code>mlr3</code> is written using <code>R6</code>, a fact that can be ignored for routine use, but which becomes important for less standard work.</p>
+<p>In a basic analysis, the user defines an <code>R6</code> object to contain the data (this object is referred to as a <code>task</code>), another object defines the model (referred to as the <code>learner</code>), another the resampling scheme (the <code>resampler</code>) and another defines the performance assessment (the <code>measures</code>). Other classes cope with more complex needs such as a <code>tuner</code> for hyperparameter optimisation and a <code>benchmark</code> for organising a benchmarking experiment.</p>
+<p>Quite often machine learning analyses are created by combining several steps, perhaps missing values are imputed, factors are encoded, the data are scaled and then the XGBoost algorithm is applied. In <code>mlr3</code> such sequences are stored in pipelines using <code>PipeOps</code> and <code>mlr3</code> ensures that the pipeline is used correctly, for instance by automatically ensuring that test data are scaled using statistics taken from the training data.</p>
+<p>As an example of a simple analysis, I will take the Seoul Bike Sharing data that I analysed in my last post <a href="https://modelling-with-r.netlify.app/13r_neural_netwirk_packages/">TensorFlow and PyTorch in R</a> and I will fit a linear regression model to it using <code>mlr3</code>. I start with the data in a data frame called <code>bdf</code> that contains 14 features (predictors) and a single target (response) called <code>count</code>. The model is fitted to 80% of the data with the remaining 20% used for measuring the root mean square error. Finally predictions are made for the test data and the residuals are plotted against the predicted values.</p>
+<p>As in my last post, the <code>count</code> has been transformed using log10(1+x).</p>
+<pre class="r"><code># --------------------------------------------------------------
+# Load the main packages of the mlr3 ecosystem
+#
+library(mlr3verse)
+
+# --------------------------------------------------------------
+# Turn bike data frame into a regression task
+#
+tsk_bike = as_task_regr(bdf, id = &quot;bike&quot;, target = &quot;count&quot;)
+
+# --------------------------------------------------------------
+# lm() is one of mlr3&#39;s standard learners
+#
+lrn_lm = lrn(&quot;regr.lm&quot;)
+# --------------------------------------------------------------
+# Use 80% for fitting and 20% for testing
+#
+set.seed(7802)
+smp = rsmp(&quot;holdout&quot;, ratio = 0.8)
+# --------------------------------------------------------------
+# Run the analysis
+#
+rr = resample(tsk_bike, lrn_lm, smp)</code></pre>
+<pre><code>## INFO  [10:41:00.767] [mlr3] Applying learner &#39;regr.lm&#39; on task &#39;bike&#39; (iter 1/1)</code></pre>
+<pre class="r"><code># --------------------------------------------------------------
+# Select rmse as the performance measure &amp; apply it to test data in rr
+#
+msr_rmse = msr(&quot;regr.rmse&quot;)
+rr$score(msr_rmse)</code></pre>
+<pre><code>##    task_id learner_id resampling_id iteration regr.rmse
+##     &lt;char&gt;     &lt;char&gt;        &lt;char&gt;     &lt;int&gt;     &lt;num&gt;
+## 1:    bike    regr.lm       holdout         1 0.3255388
+## Hidden columns: task, learner, resampling, prediction_test</code></pre>
+<pre class="r"><code># --------------------------------------------------------------
+# Predictions for the test data 
+#
+rrp = rr$prediction()
+# --------------------------------------------------------------
+# Residual Plot for test Data 
+#
+y     = rrp$truth
+yhat  = rrp$response
+plot( yhat, y - yhat, pch=16,
+      xlab=&quot;Predicted&quot;, ylab=&quot;Residual&quot;, main=&quot;Regression Model&quot;)
+abline(h=0)</code></pre>
+<p><img src="/post/neural_networks/14R_mlr3torch_files/figure-html/unnamed-chunk-19-1.png" width="672" style="display: block; margin: auto;" /></p>
+</div>
+<div id="disecting-the-results" class="section level1">
+<h1>Disecting the results</h1>
+<p>The results of the analysis were stored in an object called <code>rr</code>. All of the results are in there, but how do we get at then? Well, <code>rr</code> is an environment created by <code>R6</code> and we can discover its structure using a combination of two basic approaches,<br />
+- consulting the help files<br />
+- direct inspection of the environment</p>
+<div id="the-help-files" class="section level2">
+<h2>The help files</h2>
+<p>The <code>mlr3</code> website includes a reference section that provides all of the information that you would get from R’s help system, for example by using <code>?resample</code>. The webpage of information on resample can be found at <a href="https://mlr3.mlr-org.com/reference/resample.html" class="uri">https://mlr3.mlr-org.com/reference/resample.html</a>. <code>resample()</code> is a function, so the help page starts with a list of possible arguments and follows with the return value, which we are told is an object of class <code>ResampleResult</code>. The description of the arguments of resample() uses several terms that are basic to the way that <code>mlr3</code> works, so its is important to understand the jargon. These terms include,<br />
+- <strong>backend:</strong> the structure holding the data, typically a data.table<br />
+- <strong>encapsulate:</strong> run a function in a way that traps and stores all of the function’s warnings and messages<br />
+- <strong>hotstart:</strong> start fitting a model using starting parameter values obtained from a previous fit<br />
+- <strong>clone:</strong> make a copy<br />
+- <strong>umarshall:</strong> Serialisation is the process of turning an R object into a string of bytes so that it can be saved in a file, for example by using saveRDS(). Subsequently, the string of bytes can be read back from the file and the object reconstructed. Some <code>R6</code> objects are so complex that the serialisation process fails, in which case the object needs to be marshalled prior to serialisation. The term <code>marshall</code> comes from an R package of that name that converts objects to a form that can be serialised. <code>umarshall</code> refers to the reverse process of unmarshalling.
+- <strong>callbacks:</strong> extra calculations made at each iteration of the model fitting process; used to monitor progress.</p>
+<p>The description of the class <code>ResampleResult</code> can be found at <a href="https://mlr3.mlr-org.com/reference/ResampleResult.html"></a> or from <code>?ResampleResult</code>. Once again the key is to understand the terms used, which include,<br />
+- <strong>methods:</strong> The <code>ResampleResult</code> class has both S3 and R6 public methods. S3 methods are used in the conventional R fashion, for instance if <code>rr</code> is the name of an object of class <code>ResampleResult</code>, then the method <code>as.data.table(rr)</code> returns the results from rr as a data.table. In contrast, R6 methods are used with the <code>$</code> notation, for instance <code>rr$score(msr)</code> applies a measure called msr to each of the resampled analyses.<br />
+- <strong>active bindings</strong> a binding is a name associated with a class’s field. When the data are fixed, the binding is static (its value does not change). However, in OOP, fields are changed in place, so a value associated with a field can change and the binding is said to be active. Imagine a class that stored a data.table, there might be a binding to the number of rows in the data. Were the data.table to be edited, this value would change, hence it would be an active binding.</p>
+</div>
+<div id="mapping-the-environment" class="section level2">
+<h2>Mapping the environment</h2>
+<p>The class structure used by <code>mlr3</code> is described in detail in the help files, but since <code>R6</code> classes are often referenced as elements within other <code>R6</code> classes, tracing the information that you need can involve a lot of reading. Sometimes it is quicker to map the class structure in the way that I described in my preamble.</p>
+<pre class="r"><code>lobstr::tree(rr, max_depth=1)</code></pre>
+<pre><code>## &lt;environment: 0x000001e02e08b428&gt;
+## ├─.__enclos_env__: &lt;environment: 0x000001e02e08b0e0&gt;...
+## ├─errors: S3&lt;data.table/data.frame&gt;...
+## ├─warnings: S3&lt;data.table/data.frame&gt;...
+## ├─data_extra: S3&lt;data.table/data.frame&gt;...
+## ├─learners: &lt;list&gt;
+## │ └─&lt;environment: 0x000001e03c0acb68&gt;...
+## ├─resampling: &lt;environment: 0x000001e02ab72690&gt;...
+## ├─learner: &lt;environment: 0x000001e03c48a078&gt;...
+## ├─task: &lt;environment: 0x000001e02b315188&gt;...
+## ├─iters: 1
+## ├─uhash: &quot;1c535b37-a34a-4d61-b56a-c25c9441...&quot;
+## ├─task_type: &quot;regr&quot;
+## ├─clone: function(deep)
+## ├─set_threshold: function(threshold, ties_method)
+## ├─unmarshal: function(...)
+## ├─marshal: function(...)
+## ├─discard: function(backends, models)
+## ├─filter: function(iters)
+## ├─aggregate: function(measures)
+## ├─obs_loss: function(measures, predict_sets)
+## ├─score: function(measures, ids, conditions, predictions)
+## ├─predictions: function(predict_sets)
+## ├─prediction: function(predict_sets)
+## ├─help: function()
+## ├─print: function(...)
+## ├─format: function(...)
+## └─initialize: function(data, view)</code></pre>
+<p>Perhaps, you recognise some of the elements in the tree. Line 1 confirms that <code>rr</code> is an environment and gives its memory address. Further down the tree, you will see reference to environments for resampling, the learner and the task. These are active bindings and they are references to, not copies of, the environments for the <code>R6</code> objects called <code>tsk_bike</code>, <code>lrn_lm</code>, <code>smp</code> that were created earlier in the code. There are also functions (R6 methods) such as <code>score()</code>, <code>prediction()</code>, that can be used to process the results.</p>
+<p>Suppose that we wanted the coefficients of the linear model, where are they? Usually, the results of a model fit are placed in the class of the learner, Look at <code>rr$learner$model</code> and you will see that it is null. The model fit has not been saved.</p>
+<pre class="r"><code>rr$learner$model</code></pre>
+<pre><code>## NULL</code></pre>
+<p>An explanation can be found in the help files. <code>resample()</code> has an argument <code>store_models</code> that is FALSE by default. Had this argument been set to TRUE the model would have been saved as part of the resampling.</p>
+<p>However, if you investigate <code>rr$resampling</code> and you will find the row numbers of the test and training sets. So, the model fit could be reproduced.</p>
+<pre class="r"><code># -----------------------------------------
+# Fit a linear model to the training data
+#
+lrn_lm$train(tsk_bike, row_ids = rr$sampling$instance$train)
+# -----------------------------------------
+# Inspect the fit
+#
+broom::tidy(lrn_lm$model)</code></pre>
+<pre><code>## # A tibble: 15 × 5
+##    term        estimate std.error statistic   p.value
+##    &lt;chr&gt;          &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;
+##  1 (Intercept)  2.56      0.00341   749.    0        
+##  2 day          0.00795   0.00345     2.31  2.10e-  2
+##  3 dew          0.388     0.0368     10.6   7.11e- 26
+##  4 func         0.496     0.00345   143.    0        
+##  5 holiday     -0.0391    0.00345   -11.3   1.56e- 29
+##  6 hour         0.123     0.00373    33.1   3.10e-226
+##  7 humid       -0.299     0.0155    -19.3   1.67e- 81
+##  8 month        0.0831    0.00395    21.1   4.68e- 96
+##  9 rain        -0.104     0.00356   -29.4   9.26e-181
+## 10 season      -0.0607    0.00459   -13.2   1.91e- 39
+## 11 snow        -0.0121    0.00362    -3.35  8.00e-  4
+## 12 solar       -0.00189   0.00485    -0.389 6.97e-  1
+## 13 temp        -0.0963    0.0322     -2.99  2.78e-  3
+## 14 visib        0.00600   0.00434     1.38  1.67e-  1
+## 15 wind        -0.00902   0.00389    -2.32  2.04e-  2</code></pre>
+<p>This pattern is typical of <code>mlr3</code>. Provided that you follow a standard pattern of analysis, it is easy to use, but deviate slightly from the usual path and you will spend a long time searching through <code>R6</code> data structures or countless help files to find the thing that you want. This is in part a weakness of <code>R6</code> and in part a weakness in the design of <code>mlr3</code>, but at heart it is a limitation of <code>R</code>, or put more kindly, it is a result of using R for complex purposes that were not foreseen when R was designed.</p>
+</div>
+</div>
+<div id="mlr3torch" class="section level1">
+<h1><code>mlr3torch</code></h1>
+<p>The pattern of an <code>mlr3</code> analysis is simple and very flexible, we could easily replace the <code>holdout</code> resampling with cross-validation and get an analysis for each fold, or we could replace the linear model <code>lm()</code> with any of the other learners provided by <code>mlr3</code>. A list of mlr3’s learners is available by printing the <code>mlr3</code> dictionary of learners.</p>
+<pre class="r"><code>library(mlr3learners)
+library(mlr3extralearners)
+lrns()</code></pre>
+<pre><code>## &lt;DictionaryLearner&gt; with 176 stored values
+## Keys: classif.abess, classif.AdaBoostM1, classif.bart,
+##   classif.bayes_net, classif.C50, classif.catboost, classif.cforest,
+##   classif.ctree, classif.cv_glmnet, classif.debug,
+##   classif.decision_stump, classif.decision_table, classif.earth,
+##   classif.featureless, classif.fnn, classif.gam, classif.gamboost,
+##   classif.gausspr, classif.gbm, classif.glmboost, classif.glmer,
+##   classif.glmnet, classif.IBk, classif.imbalanced_rfsrc, classif.J48,
+##   classif.JRip, classif.kknn, classif.kstar, classif.ksvm, classif.lda,
+##   classif.liblinear, classif.lightgbm, classif.LMT, classif.log_reg,
+##   classif.logistic, classif.lssvm, classif.mob,
+##   classif.multilayer_perceptron, classif.multinom, classif.naive_bayes,
+##   classif.naive_bayes_multinomial, classif.naive_bayes_weka,
+##   classif.nnet, classif.OneR, classif.PART, classif.priority_lasso,
+##   classif.qda, classif.random_forest_weka, classif.random_tree,
+##   classif.randomForest, classif.ranger, classif.reptree, classif.rfsrc,
+##   classif.rpart, classif.rpf, classif.sgd, classif.simple_logistic,
+##   classif.smo, classif.svm, classif.voted_perceptron, classif.xgboost,
+##   clust.agnes, clust.ap, clust.bico, clust.birch, clust.cmeans,
+##   clust.cobweb, clust.dbscan, clust.dbscan_fpc, clust.diana, clust.em,
+##   clust.fanny, clust.featureless, clust.ff, clust.hclust,
+##   clust.hdbscan, clust.kkmeans, clust.kmeans, clust.MBatchKMeans,
+##   clust.mclust, clust.meanshift, clust.optics, clust.pam,
+##   clust.SimpleKMeans, clust.xmeans, dens.kde_ks, dens.locfit,
+##   dens.logspline, dens.mixed, dens.nonpar, dens.pen, dens.plug,
+##   dens.spline, regr.abess, regr.bart, regr.catboost, regr.cforest,
+##   regr.ctree, regr.cubist, regr.cv_glmnet, regr.debug,
+##   regr.decision_stump, regr.decision_table, regr.earth,
+##   regr.featureless, regr.fnn, regr.gam, regr.gamboost,
+##   regr.gaussian_processes, regr.gausspr, regr.gbm, regr.glm,
+##   regr.glmboost, regr.glmnet, regr.IBk, regr.kknn, regr.km, regr.kstar,
+##   regr.ksvm, regr.liblinear, regr.lightgbm, regr.linear_regression,
+##   regr.lm, regr.lmer, regr.m5p, regr.M5Rules, regr.mars, regr.mob,
+##   regr.multilayer_perceptron, regr.nnet, regr.priority_lasso,
+##   regr.random_forest_weka, regr.random_tree, regr.randomForest,
+##   regr.ranger, regr.reptree, regr.rfsrc, regr.rpart, regr.rpf,
+##   regr.rsm, regr.rvm, regr.sgd, regr.simple_linear_regression,
+##   regr.smo_reg, regr.svm, regr.xgboost, surv.akritas, surv.aorsf,
+##   surv.bart, surv.blackboost, surv.cforest, surv.coxboost,
+##   surv.coxtime, surv.ctree, surv.cv_coxboost, surv.cv_glmnet,
+##   surv.deephit, surv.deepsurv, surv.dnnsurv, surv.flexible,
+##   surv.gamboost, surv.gbm, surv.glmboost, surv.glmnet, surv.loghaz,
+##   surv.mboost, surv.nelson, surv.parametric, surv.pchazard,
+##   surv.penalized, surv.priority_lasso, surv.ranger, surv.rfsrc,
+##   surv.svm, surv.xgboost.aft, surv.xgboost.cox</code></pre>
+<p>You might notice that <code>torch</code> is not one of the standard learners listed in the dictionary and given the flexibility and complexity of <code>torch</code> this is not surprising. However, there is a project called <code>mlr3torch</code> that is actively developing a learner for torch (<a href="https://github.com/mlr-org/mlr3torch" class="uri">https://github.com/mlr-org/mlr3torch</a>).</p>
+<p>The <code>mlr3torch</code> package is extensive and enables the creation within <code>mlr3</code> of any artificial neural network that you can create in <code>torch</code> itself. Importantly though, there is are classes <code>classif.mlp</code> and <code>regr.mlp</code> that provide short cuts when the desired neural network is a multi-layer perceptron (MLP).</p>
+<p>Let’s use the data in task <code>tsk_bike</code> to run a single holdout analysis of a MLP model, but with test and training data assigned manually.</p>
+<p>First, we need to select 80% of the rows for training.</p>
+<pre class="r"><code>set.seed(5802)
+train_ids = sample(1:nrow(bdf), 0.8*nrow(bdf), replace=FALSE)
+test_ids  = setdiff( 1:nrow(bdf), train_ids)</code></pre>
+<p>Next. we set up the learner by adapting the class <code>regr.mlp</code> provided by <code>mlr3torch</code>.</p>
+<pre class="r"><code>library(mlr3torch)
+lrn_mlp = lrn(&quot;regr.mlp&quot;,
+  # define network parameters
+  activation     = nn_relu,          # Activation Function
+  neurons        = c(20, 10, 5),     # nodes in the hidden layers
+  p              = 0,                # no dropout
+  # training parameters
+  batch_size     = 256,              # batch size
+  epochs         = 150,              # number of epochs
+  device         = &quot;cpu&quot;,            # device
+  # Proportion of data to use for validation
+  validate       = 0.25,
+  # Defining the optimizer, loss, and callbacks
+  optimizer      = t_opt(&quot;adam&quot;),
+  loss           = t_loss(&quot;mse&quot;),
+  callbacks      = t_clbk(&quot;history&quot;), # save results for each epoch
+  # What to save each epoch
+  measures_valid = msrs(c(&quot;regr.rmse&quot;)),
+  measures_train = msrs(c(&quot;regr.rmse&quot;))
+)</code></pre>
+<p>Now we can fit the model to the training rows of bdf</p>
+<pre class="r"><code># -----------------------------------------
+# Fit the neural network
+#
+lrn_mlp$train( as_task_regr(bdf, row_ids = train_ids, target=&quot;count&quot;))</code></pre>
+<p>The results are added to <code>lrn_mlp</code> so let’s search for them.</p>
+<pre class="r"><code>lobstr::tree(lrn_mlp, max_depth = 1)</code></pre>
+<pre><code>## &lt;environment: 0x000001e02ba05000&gt;</code></pre>
+<pre><code>## ├─.__enclos_env__: &lt;environment: 0x000001e02ba05348&gt;...
+## ├─phash: &quot;1b60375b2fa8293d&quot;
+## ├─hash: &quot;90a1de1d5902ee2f&quot;
+## ├─param_set: &lt;environment: 0x000001e02b7474d8&gt;...
+## ├─network: function(input)...
+## ├─marshaled: FALSE
+## ├─internal_tuned_values: &lt;list&gt;
+## ├─internal_valid_scores: &lt;list&gt;
+## │ └─regr.rmse: 0.22339379422543
+## ├─callbacks: &lt;list&gt;
+## │ └─&lt;environment: 0x000001e029b1d118&gt;...
+## ├─optimizer: &lt;environment: 0x000001e028b51510&gt;...
+## ├─loss: &lt;environment: 0x000001e022045890&gt;...
+## ├─validate: 0.25
+## ├─predict_types: &quot;response&quot;
+## ├─selected_features_impute: &quot;error&quot;
+## ├─hotstart_stack: &lt;NULL&gt;
+## ├─encapsulation&lt;chr [2]&gt;: &quot;none&quot;, &quot;none&quot;...
+## ├─fallback: &lt;NULL&gt;
+## ├─predict_type: &quot;response&quot;
+## ├─errors&lt;chr [0]&gt;: &quot;&quot;
+## ├─warnings&lt;chr [0]&gt;: &quot;&quot;
+## ├─log: S3&lt;data.table/data.frame&gt;...
+## ├─timings&lt;dbl [2]&gt;: 12.44, NA...
+## ├─model: S3&lt;learner_torch_model/list&gt;...
+## ├─data_formats: &quot;data.table&quot;
+## ├─use_weights: &quot;error&quot;
+## ├─man: &quot;mlr3torch::mlr_learners.mlp&quot;
+## ├─timeout&lt;dbl [2]&gt;: Inf, Inf...
+## ├─parallel_predict: FALSE
+## ├─predict_sets: &quot;test&quot;
+## ├─packages&lt;chr [3]&gt;: &quot;mlr3&quot;, &quot;mlr3torch&quot;, &quot;torch&quot;...
+## ├─properties&lt;chr [3]&gt;: &quot;internal_tuning&quot;, &quot;marshal&quot;, &quot;validation&quot;...
+## ├─feature_types&lt;chr [3]&gt;: &quot;integer&quot;, &quot;numeric&quot;, &quot;lazy_tensor&quot;...
+## ├─task_type: &quot;regr&quot;
+## ├─state: S3&lt;learner_state/list&gt;...
+## ├─label: &quot;My Little Powny&quot;
+## ├─id: &quot;regr.mlp&quot;
+## ├─clone: function(deep)
+## ├─initialize: function(task_type, optimizer, loss, callbacks)
+## ├─dataset: function(task)
+## ├─unmarshal: function(...)
+## ├─marshal: function(...)
+## ├─print: function(...)
+## ├─format: function(...)
+## ├─selected_features: function()
+## ├─configure: function(..., .values)
+## ├─encapsulate: function(method, fallback)
+## ├─base_learner: function(recursive)
+## ├─reset: function()
+## ├─predict_newdata: function(newdata, task)
+## ├─predict: function(task, row_ids)
+## ├─train: function(task, row_ids)
+## └─help: function()</code></pre>
+<p><code>model</code> seems a reasonable place to look, but I skip details of the search. The progress of the <code>model</code> fitting was saved in what <code>mlr3</code> calls <code>callbacks</code> under the name <code>history</code></p>
+<pre class="r"><code>lobstr::tree(lrn_mlp$model$callbacks$history, max_depth = 1)</code></pre>
+<pre><code>## S3&lt;data.table/data.frame&gt;
+## ├─epoch&lt;dbl [150]&gt;: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, ......
+## ├─train.regr.rmse&lt;dbl [150]&gt;: 2.30313836001785, 2.16549727075321, 1.84758628222725, 1.20238829281175, 0.660310555200954, 0.541535242650576, 0.484916621186495, 0.4492737198592, 0.422316339798797, 0.400610319535708, ......
+## └─valid.regr.rmse&lt;dbl [150]&gt;: 2.25748706885577, 2.05399349475557, 1.55911758942807, 0.794025530529043, 0.590279657541638, 0.514033146118133, 0.470261285704779, 0.439050760522684, 0.413794711537539, 0.391694914323309, ......</code></pre>
+<p>We have found the history and now we can plot it.</p>
+<pre class="r"><code>plot(lrn_mlp$model$callbacks$history$train.regr.rmse, col=&quot;red&quot;, type=&quot;l&quot;, lwd=2,
+     ylim = c(0, 2), ylab = &quot;RMSE&quot;, xlab=&quot;Epoch&quot;, main = &quot;Architecture (14, 20, 10, 5, 1) ReLU Activation&quot;)
+lines(lrn_mlp$model$callbacks$history$valid.regr.rmse, col=&quot;blue&quot;, type=&quot;l&quot;, lwd=2 )
+legend(120, 1.8, legend=c(&quot;Train&quot;, &quot;Valid&quot;), col=c(&quot;red&quot;, &quot;blue&quot;), lwd=2)</code></pre>
+<p><img src="/post/neural_networks/14R_mlr3torch_files/figure-html/unnamed-chunk-29-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>After making predictions for the test data, we can make a residual plot.</p>
+<pre class="r"><code>preds = lrn_mlp$predict(tsk_bike, row_ids = test_ids)
+
+plot(preds$response, preds$truth - preds$response, pch=16, ylab=&quot;Residual&quot;,
+     xlab=&quot;Predicted&quot;, main = &quot;Test Data Predictions&quot;)
+abline(h=0)</code></pre>
+<p><img src="/post/neural_networks/14R_mlr3torch_files/figure-html/unnamed-chunk-30-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>It is even more informative to plot the test data over time with the predictions superimposed.</p>
+<pre class="r"><code>plot(preds$row_ids, preds$truth, type=&quot;l&quot;, ylab=&quot;log10(count+1)&quot;, xlab=&quot;time&quot;,
+     main=&quot;Model fit over time&quot;)
+lines(preds$row_ids, preds$response, col=&quot;green&quot;)
+legend(100, 0.65, legend=c(&quot;Actual&quot;, &quot;Predicted&quot;), col=c(&quot;black&quot;, &quot;green&quot;), lwd=2)</code></pre>
+<p><img src="/post/neural_networks/14R_mlr3torch_files/figure-html/unnamed-chunk-31-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>On the untransformed count scale the plot becomes,</p>
+<pre class="r"><code>plot(preds$row_ids, 10^preds$truth-1, type=&quot;l&quot;, ylab=&quot;Count&quot;, xlab=&quot;time&quot;,
+     main=&quot;Model fit over time&quot;)
+lines(preds$row_ids, 10^preds$response-1, col=&quot;green&quot;)
+legend(100, 3200, legend=c(&quot;Actual&quot;, &quot;Predicted&quot;), col=c(&quot;black&quot;, &quot;green&quot;), lwd=2)</code></pre>
+<p><img src="/post/neural_networks/14R_mlr3torch_files/figure-html/unnamed-chunk-32-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The neural network model has done a good job of picking up the non-linear trends over time and the interaction that puts the count to zero when the scheme is not functioning. Just how the model has done this is much less clear and there is still a good deal of work to be done to understand how the 14 features influence the model’s predictions. Within the paradigm of machine learning, prediction is king and understanding is secondary and by those standards, this is a good model.</p>
+</div>
+<div id="benchmarking" class="section level1">
+<h1>Benchmarking</h1>
+<p>I am now quite close to being able to run the benchmarking experiment. <code>mlr3</code> will organise the experiment and I have learners for the MLP and XGBoost models. What remains is to select some datasets for the experiment and to decide on the hyperparameters of the MLP and XGBoost models. In particular, do I tune the hyperparameters to fit each dataset? or, do I select default hyperparameters that perform reasonably over a range of datasets? Questions for my next post.</p>
+</div>
+<div id="final-thoughts" class="section level1">
+<h1>Final thoughts</h1>
+<p><code>mlr3</code> and <code>torch</code> are both excellent projects so I am reluctant to criticise them, but they leave me with the feeling that the developers have worked hard to compensate for basic limitations in <code>R</code>. Despite its age, I hope that it is not time for <code>R</code> to be retired, it still has many merits; it is very easy to learn, very flexible, excellent for interactive statistics, it has an amazing range of packages and there is an active and supportive community of users. To my mind, there is a problem when <code>R</code> is used for large projects, either the developers stick to <code>R</code> and find a solution that will be slow, error prone, artificial, labyrinthine, hard for the user to understand and difficult to maintain, or they create the project in a more appropriate language and use R as an interface to that code. Development in a second language seems to me to be the better option, but it means that the R users come up against a wall separating them from the underlying code. How do you give the R user full access to data manipulated in a second language? How do you give the R user the ability to adapt the code written in a second language? Perhaps, we we are approaching the time when statisticians will turn to a language that is better designed for modern use? Maybe, one that is similar to <code>Julia</code>.</p>
+</div>
