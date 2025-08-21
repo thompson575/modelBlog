@@ -1,0 +1,3299 @@
+---
+title: "Neural Networks: Benchmarking Design"
+author: "John Thompson"
+date: "2025-08-21"
+layout: post
+categories:
+- neural networks
+- benchmarking
+- classification
+- regression
+- MLP
+- XGBoost
+output:
+    html_document:
+    keep_md: true
+editor_options:
+  chunk_output_type: console
+---
+
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>If you have been following this series of posts, you will know that I have been developing a workflow for using artificial neural networks (ANNs), particularly Multi-Layer Perceptons (MLPs), to analyse tabular data. Currently, I’m working on a benchmarking of my MLP workflow against XGBoost.</p>
+<p>In a post entitled, <a href="https://modelling-with-r.netlify.app/12methods_nn_tabular/">Neural Networks and Tabular Data</a>, I reviewed some of the published literature on the performance of ANNs with tabular data and based on that review, I proposed two hypotheses that will underpin my benchmarking experiment. Those hypotheses are that <strong>“there always exists an MLP that models data as well as the best XGBoost model, the problem is finding it”</strong> and secondly that <strong>“MLPs are less robust to messy data than is XGBoost, so preprocessing the data will make it easier to find a good MLP”</strong>.</p>
+<p>Designing a benchmarking experiment raises a multitude of small issues that together have a big impact on the results. I’ll consider these issues under five headings: models, data, preprocessing, performance measures and coding. In each section, I’ll list the issues that need addressing and then discuss my design choices. Once I’ve gone through all aspects of the design, I’ll illustrate the workflow by analysing two datasets, one a regression task and the other a classification task.</p>
+</div>
+<div id="models" class="section level1">
+<h1>Models:</h1>
+<ul>
+<li>Should I compare regression or classification models?<br />
+</li>
+<li>Which formulations of MLP and XGBoost should I use?<br />
+</li>
+<li>To what extent should I seek to optimise the architecture or hyperparameters of the models?<br />
+</li>
+<li>Should I include any other models apart from MLP and XGBoost?</li>
+</ul>
+<p>Regression and classification require very different measures of performance, making it impossible to average across the two types of prediction. This argues for two benchmarking experiments, one comparing regression models and one comparing classification models. It is perfectly possible that XGBoost is the better model for predicting one type of response and the worse for the other.</p>
+<p>An important factor in determining how well <code>XGBoost</code> and <code>MLP</code> perform is the extent of non-linearity and interaction in the data, after all most models perform well when the dataset is well-represented by a simple linear model. To enable this to be investigated, I’ll include a main effects linear or logistic regression. Computation time for such models is minimal and they will provide a useful baseline.</p>
+<div id="hyperparameters" class="section level3">
+<h3>Hyperparameters</h3>
+<p>The biggest constraint on my benchmarking is that I do not have access to thousands of hours of compute time, which will limit the extent of my hyperparameter optimisation (HPO). Consequently, the HPO that I do will need to be targeted. My belief is that there are two main dimensions that need to be optimised. The first is the number of iterations of the fitting algorithm and the second is the model complexity.</p>
+<p>By far the most important hyperparameter for an <code>MLP</code> is the number of iterations or epochs; too few and the model will underfit, too many and the model will overfit the training data and fail to generalise. The number of iterations or rounds of the <code>XGBoost</code> algorithm is critical for exactly the same reason. In both cases, the number of iterations will interact with the learning rate (step size), a smaller learning rate will require more iterations.</p>
+<p>It is my impression that after the number of iterations has been optimised, the other hyperparameters are far less important and usually they are highly correlated in their impact on performance. The main underlying dimension of effect is model complexity, in the case of an <code>MLP</code> complexity might be increased by adding more layers or more nodes within an existing layer. In the case of <code>XGBoost</code>, which is tree-based, more complex trees might be created either by increasing the maximum allowed tree depth (max_depth), or by altering one of several parameters that determine when tree splitting is stopped.</p>
+<p>The complexity of the model that it is sensible to fit will be dependent on the number of observations in the training data; there is no point in fitting a model with thousands of parameters to a dataset with only a few hundred observations. Unfortunately, <code>MLP</code> architecture does not have a hyperparameter that automatically adjusts complexity to the size of the training set, so I need to introduce one. My choice is to set the the number of training set observations per parameter (opp). For example, suppose I set the opp to be 10, a training set of size 2000 would be limited to an <code>MLP</code> with a maximum of 200 parameters (weights + biases), but a training set of 5000 could have 500 parameters and so be more complex.</p>
+<p>The impact of complexity will be investigated by using a grid search over a very small number of hyperparameter sets, but with the number of iterations optimised within each set. My favoured approach to picking the number of iterations is to run the algorithm for a predetermined, but large, number of iterations. Then to select the number of iterations that correspond to the best validation performance as measured by the minimum of the <em>smoothed</em> validation loss.</p>
+<p>Unless the training set is small, the <code>XGBoost</code> algorithm for regression usually gives a fairly steady change in the validation loss as the number of rounds increases, at first the loss falls consistently, but past some optimal point the validation loss steadily rises. Unfortunately, the same is not true for <code>XGBoost</code> classification or for the various forms of <a href="https://modelling-with-r.netlify.app/11methods_nn_stochastic/">stochastic gradient descent</a> that are typical of <code>MLP</code> fitting. Even with large training datasets, stochastic algorithms have much less uniform changes in the loss. To locate the optimal number of epochs the trace of the loss needs to be smoothed.</p>
+<p>The xgboost package in R offers an early stopping rule, which would be more efficient than my favoured smoothing approach. Under this early stopping rule, the xgboost algorithm stops when the loss fails to decline for a user-specified number of rounds. Implementing this approach for an <code>MLP</code> would give erratic results due to the stochastic nature of the algorithm and rather than have different rules for the two models, I will use the minimum of the smoothed validation loss for both.</p>
+<p>The number of models of different complexity that I will try must, of necessity, be small and I have chosen to limit my search to just 6 models. This is a serious limitation and should be kept in mind when interpreting the results.</p>
+</div>
+<div id="my-choices" class="section level3">
+<h3>My Choices</h3>
+<ul>
+<li>separate benchmarks of regression and classification models<br />
+</li>
+<li><code>MLP</code> and <code>XGBoost</code> plus linear/logistic regression as a baseline<br />
+</li>
+<li>smoothing of the history of the loss to identify the best number of epochs/rounds<br />
+</li>
+<li>limited hyperparameter optimisation over a small set of predetermined models<br />
+</li>
+<li>Six XGBoost models, learning rate 0.1 and 0.3 by maximum tree depths of 3, 6 and 9. The R package defaults are 0.3 and 6.</li>
+<li>Six MLP models, with the Adam form of stochastic gradient descent, which automatically adjusts the step length. Models with 2, 3 or 4 layers will be considered with the number of nodes per layer such that there are either 5 training set observations per parameter (opp) or 20 training set observations per parameter.</li>
+</ul>
+</div>
+</div>
+<div id="data" class="section level1">
+<h1>Data:</h1>
+<ul>
+<li>Benchmarking on real or simulated (synthetic) data?<br />
+</li>
+<li>How many datasets should I include?<br />
+</li>
+<li>How large/small can a dataset be?<br />
+</li>
+<li>What source of datasets should I use for the benchmarking?<br />
+</li>
+<li>What types of features should I allow?<br />
+</li>
+<li>How messy can the features be?</li>
+</ul>
+<div id="synthetic-or-real-data" class="section level3">
+<h3>Synthetic or Real Data</h3>
+<p>The development of my workflow has been based on investigations that have used simulated datasets. Synthetic data provide a way of conducting controlled experiments under ideal conditions, but they do not tell us how a model would perform in real life, to do that we need a wide range of real datasets. Both synthetic and real data have their uses, but this benchmarking is specifically about performance on real data.</p>
+</div>
+<div id="source-of-the-datasets" class="section level3">
+<h3>Source of the datasets</h3>
+<p>Since I have limited compute time, I will limit each benchmarking experiment (regression and classification) to around 20 datasets, a number that is in line with published benchmarks. I will take the datasets from the collections on OpenML (<a href="https://www.openml.org/" class="uri">https://www.openml.org/</a>) that was used use by Grinsztajn et al (2022) in the widely quoted paper entitled <strong>Why do tree-based models still outperform deep learning on typical tabular data?.</strong>. The regression collection is on OpenML under the name “Tabular benchmark numerical regression” <a href="https://www.openml.org/search?type=study&amp;study_type=task&amp;id=336">ID:336</a> and was created by Leo Grinsztajn in January 2023. This collection contains 19 datasets with continuous features and more or less continuous responses. It was uploaded to OpenML a year after the publication of the paper and probably differs slightly from the data used in their benchmarking. For the classification benchmarking, I will use collection <a href="https://www.openml.org/search?type=study&amp;study_type=task&amp;id=337">ID:337</a> from the same research group, which containing 16 datasets selected for binary classification using continuous features.</p>
+<p>A couple of the datasets in these collections are extremely large and for computational convenience, I will follow Grinsztajn in capping the total size to 50,000 by using random sampling.</p>
+</div>
+<div id="the-response" class="section level3">
+<h3>The Response</h3>
+<p>For regression, the responses (targets) ought to be measurements made on a continuous scale, but sometimes regression models are used with other types of response, for example, responses that are restricted to a limited range, or are restricted to be non-negative integers, or even responses that are a mixed categorial/continuous measurement. A tree-based model like <code>XGBoost</code> divides the training data into discrete groups and should not find a problem with such target distributions. In contrast, an MLP seeks a smooth approximation to the response surface and could well have a problem with non-continuous responses.</p>
+<p>It could be argued that a regression MLP model should only be applied to truly continuous responses, so only those responses should be considered in the benchmarking. However, the reality is that people do apply regression models when strictly they shouldn’t, so excluding non-continuous responses is artificial and would rob <code>XGBoost</code> of one of its strengths. For that reason, I’ll allow such responses.</p>
+<p>Classification responses are more uniform across datasets, with the only complicating factor being the number of response categories. I’ll restrict the classification benchmarking to binary responses. Much is made in the data science literature of imbalance between classes in binary classification, with special methods applied to correct for any imbalance. I have doubts about the value of such adjustments when the training and test data come from the same population and I’ll allow any degree of imbalance without adjustment. It is worth noting that the OpenML classification collection seems to have been created so that the two classes are balanced in all datasets.</p>
+</div>
+<div id="the-features" class="section level3">
+<h3>The Features</h3>
+<p>One reason for preferring machine learning models over statistical models is their ability to handle complex features. However, even in machine learning, complex features require adapted methods, either in the form of feature engineering to convert the complex features into something simpler, or in the form of more complex model architectures. The feature characteristics that are allowed will go a long way to determining a model’s average performance.</p>
+<p>Features can be complex in two ways, which we might think of as inherent complexity and complexity due to error. Inherent complexity usually arises from categorical variables with large numbers of levels or from sets of features with complex patterns of correlation or dependence. Such features can be very informative, but they require extensive processing and encoding before they can be used in a model. My experience suggests that, in such cases, performance is often determined more by this preprocessing than it is by the model choice.</p>
+<p>Complexity due to error arises from, possibly simple features, that are made messy by problems in the data collection. Examples include, duplicated data and measurement error that results in outliers or missing values. This type of messiness in the data is important because one of my motivating hypotheses is that <code>MLP</code>s will benefit more that <code>XGBoost</code> from good preprocessing</p>
+<p>My plan is to chose real datasets with features that do not have large amounts of inherent complexity; so, no textual features, no time series, no image features, no categorical features with large numbers of levels. However, messiness will be allowed in order that the impact of basic preprocessing on the two models can be investigated. Keep in mind that the editing of the datasets prior to being uploaded to OpenML will limit the amount of messiness and make the datasets somewhat unrealistic.</p>
+</div>
+<div id="my-choices-1" class="section level3">
+<h3>My Choices</h3>
+<ul>
+<li>benchmarking of real data<br />
+</li>
+<li>about 20 datasets for each benchmark experiment (regression and classification)<br />
+</li>
+<li>real data downloaded from OpenML<br />
+</li>
+<li>exclude inherently complex features e.g. images, free text, time series<br />
+</li>
+<li>allow messy features</li>
+<li>less than ideal regression responses will be allowed<br />
+</li>
+<li>classification tasks will be restricted to two categories</li>
+</ul>
+</div>
+</div>
+<div id="preprocessing" class="section level1">
+<h1>Preprocessing:</h1>
+<ul>
+<li>Should I model the data as is, or should I preprocess them before fitting the models?<br />
+</li>
+<li>If I preprocess, should I use a standard preprocessing protocol for all datasets or should preprocessing be manually tailored to the dataset?</li>
+</ul>
+<p>Because my second hypothesis suggests that MLPs in particular will be improved by preprocessing, I will need to repeat the regression and classification benchmarking experiments with and without preprocessing. The number of possible types of preprocessing is almost endless, so I could spend a long time trying to optimise its form in a way that is akin to hyperparameter optimisation. Fortunately, my limitation on compute time rules out this possibility and instead I will have to investigate the impact of a small number of predetermined processing steps in the style of AutoML. I suspect that if a small collection of the more obvious type of preprocessing show no benefit, then it is unlikely that a more elaborate type of preprocessing will be justified.</p>
+<p>I will standardise the data prior to model fitting by subtracting the mean and dividing by the standard deviation of the training data. This will be done to speed up the model fitting by placing all model parameters on a similar scale and it will be done regardless of whether the dataset is preprocessed or not. Other forms of preprocessing will be allowed to change the features, but not the target.</p>
+<p>The form of the limited feature preprocessing will, of necessity, be subjective and based on my experience as a data analyst. It will consist of the following steps</p>
+<ol style="list-style-type: decimal">
+<li>Removal of duplicate rows from the training data<br />
+</li>
+<li>Removal of features that show little or no variation within the training data<br />
+</li>
+<li>Integer coding of any categorical features<br />
+</li>
+<li>Imputation of any missing values by the training set median<br />
+</li>
+<li>Log transformation of continuous features to remove excessive skewness<br />
+</li>
+<li>Shrinkage of outliers<br />
+</li>
+<li>Dropping features that are highly correlated with other features<br />
+</li>
+<li>Dropping features that show no univariate association with the response</li>
+</ol>
+<p>The only one of these steps that is not standard practice is the shrinkage of outliers. Outliers will be defined using a threshold derived from the training data. One approach would be to replace those outliers with the training set median, as if they were missing values, but I prefer to shrink them back towards the median to keep them as large/small values, but ones that are not extreme enough to be classified as an outlier.</p>
+<div id="my-choices-2" class="section level3">
+<h3>My Choices</h3>
+<ul>
+<li>benchmarking with and without preprocessing</li>
+<li>standardisation of all features and regression responses by subtracting the mean and dividing by the standard deviation of the training data. This will be done for both preprocessed and non-preprocessed analyses.</li>
+<li>feature preprocessing limited to the steps listed above<br />
+</li>
+<li>no preprocessing of the response</li>
+</ul>
+</div>
+</div>
+<div id="performance-measures" class="section level1">
+<h1>Performance Measures:</h1>
+<ul>
+<li>Which measures should I use to compare performance?<br />
+</li>
+<li>Am I only interested in accuracy of prediction, or should I also monitor compute time or feature importance?<br />
+</li>
+<li>How accurate will my chosen measures of performance be?<br />
+</li>
+<li>What can be done to improve the accuracy of the measures of performance?<br />
+</li>
+<li>How large a difference would I need to see before declaring one model to be better than another?</li>
+</ul>
+<p>The HPO will take a range of model complexities and for each it will identify the number of iterations that minimises the validation loss. The complexity and number of iterations with the best validation performance will define the best model. Since the validation data are to be used for this model selection, the validation performance of the best model will provide a biased estimate of the model’s performance on new data and it will be necessary to reserve a test dataset for unbiased estimation of future performance. I’ll randomly split the data and use 60% for training, 20% for validation and 20% for testing.</p>
+<p>Benchmarking is different to a one-off machine learning analysis because it combines results over multiple datasets. Just as you cannot average apples and pears, so you must be cautious about averaging the performance of a house price model with the performance of a model predicting the length of time that a CPU is active. Certainly, you should not average measures that have an associated unit, such as the root mean square error (RMSE). What is the sense of averaging a RMSE of x dollars with a RMSE of y seconds? After all, if you wanted to reduce the RMSE of the CPU model, all that you would need to do is measure the time in minutes rather than seconds.</p>
+<p>Instead of the RMSE or MSE, benchmarks need to use a relative measure of performance that is unit-free, such as the percentage of the variance that is explained by the model, R<sup>2</sup>.</p>
+<p>In the case of classification tasks, there is better discrimination if the performance measure depends on the predicted class probabilities rather than the predicted class. This argues for area under the ROC curve (AUC) rather than the classification error.</p>
+<p>For regression and classification tasks, the overhead in calculating other measures is so slight that there is no harm in calculating them, provided that the original choices remain the basis for the comparison. Other measures may throw light on why or when one model is better than another.</p>
+<p>The compute time needed to fit the best XGBoost model or the best MLP is unlikely to be a game-changer when the datasets are small or medium sized, as most tabular datasets are. None the less, it is worth monitoring as it will indicate whether the computational burden is likely to be an issue for larger datasets.</p>
+<p>What you can do for any performance measure is compare two models on a single set of data, say model A and model B. The model with the smaller average prediction error could reasonably be said to be better. However, if you tried to combine the difference of a unit-based measure between two models over different datasets you would again be averaging apples with pears.</p>
+<p>A conservative policy would be to restrict benchmarking to statements such as, according to some measure, model A is better than model B for p% of datasets. Since no measure is averaged, we can make such statements based on any reasonable statistic including the RMSE. The temptation to be swayed by the sizes of the differences would be great, but must be resisted.</p>
+<p>Suppose that a benchmark includes 20 “representative” datasets drawn from a population of datasets in which models A and B are equally good. Perhaps model A is better for 50% of datasets and model B is better for the other 50%. Then in 95% of benchmark experiments, by chance alone, model A can be expected to be better for between 28% and 72% of datasets. This means that a benchmarking experiment in which 65% of datasets are better for model A and 35% better for model B is not an unlikely event when the models are actually equally good.</p>
+<p>The role of chance is made worse when true performance is measured with error, or when models A and B are equivalent for some of the datasets, or when model A is better according to one measure but worse according to another, or when the method for selecting datasets is not “representative”.</p>
+<p>Whatever performance measure you choose, it has to be remembered that the average over datasets relates specifically to those datasets included in the benchmarking, it does not follow that a similar difference, or a similar decision as to which model is better, would be reached with different datasets and a different dataset does not require a fresh problem; merely dropping a feature creates a different task with different performance characteristics.</p>
+<p>Since most benchmarking experiments use whatever datasets are readily available and then subject them to convenience driven editing and/or exclusion criteria. Those datasets are really not representative of any population, in which case <strong>generalisation is not possible</strong>.</p>
+<p>All measures of performance are subject to sampling error and the sampling variance has several components,<br />
+1. if you want to generalise to other datasets, there is the variance associated with the way that the particular collection of datasets was chosen<br />
+2. for each chosen dataset, there is the variance associated with the data itself; selection of the participants, measurement error etc.<br />
+3. for the model fitting there is variance associated with the use of random starting values and stochastic updating<br />
+4. for the performance measurement, there is the variance associated with the
+random split into training, validation and test samples</p>
+<p>Estimating the precision of the performance measure is not easy, though a bootstrapping procedure would give an approximate standard error. Unfortunately, the computational requirements of such a calculation would be prohibitive even for investigators with large compute budgets. Instead, I will use a two significant figure rule, which is to say, if the first two digits of the performance measures of two models are the same, then I will treat the models as being equivalently good.</p>
+<div id="resampling" class="section level3">
+<h3>Resampling</h3>
+<p>Relying on a single split of the data (holdout sampling) into training, validation and test sets creates unbiased performance estimates, but as already noted, the estimates will have large variance making close comparisons unreliable. The standard approach to variance reduction is to use resampling. For hyperparameter optimisation the preferred form of resampling is nested cross-validation, the inner cross-validation improves the accuracy of the validation sample estimates and the outer cross-validation improves the test sample estimates. However, implementing nested cross-validation would involve considerable computation and would not fit easily with my approach to selecting the number of rounds/epochs from the smoothed loss history.</p>
+<p>Standard cross-validation repeats a fixed set of hyperparameters on different folds of data. Incorporating iteration optimisation would result in the number of iterations varying between folds and averaging over the folds would treat the algorithm for finding the number of iterations as if it were part of the model rather than part of the HPO. A cross-validation would compare <code>XGBoost</code> the method of iteration selection with <code>MLP</code> plus the method of iteration selection, not just <code>XGBoost</code> vs <code>MLP</code>.</p>
+<p>Instead of cross-validation, I will make 3 different splits into training, validation and test and run the full analysis on each of these splits. The results will still be unbiased and the variance will be reduced, though by less than would be achieved by cross-validation. The main difference, is that the test performance will be measured on the best model for that split rather than the best model averaged over all resamples.</p>
+</div>
+<div id="my-choices-3" class="section level3">
+<h3>My Choices</h3>
+<ul>
+<li>As only unit-free performance measures can be meaningfully averaged over datasets, R<sup>2</sup> and area under the curve (AUC) will be the primary measures for comparing for regression and classification models respectively<br />
+</li>
+<li>Other performance measures will be calculated, but will not be used for the main comparison</li>
+<li>Time to fit will be recorded for all models<br />
+</li>
+<li>All measures will be rounded to 2 significant digits. Models differing by smaller amounts will be declared equivalent<br />
+</li>
+<li>Resampling will be based on three random splits of the data into training (60%), validation (20%) and test (20%)</li>
+<li>No attempt will be made to generalise the benchmarking results to datasets in general because there is no notion of the chosen datasets being representative of some wider population of datasets.</li>
+</ul>
+</div>
+</div>
+<div id="coding" class="section level1">
+<h1>Coding:</h1>
+<ul>
+<li>Should I write my own code for the benchmarking or should I work within a machine learning ecosystem such as <code>tidymodels</code> or <code>mlr3</code>?</li>
+</ul>
+<p>The purpose of these posts is to give focus to my attempts to understand neural networks and to discover whether or not they have a place in modern statistical analysis. To aid me in developing my understanding, I decided to write my own software rather than use other people’s packages. I believe that to understand, say, backpropagation, there is nothing like writing your own code to implement the algorithm. A second advantage of writing your own code is the freedom that it gives to follow your own instincts rather than tread the path that has become conventional. The disadvantage, is the inefficiency of personal code compared with code written by professional programmers and in a benchmarking, efficiency matters.</p>
+<p>I have already discussed why I prefer torch to TensorFlow, <a href="https://modelling-with-r.netlify.app/13r_neural_netwirk_packages/">TensorFlow and PyTorch in R</a>. The question that remains is whether to write by own benchmarking code that calls torch for R, or to use a machine learning ecosystem such as <code>mlr3</code> or <code>tidymodels</code>. I wrote a post on <a href="https://modelling-with-r.netlify.app/mlr3/">mlr3</a> back in 2021 and commented on the pros and cons of <code>mlr3</code> vs <code>tidymodels</code>. Re-reading that post, I think that it still gives a reasonable introduction to <code>mlr3</code>, but I am very aware that since then the range of packages in the <code>mlr3</code> ecosystem has grown and <code>tidymodels</code> has improved beyond recognition.</p>
+<p>I am going to stick with <code>mlr3</code>, primarily because I am more familiar with it, but also because of the <code>mlr3torch</code> package that I described in my <a href="https://modelling-with-r.netlify.app/14r_mlr3torch/">last post</a>. I suspect that <code>tidymodels</code> would now be equally good and if I did not already know <code>mlr3</code>, its steep learning curve might have pushed me towards the easier ecosystem for a beginner, which is <code>tidymodels</code></p>
+<div id="my-choices-4" class="section level3">
+<h3>My Choices</h3>
+<ul>
+<li>torch for R for the <code>MLP</code>, R’s xgboost package for <code>XGBoost</code></li>
+<li>Code using <code>mlr3</code>, supplemented by a little of my own R code</li>
+</ul>
+</div>
+</div>
+<div id="summary-of-the-final-design" class="section level1">
+<h1>Summary of the Final Design</h1>
+<ul>
+<li>There will be separate benchmarks of regression and binary classification models, with each carried out once with preprocessing and once without<br />
+</li>
+<li>The datasets will be downloaded from OpenML; collection ID 336 (regression, 19 datasets) and ID 337 (classification, 16 datasets). These datasets have already been selected/edited to exclude complex features.</li>
+<li>Six MLP models and six XGBoost models will be run using predefined sets of hyperparameters. The best performance of each class will be taken to represent that model. A smooth of the validation loss will be used to identify the optimum number of epochs/rounds<br />
+</li>
+<li>Each dataset will be split once into a training set (60%), validation set (20%) and a test set(20%). The validation set will be use to choose the best model within the MLP family and the best XGBoost model within its family and the test set will be used to compare the best models from each family.<br />
+</li>
+<li>Three random splits will be created for each dataset and the average of the three will constitute the final result.</li>
+<li>The comparison of MLP vs XGBoost will be based on the R<sup>2</sup> for regression and AUC for classification, both measures being rounded to 2 decimal places.</li>
+<li>A linear regression or logistic regression model will provide a baseline performance measure.</li>
+<li>Preprocessing will be limited to feature selection, median imputation and outlier shrinkage<br />
+</li>
+<li>the MLPs will be fitted using torch for R and the XGBoost models will be fitted using the xgboost R package. The benchmarking will be organised using a combination of <code>mlr3</code> and my own code</li>
+</ul>
+</div>
+<div id="examples-of-the-workflow" class="section level1">
+<h1>Examples of the Workflow</h1>
+<div id="a-regression-task" class="section level2">
+<h2>A Regression Task</h2>
+<p>I will use the abalone dataset to illustrate the workflow for the benchmarking. The response (target) is the age of the abalone and the predictors are measures of its size and weight. The first plot shows the relationships between the features and the response in the training data. All features and the response have been standardised using the mean and standard deviation of the training data.
+<img src="/post/neural_networks/15methods_benchmarking_design_files/figure-html/unnamed-chunk-2-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The age was found by counting the number of rings in the shell of the abalone, which leads to an integer response as can be seen from the digit preference of the histogram.<br />
+<img src="/post/neural_networks/15methods_benchmarking_design_files/figure-html/unnamed-chunk-3-1.png" width="672" style="display: block; margin: auto;" /></p>
+<div id="linear-regression" class="section level3">
+<h3>Linear Regression</h3>
+<p>A linear regression suggests that only the first feature, X1, is not predictive of Y</p>
+<div id="jjuwmqjivw" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#jjuwmqjivw table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#jjuwmqjivw thead, #jjuwmqjivw tbody, #jjuwmqjivw tfoot, #jjuwmqjivw tr, #jjuwmqjivw td, #jjuwmqjivw th {
+  border-style: none;
+}
+
+#jjuwmqjivw p {
+  margin: 0;
+  padding: 0;
+}
+
+#jjuwmqjivw .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#jjuwmqjivw .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#jjuwmqjivw .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#jjuwmqjivw .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#jjuwmqjivw .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#jjuwmqjivw .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#jjuwmqjivw .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#jjuwmqjivw .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#jjuwmqjivw .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#jjuwmqjivw .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#jjuwmqjivw .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#jjuwmqjivw .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#jjuwmqjivw .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#jjuwmqjivw .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#jjuwmqjivw .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#jjuwmqjivw .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#jjuwmqjivw .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#jjuwmqjivw .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#jjuwmqjivw .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#jjuwmqjivw .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#jjuwmqjivw .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#jjuwmqjivw .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#jjuwmqjivw .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#jjuwmqjivw .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#jjuwmqjivw .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#jjuwmqjivw .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#jjuwmqjivw .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#jjuwmqjivw .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#jjuwmqjivw .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#jjuwmqjivw .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#jjuwmqjivw .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#jjuwmqjivw .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#jjuwmqjivw .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#jjuwmqjivw .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#jjuwmqjivw .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#jjuwmqjivw .gt_left {
+  text-align: left;
+}
+
+#jjuwmqjivw .gt_center {
+  text-align: center;
+}
+
+#jjuwmqjivw .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#jjuwmqjivw .gt_font_normal {
+  font-weight: normal;
+}
+
+#jjuwmqjivw .gt_font_bold {
+  font-weight: bold;
+}
+
+#jjuwmqjivw .gt_font_italic {
+  font-style: italic;
+}
+
+#jjuwmqjivw .gt_super {
+  font-size: 65%;
+}
+
+#jjuwmqjivw .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#jjuwmqjivw .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#jjuwmqjivw .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#jjuwmqjivw .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#jjuwmqjivw .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#jjuwmqjivw .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#jjuwmqjivw .gt_indent_5 {
+  text-indent: 25px;
+}
+
+#jjuwmqjivw .katex-display {
+  display: inline-flex !important;
+  margin-bottom: 0.75em !important;
+}
+
+#jjuwmqjivw div.Reactable > div.rt-table > div.rt-thead > div.rt-tr.rt-tr-group-header > div.rt-th-group:after {
+  height: 0px !important;
+}
+</style>
+<table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+  <thead>
+    <tr class="gt_col_headings">
+      <th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="1" colspan="1" scope="col" id="term">term</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="estimate">estimate</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std.error">std.error</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="p.value">p.value</th>
+    </tr>
+  </thead>
+  <tbody class="gt_table_body">
+    <tr><td headers="term" class="gt_row gt_left">(Intercept)</td>
+<td headers="estimate" class="gt_row gt_right">0.000</td>
+<td headers="std.error" class="gt_row gt_right">0.014</td>
+<td headers="p.value" class="gt_row gt_right">1.0000</td></tr>
+    <tr><td headers="term" class="gt_row gt_left">X1</td>
+<td headers="estimate" class="gt_row gt_right">-0.045</td>
+<td headers="std.error" class="gt_row gt_right">0.084</td>
+<td headers="p.value" class="gt_row gt_right">0.5887</td></tr>
+    <tr><td headers="term" class="gt_row gt_left">X2</td>
+<td headers="estimate" class="gt_row gt_right">0.414</td>
+<td headers="std.error" class="gt_row gt_right">0.084</td>
+<td headers="p.value" class="gt_row gt_right">0.0000</td></tr>
+    <tr><td headers="term" class="gt_row gt_left">X3</td>
+<td headers="estimate" class="gt_row gt_right">0.105</td>
+<td headers="std.error" class="gt_row gt_right">0.023</td>
+<td headers="p.value" class="gt_row gt_right">0.0000</td></tr>
+    <tr><td headers="term" class="gt_row gt_left">X4</td>
+<td headers="estimate" class="gt_row gt_right">1.459</td>
+<td headers="std.error" class="gt_row gt_right">0.144</td>
+<td headers="p.value" class="gt_row gt_right">0.0000</td></tr>
+    <tr><td headers="term" class="gt_row gt_left">X5</td>
+<td headers="estimate" class="gt_row gt_right">-1.408</td>
+<td headers="std.error" class="gt_row gt_right">0.073</td>
+<td headers="p.value" class="gt_row gt_right">0.0000</td></tr>
+    <tr><td headers="term" class="gt_row gt_left">X6</td>
+<td headers="estimate" class="gt_row gt_right">-0.371</td>
+<td headers="std.error" class="gt_row gt_right">0.058</td>
+<td headers="p.value" class="gt_row gt_right">0.0000</td></tr>
+    <tr><td headers="term" class="gt_row gt_left">X7</td>
+<td headers="estimate" class="gt_row gt_right">0.398</td>
+<td headers="std.error" class="gt_row gt_right">0.064</td>
+<td headers="p.value" class="gt_row gt_right">0.0000</td></tr>
+  </tbody>
+  
+  
+</table>
+</div>
+<p>Using the prediction from this model, the residual mean square error (RMSE) in the validation data is 0.683. Because of the standardisation of the response this measure has characteristics that are very similar to R<sup>2</sup> and it could reasonably be averaged across datasets. The baseline RMSE in the training data will be 1 and so the linear regression explains 100(1-RMSE<sup>2</sup>) or 53% of the variance. The residual plot below shows a striped pattern created by the integer nature of the unstandardised response and perhaps it also suggests that the variance is larger in older abalone.</p>
+<p><img src="/post/neural_networks/15methods_benchmarking_design_files/figure-html/unnamed-chunk-5-1.png" width="672" style="display: block; margin: auto;" /></p>
+</div>
+<div id="xgboost" class="section level3">
+<h3>XGBoost</h3>
+<p>The XGBoost algorithm was run for 1000 rounds for each of six sets of parameters formed from crossing the learning rate (eta) equal to 0.05 or 0.2 and the maximum tree depth equal to 2, 6 or 9. A maximum tree depth of 6 is the default for the xgboost package.</p>
+<div id="rtaewizkud" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#rtaewizkud table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#rtaewizkud thead, #rtaewizkud tbody, #rtaewizkud tfoot, #rtaewizkud tr, #rtaewizkud td, #rtaewizkud th {
+  border-style: none;
+}
+
+#rtaewizkud p {
+  margin: 0;
+  padding: 0;
+}
+
+#rtaewizkud .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#rtaewizkud .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#rtaewizkud .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#rtaewizkud .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#rtaewizkud .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#rtaewizkud .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#rtaewizkud .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#rtaewizkud .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#rtaewizkud .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#rtaewizkud .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#rtaewizkud .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#rtaewizkud .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#rtaewizkud .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#rtaewizkud .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#rtaewizkud .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#rtaewizkud .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#rtaewizkud .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#rtaewizkud .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#rtaewizkud .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#rtaewizkud .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#rtaewizkud .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#rtaewizkud .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#rtaewizkud .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#rtaewizkud .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#rtaewizkud .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#rtaewizkud .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#rtaewizkud .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#rtaewizkud .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#rtaewizkud .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#rtaewizkud .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#rtaewizkud .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#rtaewizkud .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#rtaewizkud .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#rtaewizkud .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#rtaewizkud .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#rtaewizkud .gt_left {
+  text-align: left;
+}
+
+#rtaewizkud .gt_center {
+  text-align: center;
+}
+
+#rtaewizkud .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#rtaewizkud .gt_font_normal {
+  font-weight: normal;
+}
+
+#rtaewizkud .gt_font_bold {
+  font-weight: bold;
+}
+
+#rtaewizkud .gt_font_italic {
+  font-style: italic;
+}
+
+#rtaewizkud .gt_super {
+  font-size: 65%;
+}
+
+#rtaewizkud .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#rtaewizkud .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#rtaewizkud .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#rtaewizkud .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#rtaewizkud .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#rtaewizkud .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#rtaewizkud .gt_indent_5 {
+  text-indent: 25px;
+}
+
+#rtaewizkud .katex-display {
+  display: inline-flex !important;
+  margin-bottom: 0.75em !important;
+}
+
+#rtaewizkud div.Reactable > div.rt-table > div.rt-thead > div.rt-tr.rt-tr-group-header > div.rt-th-group:after {
+  height: 0px !important;
+}
+</style>
+<table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+  <thead>
+    <tr class="gt_col_headings">
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="eta">eta</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="max_depth">max_depth</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="rounds">rounds</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="RMSE">RMSE</th>
+    </tr>
+  </thead>
+  <tbody class="gt_table_body">
+    <tr><td headers="eta" class="gt_row gt_right">0.20</td>
+<td headers="max_depth" class="gt_row gt_right">3</td>
+<td headers="rounds" class="gt_row gt_right">83</td>
+<td headers="RMSE" class="gt_row gt_right">0.665</td></tr>
+    <tr><td headers="eta" class="gt_row gt_right">0.20</td>
+<td headers="max_depth" class="gt_row gt_right">6</td>
+<td headers="rounds" class="gt_row gt_right">30</td>
+<td headers="RMSE" class="gt_row gt_right">0.676</td></tr>
+    <tr><td headers="eta" class="gt_row gt_right">0.20</td>
+<td headers="max_depth" class="gt_row gt_right">9</td>
+<td headers="rounds" class="gt_row gt_right">29</td>
+<td headers="RMSE" class="gt_row gt_right">0.692</td></tr>
+    <tr><td headers="eta" class="gt_row gt_right">0.05</td>
+<td headers="max_depth" class="gt_row gt_right">3</td>
+<td headers="rounds" class="gt_row gt_right">442</td>
+<td headers="RMSE" class="gt_row gt_right">0.655</td></tr>
+    <tr><td headers="eta" class="gt_row gt_right">0.05</td>
+<td headers="max_depth" class="gt_row gt_right">6</td>
+<td headers="rounds" class="gt_row gt_right">77</td>
+<td headers="RMSE" class="gt_row gt_right">0.672</td></tr>
+    <tr><td headers="eta" class="gt_row gt_right">0.05</td>
+<td headers="max_depth" class="gt_row gt_right">9</td>
+<td headers="rounds" class="gt_row gt_right">73</td>
+<td headers="RMSE" class="gt_row gt_right">0.677</td></tr>
+  </tbody>
+  
+  
+</table>
+</div>
+<p>Bearing in mind that linear regression reduced the validation RMSE from 1 to 0.68 the performance of XGBoost is rather disappointing. The best set of hyperparameters only reduces the validation RMSE to 0.66 (0.655 in the table), this is equivalent to R<sup>2</sup> of 57%, which is only 4% better than linear regression.</p>
+<p>The next plot shows the history of the validation RMSE for the best combination of eta and max_depth (in black), overlaid with the smooth(in green). The optimum number of rounds is 442.</p>
+<p><img src="/post/neural_networks/15methods_benchmarking_design_files/figure-html/unnamed-chunk-7-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>The history of the validation RMSE is shown below for each of the 6 sets of hyperparameters.
+<img src="/post/neural_networks/15methods_benchmarking_design_files/figure-html/unnamed-chunk-8-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>In this random split the model fits better to the test data (RMSE=0.639) than it did to the validation data(RMSE=0.655). As the validation RMSE is biased downwards due to it having selected for its low value, this is a little surprising. I expect that the selection bias is small and that the difference between 0.655 and 0.639 to be largely due to random splitting of the data, that is, it is an indication of the accuracy of the design. If the difference between validation and test samples (0.016) is a true indication of the possible sampling error, then we ought to be cautious about the selection of the optimal set of hyperparameters; eta=0.2 and max_depth=3 had a minimum validation RMSE of 0.665 which differs from the value for the selected best model by less than the validation/test difference.</p>
+</div>
+<div id="mlp" class="section level3">
+<h3>MLP</h3>
+<p>The chosen hyperparameters for the MLP were the number of layers (2, 3 or 4) and the number of nodes per layer (fixed to be the same for every layer). The number of nodes was chosen dependent on the size of the training data so that there were either 5 observations per model parameter (weights + biases) or 20 observations per parameter. For the abalone data this meant either about 500 parameters or about 125 parameters.</p>
+<div id="vqaljnikbq" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#vqaljnikbq table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#vqaljnikbq thead, #vqaljnikbq tbody, #vqaljnikbq tfoot, #vqaljnikbq tr, #vqaljnikbq td, #vqaljnikbq th {
+  border-style: none;
+}
+
+#vqaljnikbq p {
+  margin: 0;
+  padding: 0;
+}
+
+#vqaljnikbq .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#vqaljnikbq .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#vqaljnikbq .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#vqaljnikbq .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#vqaljnikbq .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#vqaljnikbq .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#vqaljnikbq .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#vqaljnikbq .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#vqaljnikbq .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#vqaljnikbq .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#vqaljnikbq .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#vqaljnikbq .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#vqaljnikbq .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#vqaljnikbq .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#vqaljnikbq .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#vqaljnikbq .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#vqaljnikbq .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#vqaljnikbq .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#vqaljnikbq .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#vqaljnikbq .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#vqaljnikbq .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#vqaljnikbq .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#vqaljnikbq .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#vqaljnikbq .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#vqaljnikbq .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#vqaljnikbq .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#vqaljnikbq .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#vqaljnikbq .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#vqaljnikbq .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#vqaljnikbq .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#vqaljnikbq .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#vqaljnikbq .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#vqaljnikbq .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#vqaljnikbq .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#vqaljnikbq .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#vqaljnikbq .gt_left {
+  text-align: left;
+}
+
+#vqaljnikbq .gt_center {
+  text-align: center;
+}
+
+#vqaljnikbq .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#vqaljnikbq .gt_font_normal {
+  font-weight: normal;
+}
+
+#vqaljnikbq .gt_font_bold {
+  font-weight: bold;
+}
+
+#vqaljnikbq .gt_font_italic {
+  font-style: italic;
+}
+
+#vqaljnikbq .gt_super {
+  font-size: 65%;
+}
+
+#vqaljnikbq .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#vqaljnikbq .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#vqaljnikbq .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#vqaljnikbq .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#vqaljnikbq .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#vqaljnikbq .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#vqaljnikbq .gt_indent_5 {
+  text-indent: 25px;
+}
+
+#vqaljnikbq .katex-display {
+  display: inline-flex !important;
+  margin-bottom: 0.75em !important;
+}
+
+#vqaljnikbq div.Reactable > div.rt-table > div.rt-thead > div.rt-tr.rt-tr-group-header > div.rt-th-group:after {
+  height: 0px !important;
+}
+</style>
+<table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+  <thead>
+    <tr class="gt_col_headings">
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="epochs">epochs</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="layers">layers</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="nodes">nodes</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="parameters">parameters</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="RMSE">RMSE</th>
+    </tr>
+  </thead>
+  <tbody class="gt_table_body">
+    <tr><td headers="epochs" class="gt_row gt_right">416</td>
+<td headers="layers" class="gt_row gt_right">2</td>
+<td headers="nodes" class="gt_row gt_right">18</td>
+<td headers="parameters" class="gt_row gt_right">505</td>
+<td headers="RMSE" class="gt_row gt_right">0.625</td></tr>
+    <tr><td headers="epochs" class="gt_row gt_right">355</td>
+<td headers="layers" class="gt_row gt_right">3</td>
+<td headers="nodes" class="gt_row gt_right">13</td>
+<td headers="parameters" class="gt_row gt_right">482</td>
+<td headers="RMSE" class="gt_row gt_right">0.623</td></tr>
+    <tr><td headers="epochs" class="gt_row gt_right">471</td>
+<td headers="layers" class="gt_row gt_right">4</td>
+<td headers="nodes" class="gt_row gt_right">11</td>
+<td headers="parameters" class="gt_row gt_right">496</td>
+<td headers="RMSE" class="gt_row gt_right">0.621</td></tr>
+    <tr><td headers="epochs" class="gt_row gt_right">601</td>
+<td headers="layers" class="gt_row gt_right">2</td>
+<td headers="nodes" class="gt_row gt_right">7</td>
+<td headers="parameters" class="gt_row gt_right">120</td>
+<td headers="RMSE" class="gt_row gt_right">0.623</td></tr>
+    <tr><td headers="epochs" class="gt_row gt_right">980</td>
+<td headers="layers" class="gt_row gt_right">3</td>
+<td headers="nodes" class="gt_row gt_right">6</td>
+<td headers="parameters" class="gt_row gt_right">139</td>
+<td headers="RMSE" class="gt_row gt_right">0.626</td></tr>
+    <tr><td headers="epochs" class="gt_row gt_right">274</td>
+<td headers="layers" class="gt_row gt_right">4</td>
+<td headers="nodes" class="gt_row gt_right">5</td>
+<td headers="parameters" class="gt_row gt_right">136</td>
+<td headers="RMSE" class="gt_row gt_right">0.631</td></tr>
+  </tbody>
+  
+  
+</table>
+</div>
+<p>For the MLP model the best set of hyperparameters is 4 layers of 11 nodes each run for 471 epochs. This model has 496 parameters, corresponding to approximately 5 observations per parameter (opp)) and the validation RMSE is 0.621 (R<sup>2</sup>=61%). The figure below shows the history of the validation RMSE. The stochastic nature of the adam algorithm creates the fluctuation in the RMSE and demonstrates the importance of the smooth, which overlaid in green.</p>
+<p><img src="/post/neural_networks/15methods_benchmarking_design_files/figure-html/unnamed-chunk-10-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>Below is the plot of the smoothed histories of all six MLP models. They all reach a similar performance level, but at different rates. Smaller models (opp=20, parameters=150) improve at a slower rate over the early epochs and their amount of overfitting by epoch 1000 is minimal.
+<img src="/post/neural_networks/15methods_benchmarking_design_files/figure-html/unnamed-chunk-11-1.png" width="672" style="display: block; margin: auto;" /></p>
+<p>Applying the selected MLP model of 4 layers of 11 nodes and 471 epochs to the test data gives a RMSE of 0.619 (R<sup>2</sup>=62%).</p>
+<p>Based on the RMSE of the test data the “best” MLP out-performs the “best” XGBoost model by 0.020 (0.619 to 0.639) equivalent to an (R<sup>2</sup> of 62% compared with 59%).</p>
+</div>
+</div>
+<div id="a-classification-task" class="section level2">
+<h2>A Classification Task</h2>
+<p>The bank dataset comes from a Portuguese study in which people were contacted by telephone to encourage them to use a bank’s services. The response was whether or not the contact was successful.</p>
+<p>The plot shows the seven continuous standardised features with points plotted red if the contact was successful and blue if not. Several of the features are extremely skewed.
+<img src="/post/neural_networks/15methods_benchmarking_design_files/figure-html/unnamed-chunk-12-1.png" width="672" style="display: block; margin: auto;" /></p>
+<div id="logistic-regression" class="section level3">
+<h3>Logistic Regression</h3>
+<p>A basic logistic regression shows that only X1 fails to show linear association on the logit scale.</p>
+<div id="omdnteksby" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#omdnteksby table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#omdnteksby thead, #omdnteksby tbody, #omdnteksby tfoot, #omdnteksby tr, #omdnteksby td, #omdnteksby th {
+  border-style: none;
+}
+
+#omdnteksby p {
+  margin: 0;
+  padding: 0;
+}
+
+#omdnteksby .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#omdnteksby .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#omdnteksby .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#omdnteksby .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#omdnteksby .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#omdnteksby .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#omdnteksby .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#omdnteksby .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#omdnteksby .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#omdnteksby .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#omdnteksby .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#omdnteksby .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#omdnteksby .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#omdnteksby .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#omdnteksby .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#omdnteksby .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#omdnteksby .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#omdnteksby .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#omdnteksby .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#omdnteksby .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#omdnteksby .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#omdnteksby .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#omdnteksby .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#omdnteksby .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#omdnteksby .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#omdnteksby .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#omdnteksby .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#omdnteksby .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#omdnteksby .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#omdnteksby .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#omdnteksby .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#omdnteksby .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#omdnteksby .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#omdnteksby .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#omdnteksby .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#omdnteksby .gt_left {
+  text-align: left;
+}
+
+#omdnteksby .gt_center {
+  text-align: center;
+}
+
+#omdnteksby .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#omdnteksby .gt_font_normal {
+  font-weight: normal;
+}
+
+#omdnteksby .gt_font_bold {
+  font-weight: bold;
+}
+
+#omdnteksby .gt_font_italic {
+  font-style: italic;
+}
+
+#omdnteksby .gt_super {
+  font-size: 65%;
+}
+
+#omdnteksby .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#omdnteksby .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#omdnteksby .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#omdnteksby .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#omdnteksby .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#omdnteksby .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#omdnteksby .gt_indent_5 {
+  text-indent: 25px;
+}
+
+#omdnteksby .katex-display {
+  display: inline-flex !important;
+  margin-bottom: 0.75em !important;
+}
+
+#omdnteksby div.Reactable > div.rt-table > div.rt-thead > div.rt-tr.rt-tr-group-header > div.rt-th-group:after {
+  height: 0px !important;
+}
+</style>
+<table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+  <thead>
+    <tr class="gt_col_headings">
+      <th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="1" colspan="1" scope="col" id="term">term</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="estimate">estimate</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="std.error">std.error</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="p.value">p.value</th>
+    </tr>
+  </thead>
+  <tbody class="gt_table_body">
+    <tr><td headers="term" class="gt_row gt_left">(Intercept)</td>
+<td headers="estimate" class="gt_row gt_right">0.223</td>
+<td headers="std.error" class="gt_row gt_right">0.033</td>
+<td headers="p.value" class="gt_row gt_right">0.0000</td></tr>
+    <tr><td headers="term" class="gt_row gt_left">X1</td>
+<td headers="estimate" class="gt_row gt_right">0.037</td>
+<td headers="std.error" class="gt_row gt_right">0.030</td>
+<td headers="p.value" class="gt_row gt_right">0.2156</td></tr>
+    <tr><td headers="term" class="gt_row gt_left">X2</td>
+<td headers="estimate" class="gt_row gt_right">0.220</td>
+<td headers="std.error" class="gt_row gt_right">0.034</td>
+<td headers="p.value" class="gt_row gt_right">0.0000</td></tr>
+    <tr><td headers="term" class="gt_row gt_left">X3</td>
+<td headers="estimate" class="gt_row gt_right">-0.082</td>
+<td headers="std.error" class="gt_row gt_right">0.030</td>
+<td headers="p.value" class="gt_row gt_right">0.0067</td></tr>
+    <tr><td headers="term" class="gt_row gt_left">X4</td>
+<td headers="estimate" class="gt_row gt_right">1.735</td>
+<td headers="std.error" class="gt_row gt_right">0.054</td>
+<td headers="p.value" class="gt_row gt_right">0.0000</td></tr>
+    <tr><td headers="term" class="gt_row gt_left">X5</td>
+<td headers="estimate" class="gt_row gt_right">-0.413</td>
+<td headers="std.error" class="gt_row gt_right">0.045</td>
+<td headers="p.value" class="gt_row gt_right">0.0000</td></tr>
+    <tr><td headers="term" class="gt_row gt_left">X6</td>
+<td headers="estimate" class="gt_row gt_right">0.257</td>
+<td headers="std.error" class="gt_row gt_right">0.036</td>
+<td headers="p.value" class="gt_row gt_right">0.0000</td></tr>
+    <tr><td headers="term" class="gt_row gt_left">X7</td>
+<td headers="estimate" class="gt_row gt_right">0.282</td>
+<td headers="std.error" class="gt_row gt_right">0.041</td>
+<td headers="p.value" class="gt_row gt_right">0.0000</td></tr>
+  </tbody>
+  
+  
+</table>
+</div>
+<p>The ROC curve for logistic regression encloses an area of 0.82, which is the baseline for judging the performance of the more complex models.</p>
+<p><img src="/post/neural_networks/15methods_benchmarking_design_files/figure-html/unnamed-chunk-14-1.png" width="672" style="display: block; margin: auto;" /></p>
+</div>
+<div id="xgboost-1" class="section level3">
+<h3>XGBoost</h3>
+<p>Six sets of predetermined hyperparameters were investigated and the minimum smoothed validation cross-entropy loss was 0.20, this was achieved when the learning rate was 0.05, the number of rounds was 717 and the maximum tree depth was 3. The AUC for this model in the test data was 0.88.</p>
+<div id="aixqzyymgr" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#aixqzyymgr table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#aixqzyymgr thead, #aixqzyymgr tbody, #aixqzyymgr tfoot, #aixqzyymgr tr, #aixqzyymgr td, #aixqzyymgr th {
+  border-style: none;
+}
+
+#aixqzyymgr p {
+  margin: 0;
+  padding: 0;
+}
+
+#aixqzyymgr .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#aixqzyymgr .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#aixqzyymgr .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#aixqzyymgr .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#aixqzyymgr .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#aixqzyymgr .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#aixqzyymgr .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#aixqzyymgr .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#aixqzyymgr .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#aixqzyymgr .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#aixqzyymgr .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#aixqzyymgr .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#aixqzyymgr .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#aixqzyymgr .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#aixqzyymgr .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#aixqzyymgr .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#aixqzyymgr .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#aixqzyymgr .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#aixqzyymgr .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#aixqzyymgr .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#aixqzyymgr .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#aixqzyymgr .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#aixqzyymgr .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#aixqzyymgr .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#aixqzyymgr .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#aixqzyymgr .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#aixqzyymgr .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#aixqzyymgr .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#aixqzyymgr .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#aixqzyymgr .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#aixqzyymgr .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#aixqzyymgr .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#aixqzyymgr .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#aixqzyymgr .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#aixqzyymgr .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#aixqzyymgr .gt_left {
+  text-align: left;
+}
+
+#aixqzyymgr .gt_center {
+  text-align: center;
+}
+
+#aixqzyymgr .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#aixqzyymgr .gt_font_normal {
+  font-weight: normal;
+}
+
+#aixqzyymgr .gt_font_bold {
+  font-weight: bold;
+}
+
+#aixqzyymgr .gt_font_italic {
+  font-style: italic;
+}
+
+#aixqzyymgr .gt_super {
+  font-size: 65%;
+}
+
+#aixqzyymgr .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#aixqzyymgr .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#aixqzyymgr .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#aixqzyymgr .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#aixqzyymgr .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#aixqzyymgr .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#aixqzyymgr .gt_indent_5 {
+  text-indent: 25px;
+}
+
+#aixqzyymgr .katex-display {
+  display: inline-flex !important;
+  margin-bottom: 0.75em !important;
+}
+
+#aixqzyymgr div.Reactable > div.rt-table > div.rt-thead > div.rt-tr.rt-tr-group-header > div.rt-th-group:after {
+  height: 0px !important;
+}
+</style>
+<table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+  <thead>
+    <tr class="gt_col_headings">
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="eta">eta</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="max_depth">max_depth</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Rounds">Rounds</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="CE">CE</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="AUC">AUC</th>
+    </tr>
+  </thead>
+  <tbody class="gt_table_body">
+    <tr><td headers="eta" class="gt_row gt_right">0.20</td>
+<td headers="max_depth" class="gt_row gt_right">3</td>
+<td headers="Rounds" class="gt_row gt_right">479</td>
+<td headers="CE" class="gt_row gt_right">0.197</td>
+<td headers="AUC" class="gt_row gt_right">NA</td></tr>
+    <tr><td headers="eta" class="gt_row gt_right">0.20</td>
+<td headers="max_depth" class="gt_row gt_right">6</td>
+<td headers="Rounds" class="gt_row gt_right">39</td>
+<td headers="CE" class="gt_row gt_right">0.198</td>
+<td headers="AUC" class="gt_row gt_right">NA</td></tr>
+    <tr><td headers="eta" class="gt_row gt_right">0.20</td>
+<td headers="max_depth" class="gt_row gt_right">9</td>
+<td headers="Rounds" class="gt_row gt_right">34</td>
+<td headers="CE" class="gt_row gt_right">0.202</td>
+<td headers="AUC" class="gt_row gt_right">NA</td></tr>
+    <tr><td headers="eta" class="gt_row gt_right">0.05</td>
+<td headers="max_depth" class="gt_row gt_right">3</td>
+<td headers="Rounds" class="gt_row gt_right">717</td>
+<td headers="CE" class="gt_row gt_right">0.196</td>
+<td headers="AUC" class="gt_row gt_right">0.875</td></tr>
+    <tr><td headers="eta" class="gt_row gt_right">0.05</td>
+<td headers="max_depth" class="gt_row gt_right">6</td>
+<td headers="Rounds" class="gt_row gt_right">600</td>
+<td headers="CE" class="gt_row gt_right">0.197</td>
+<td headers="AUC" class="gt_row gt_right">NA</td></tr>
+    <tr><td headers="eta" class="gt_row gt_right">0.05</td>
+<td headers="max_depth" class="gt_row gt_right">9</td>
+<td headers="Rounds" class="gt_row gt_right">146</td>
+<td headers="CE" class="gt_row gt_right">0.201</td>
+<td headers="AUC" class="gt_row gt_right">NA</td></tr>
+  </tbody>
+  
+  <tfoot class="gt_footnotes">
+    <tr>
+      <td class="gt_footnote" colspan="5"> CE=Cross-Entropy</td>
+    </tr>
+  </tfoot>
+</table>
+</div>
+<p>The plot below shows the history of the validation cross-entropy for the best of the six models. The history is much less smooth than for the regression example and as with all MLPs, it needs smoothing.
+<img src="/post/neural_networks/15methods_benchmarking_design_files/figure-html/unnamed-chunk-16-1.png" width="672" style="display: block; margin: auto;" /></p>
+</div>
+<div id="mlp-1" class="section level3">
+<h3>MLP</h3>
+<p>The best validation cross-entropy for the MLP models is 0.21, although all six complexities giving very similar performance. The test AUC for the best model was 0.86, compared with 0.82 for the logistic regression and 0.88 for XGBoost.</p>
+<div id="iptmahdkjw" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+<style>#iptmahdkjw table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#iptmahdkjw thead, #iptmahdkjw tbody, #iptmahdkjw tfoot, #iptmahdkjw tr, #iptmahdkjw td, #iptmahdkjw th {
+  border-style: none;
+}
+
+#iptmahdkjw p {
+  margin: 0;
+  padding: 0;
+}
+
+#iptmahdkjw .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#iptmahdkjw .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#iptmahdkjw .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#iptmahdkjw .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#iptmahdkjw .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#iptmahdkjw .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#iptmahdkjw .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#iptmahdkjw .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#iptmahdkjw .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#iptmahdkjw .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#iptmahdkjw .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#iptmahdkjw .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#iptmahdkjw .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#iptmahdkjw .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#iptmahdkjw .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#iptmahdkjw .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#iptmahdkjw .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#iptmahdkjw .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#iptmahdkjw .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#iptmahdkjw .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#iptmahdkjw .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#iptmahdkjw .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#iptmahdkjw .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#iptmahdkjw .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#iptmahdkjw .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#iptmahdkjw .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#iptmahdkjw .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#iptmahdkjw .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#iptmahdkjw .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#iptmahdkjw .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#iptmahdkjw .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#iptmahdkjw .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#iptmahdkjw .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#iptmahdkjw .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#iptmahdkjw .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#iptmahdkjw .gt_left {
+  text-align: left;
+}
+
+#iptmahdkjw .gt_center {
+  text-align: center;
+}
+
+#iptmahdkjw .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#iptmahdkjw .gt_font_normal {
+  font-weight: normal;
+}
+
+#iptmahdkjw .gt_font_bold {
+  font-weight: bold;
+}
+
+#iptmahdkjw .gt_font_italic {
+  font-style: italic;
+}
+
+#iptmahdkjw .gt_super {
+  font-size: 65%;
+}
+
+#iptmahdkjw .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#iptmahdkjw .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#iptmahdkjw .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#iptmahdkjw .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#iptmahdkjw .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#iptmahdkjw .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#iptmahdkjw .gt_indent_5 {
+  text-indent: 25px;
+}
+
+#iptmahdkjw .katex-display {
+  display: inline-flex !important;
+  margin-bottom: 0.75em !important;
+}
+
+#iptmahdkjw div.Reactable > div.rt-table > div.rt-thead > div.rt-tr.rt-tr-group-header > div.rt-th-group:after {
+  height: 0px !important;
+}
+</style>
+<table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+  <thead>
+    <tr class="gt_col_headings">
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="opp">opp</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="layers">layers</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="nodes">nodes</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="NP">NP</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="Rpochs">Rpochs</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="CE">CE</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="AUC">AUC</th>
+    </tr>
+  </thead>
+  <tbody class="gt_table_body">
+    <tr><td headers="opp" class="gt_row gt_right">5</td>
+<td headers="layers" class="gt_row gt_right">2</td>
+<td headers="nodes" class="gt_row gt_right">21</td>
+<td headers="NP" class="gt_row gt_right">652</td>
+<td headers="Rpochs" class="gt_row gt_right">415</td>
+<td headers="CE" class="gt_row gt_right">0.211</td>
+<td headers="AUC" class="gt_row gt_right">0.862</td></tr>
+    <tr><td headers="opp" class="gt_row gt_right">5</td>
+<td headers="layers" class="gt_row gt_right">3</td>
+<td headers="nodes" class="gt_row gt_right">21</td>
+<td headers="NP" class="gt_row gt_right">1114</td>
+<td headers="Rpochs" class="gt_row gt_right">30</td>
+<td headers="CE" class="gt_row gt_right">0.221</td>
+<td headers="AUC" class="gt_row gt_right">NA</td></tr>
+    <tr><td headers="opp" class="gt_row gt_right">5</td>
+<td headers="layers" class="gt_row gt_right">4</td>
+<td headers="nodes" class="gt_row gt_right">19</td>
+<td headers="NP" class="gt_row gt_right">1312</td>
+<td headers="Rpochs" class="gt_row gt_right">110</td>
+<td headers="CE" class="gt_row gt_right">0.220</td>
+<td headers="AUC" class="gt_row gt_right">NA</td></tr>
+    <tr><td headers="opp" class="gt_row gt_right">20</td>
+<td headers="layers" class="gt_row gt_right">2</td>
+<td headers="nodes" class="gt_row gt_right">13</td>
+<td headers="NP" class="gt_row gt_right">300</td>
+<td headers="Rpochs" class="gt_row gt_right">197</td>
+<td headers="CE" class="gt_row gt_right">0.215</td>
+<td headers="AUC" class="gt_row gt_right">NA</td></tr>
+    <tr><td headers="opp" class="gt_row gt_right">20</td>
+<td headers="layers" class="gt_row gt_right">3</td>
+<td headers="nodes" class="gt_row gt_right">10</td>
+<td headers="NP" class="gt_row gt_right">311</td>
+<td headers="Rpochs" class="gt_row gt_right">236</td>
+<td headers="CE" class="gt_row gt_right">0.215</td>
+<td headers="AUC" class="gt_row gt_right">NA</td></tr>
+    <tr><td headers="opp" class="gt_row gt_right">20</td>
+<td headers="layers" class="gt_row gt_right">4</td>
+<td headers="nodes" class="gt_row gt_right">8</td>
+<td headers="NP" class="gt_row gt_right">289</td>
+<td headers="Rpochs" class="gt_row gt_right">808</td>
+<td headers="CE" class="gt_row gt_right">0.221</td>
+<td headers="AUC" class="gt_row gt_right">NA</td></tr>
+  </tbody>
+  
+  <tfoot class="gt_footnotes">
+    <tr>
+      <td class="gt_footnote" colspan="7"> CE=Cross-Entropy</td>
+    </tr>
+  </tfoot>
+</table>
+</div>
+<p>The history of the validation cross-entropy shows the impact of the noise in the stochastic adam optimisation algorithm. Without smoothing the selection of the number of epochs would be unreliable as would be the estimate of the minimum cross-entropy.
+<img src="/post/neural_networks/15methods_benchmarking_design_files/figure-html/unnamed-chunk-18-1.png" width="672" style="display: block; margin: auto;" /></p>
+</div>
+</div>
+<div id="conclusions" class="section level2">
+<h2>Conclusions</h2>
+<p>Take care before jumping to any conclusions, these examples are meant to illustrate the workflow, they are not a substitute for the benchmarking itself. The examples were chosen alphabetically by the dataset name and not because they are in any sense typical. In my next post, I will show a summary of the results for all datasets and for all splits of the data.</p>
+</div>
+</div>
